@@ -1,6 +1,6 @@
 #include <iostream>
-#include "math256.h"
-#include "math256_tests.h"
+#include "math/math256.h"
+#include "tests/math256_tests.h"
 
 int main()
 {

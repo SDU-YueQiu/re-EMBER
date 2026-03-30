@@ -1,6 +1,6 @@
 #pragma once
 
-#include "bsp.h"
+#include "algorithm/bsp.h"
 
 #include <cstddef>
 #include <vector>

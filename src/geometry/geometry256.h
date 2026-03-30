@@ -1,7 +1,7 @@
 #pragma once
 
-#include "math256.h"
-#include "plane_geometry256.h"
+#include "math/math256.h"
+#include "math/plane_geometry256.h"
 
 #include <cstddef>
 #include <vector>

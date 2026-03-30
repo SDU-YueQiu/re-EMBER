@@ -1,5 +1,5 @@
-#include "geometry256.h"
-#include "clipping.h"
+#include "geometry/geometry256.h"
+#include "algorithm/clipping.h"
 #include <memory>
 #include <vector>
 

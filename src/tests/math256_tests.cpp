@@ -2,11 +2,11 @@
 
 #include <cassert>
 
-#include "geometry256.h"
-#include "math256.h"
-#include "plane_geometry256.h"
-#include "clipping.h"
-#include "bsp.h"
+#include "geometry/geometry256.h"
+#include "math/math256.h"
+#include "math/plane_geometry256.h"
+#include "algorithm/clipping.h"
+#include "algorithm/bsp.h"
 
 using ember::Integer;
 using ember::Vec2i;

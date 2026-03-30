@@ -67,3 +67,11 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+# 新加项
+out
+reference
+CLAUDE.md
+.vs
+EMBER-ToDoList.md
+.claude

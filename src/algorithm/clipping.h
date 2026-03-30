@@ -1,6 +1,6 @@
 #pragma once
 
-#include "geometry256.h"
+#include "geometry/geometry256.h"
 
 namespace ember
 {

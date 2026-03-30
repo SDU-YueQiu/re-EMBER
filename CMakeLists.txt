@@ -1,4 +1,4 @@
-﻿cmake_minimum_required (VERSION 4.0)
+cmake_minimum_required (VERSION 4.0)
 
 project ("kEmber")
 
@@ -22,12 +22,6 @@ endif()
 
 list(PREPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
-# Libigl
-#include(libigl)
-
-# Enable the target igl::glfw
-#igl_include(glfw)
-
 # Polyscope
 include(FetchContent)
 
@@ -39,28 +33,33 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(polyscope)
 
-
-
 # 查找第三方依赖
-# 注意：顺序很重要。底层依赖（如 ZLIB, TIFF）应先查找。
 find_package(Eigen3 CONFIG REQUIRED)
 find_package(CGAL CONFIG REQUIRED)
 
-add_executable(kEmber)
+# 包含目录
+include_directories(
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
 
-# 工程源文件
-file(GLOB sources CONFIGURE_DEPENDS *.cpp *.h)
-target_include_directories(kEmber PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_sources(kEmber PUBLIC ${sources} ${slim})
+# 收集源文件
+file(GLOB_RECURSE SOURCES
+  "src/*.cpp"
+)
+
+file(GLOB_RECURSE HEADERS
+  "src/*.h"
+  "include/*.h"
+)
+
+add_executable(kEmber ${SOURCES} ${HEADERS})
 
 # 链接依赖
 target_link_libraries(kEmber
   PUBLIC
-    #igl::glfw
     polyscope
-
   PRIVATE
     Eigen3::Eigen
     CGAL::CGAL
 )
-
