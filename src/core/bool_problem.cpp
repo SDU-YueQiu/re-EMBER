@@ -26,6 +26,7 @@ namespace ember
 
     void BoolProblem::buildTrees()
     {
+        //仅叶节点执行
         const std::size_t n = polygons_.size();
         trees_.clear();
         trees_.resize(n);

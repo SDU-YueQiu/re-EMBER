@@ -31,6 +31,8 @@ namespace ember
             return;
         }
 
+        //相当于初始化
+        //TODO:在这儿进行有点儿丑陋
         if (!root)
         {
             root = std::make_unique<BSPNode>(basePolygon);

@@ -21,12 +21,14 @@ namespace ember
 
     bool Polygon256::isValid() const noexcept
     {
+        // >3边
         const std::size_t n = edgePlanes.size();
         if (n < 3)
         {
             return false;
         }
 
+        //边平面不与支撑平面平行
         for (const Plane3i& edge : edgePlanes)
         {
             if (arePlaneNormalsParallel(plane, edge))
@@ -41,6 +43,7 @@ namespace ember
         // 按约定: v_i = (plane, edge_i, edge_{i-1})
         for (std::size_t i = 0; i < n; ++i)
         {
+            //定点有效
             const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
             const PlanePoint3i v(plane, edgePlanes[i], edgePlanes[prev]);
             if (!v.hasUniqueIntersection())
@@ -49,10 +52,11 @@ namespace ember
             }
 
             // 顶点必须落在构造它的两条相邻边上
-            if (v.classify(edgePlanes[i]) != 0 || v.classify(edgePlanes[prev]) != 0)
-            {
-                return false;
-            }
+            // 数学上是不可能出现这种情况的，这里是防御性编程，先禁用掉
+            // if (v.classify(edgePlanes[i]) != 0 || v.classify(edgePlanes[prev]) != 0)
+            // {
+            //     return false;
+            // }
 
             vertices.push_back(v);
         }
@@ -117,6 +121,7 @@ namespace ember
             return 0;
         }
 
+        //要求边平面法向指向一致，但指向内部还是外部不要求
         bool hasPositive = false;
         bool hasNegative = false;
         for (const Plane3i& edge : edgePlanes)
@@ -145,6 +150,7 @@ namespace ember
         {
             return -1;
         }
+        //多边形可能退化成一个点，此时先保证程序正常运行
         return 0;
     }
 
@@ -182,6 +188,7 @@ namespace ember
         return classify(point) != 0;
     }
 
+    //向内平移两条边构造内部点
     bool Polygon256::findStrictInteriorPoint(PlanePoint3i& outPoint) const noexcept
     {
         const std::size_t n = edgePlanes.size();

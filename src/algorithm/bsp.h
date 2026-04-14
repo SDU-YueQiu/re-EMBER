@@ -28,7 +28,10 @@ namespace ember
         BSPTree(BSPTree&&) noexcept = default;
         BSPTree& operator=(BSPTree&&) noexcept = default;
 
+        //仅设置要分割的多边形
         void setBasePolygon(const Polygon256& polygon);
+        
+        //插入平面并求交、分割
         void insert(const Polygon256& polygon);
         void addSegment(const Plane3i& v0, const Plane3i& v1, const Plane3i& splitPlane);
         bool contains(const PlanePoint3i& point) const noexcept;

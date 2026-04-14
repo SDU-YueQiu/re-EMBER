@@ -62,7 +62,8 @@ namespace ember
 
     struct Polygon256
     {
-        Plane3i plane;
+        //TODO：不存网格AB？
+        Plane3i plane;//支撑平面
         std::vector<Plane3i> edgePlanes;
         std::vector<int> WNTV;
 
@@ -73,7 +74,9 @@ namespace ember
         std::size_t edgeCount() const noexcept;
         bool isValid() const noexcept;
 
+        //返回值0在外，在内时根据边平面法向指向不同返回值+-1
         int classify(const PlanePoint3i& point) const noexcept;
+        
         bool containsStrictly(const PlanePoint3i& point) const noexcept;
         bool containsOrOnBoundary(const PlanePoint3i& point) const noexcept;
         bool findStrictInteriorPoint(PlanePoint3i& outPoint) const noexcept;
