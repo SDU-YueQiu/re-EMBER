@@ -2,6 +2,7 @@
 
 #include "math/math256.h"
 #include "math/plane_geometry256.h"
+#include "math/winding_number.h"
 
 #include <cstddef>
 #include <vector>
@@ -62,12 +63,16 @@ namespace ember
 
     struct Polygon256
     {
-        //TODO：不存网格AB？
         Plane3i plane;//支撑平面
         
         //裁剪要求边平面法向必须指向多边形外侧
         std::vector<Plane3i> edgePlanes;
+
+        //环绕数转换向量
         std::vector<int> WNTV;
+
+        //结果面状态，用于布尔指示函数，注意以数组下标确定网格
+        WNV WNVF,WNVB;
 
         Polygon256() = default;
         Polygon256(const Plane3i& supportPlane, std::vector<Plane3i> edges);
