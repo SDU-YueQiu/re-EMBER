@@ -34,7 +34,7 @@ namespace ember
         for (std::size_t i = 0; i < n; ++i)
         {
             BSPTree &tree = trees_[i];
-            tree.setBasePolygon(polygons_[i]);
+            tree.setBasePolygon(polygons_[i], i);
 
             for (std::size_t j = 0; j < n; ++j)
             {
@@ -42,7 +42,7 @@ namespace ember
                     continue;
                 
                 //插入多边形时进行相交裁剪
-                tree.insert(polygons_[j]);
+                tree.insert(polygons_[j], j);
             }
         }
     }

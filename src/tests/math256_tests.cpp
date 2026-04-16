@@ -263,4 +263,63 @@ void runMath256Tests()
 		assert(point.classify(below) == ember::classifyByDeterminants(px, py, pz, below));
 		assert(point.classify(on) == ember::classifyByDeterminants(px, py, pz, on));
 	}
+
+	{
+		const ember::Polygon256 baseSquare = ember::Polygon256(
+			ember::Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, 0, 1)),
+			std::vector<ember::Plane3i>{
+				ember::Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, -1, 0)),
+				ember::Plane3i::fromPointNormal(Vec3i(4, 0, 0), Vec3i(1, 0, 0)),
+				ember::Plane3i::fromPointNormal(Vec3i(0, 4, 0), Vec3i(0, 1, 0)),
+				ember::Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(-1, 0, 0))
+			});
+
+		const ember::Polygon256 overlapSquare = ember::Polygon256(
+			ember::Plane3i::fromPointNormal(Vec3i(2, 0, 0), Vec3i(0, 0, 5)),
+			std::vector<ember::Plane3i>{
+				ember::Plane3i::fromPointNormal(Vec3i(2, 0, 0), Vec3i(0, -1, 0)),
+				ember::Plane3i::fromPointNormal(Vec3i(6, 0, 0), Vec3i(1, 0, 0)),
+				ember::Plane3i::fromPointNormal(Vec3i(2, 4, 0), Vec3i(0, 1, 0)),
+				ember::Plane3i::fromPointNormal(Vec3i(2, 0, 0), Vec3i(-1, 0, 0))
+			});
+
+		assert(baseSquare.isValid());
+		assert(overlapSquare.isValid());
+
+		const ember::PlanePoint3i leftInterior(
+			ember::Plane3i::fromPointNormal(Vec3i(1, 0, 0), Vec3i(1, 0, 0)),
+			ember::Plane3i::fromPointNormal(Vec3i(0, 1, 0), Vec3i(0, 1, 0)),
+			ember::Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, 0, 1)));
+		const ember::PlanePoint3i overlapInterior(
+			ember::Plane3i::fromPointNormal(Vec3i(3, 0, 0), Vec3i(1, 0, 0)),
+			ember::Plane3i::fromPointNormal(Vec3i(0, 1, 0), Vec3i(0, 1, 0)),
+			ember::Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, 0, 1)));
+
+		ember::BSPTree highOrderTree;
+		highOrderTree.setBasePolygon(baseSquare, 1);
+		highOrderTree.insert(overlapSquare, 0);
+
+		auto disabledLeaves = highOrderTree.collectLeafGeometries();
+		assert(disabledLeaves.size() == 1);
+		assert(disabledLeaves[0].containsOrOnBoundary(leftInterior));
+		assert(!disabledLeaves[0].containsOrOnBoundary(overlapInterior));
+
+		ember::BSPTree lowOrderTree;
+		lowOrderTree.setBasePolygon(baseSquare, 0);
+		lowOrderTree.insert(overlapSquare, 1);
+
+		auto keptLeaves = lowOrderTree.collectLeafGeometries();
+		assert(keptLeaves.size() == 2);
+
+		bool foundLeftLeaf = false;
+		bool foundOverlapLeaf = false;
+		for (const auto& leaf : keptLeaves)
+		{
+			foundLeftLeaf = foundLeftLeaf || leaf.containsOrOnBoundary(leftInterior);
+			foundOverlapLeaf = foundOverlapLeaf || leaf.containsOrOnBoundary(overlapInterior);
+		}
+
+		assert(foundLeftLeaf);
+		assert(foundOverlapLeaf);
+	}
 }
