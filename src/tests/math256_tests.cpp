@@ -178,6 +178,46 @@ void runMath256Tests()
 		assert(frontGeometry.edgeCount() == 4);
 		assert(backGeometry.isValid());
 		assert(backGeometry.edgeCount() == 3);
+
+		{
+			const ember::Line256 axisLine(px, pz);
+			const ember::Plane3i startWrong = ember::Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, 1, 0));
+			const ember::Plane3i endWrong = ember::Plane3i::fromPointNormal(Vec3i(0, 2, 0), Vec3i(0, -1, 0));
+			ember::Segment256 orientedSegment(startWrong, endWrong, axisLine);
+
+			const ember::PlanePoint3i insidePoint(
+				axisLine.p1,
+				axisLine.p2,
+				ember::Plane3i::fromPointNormal(Vec3i(0, 1, 0), Vec3i(0, 1, 0)));
+			assert(insidePoint.hasUniqueIntersection());
+			assert(insidePoint.classify(orientedSegment.start) < 0);
+			assert(insidePoint.classify(orientedSegment.end) < 0);
+		}
+	}
+
+	{
+		const ember::Plane3i pz = ember::Plane3i::fromPointNormal(Vec3i(0, 0, 3), Vec3i(0, 0, 1));
+		const ember::Polygon256 autoOrientedSquare(
+			pz,
+			std::vector<ember::Plane3i>{
+				ember::Plane3i::fromPointNormal(Vec3i(0, 0, 3), Vec3i(0, 1, 0)),
+				ember::Plane3i::fromPointNormal(Vec3i(2, 0, 3), Vec3i(-1, 0, 0)),
+				ember::Plane3i::fromPointNormal(Vec3i(0, 2, 3), Vec3i(0, -1, 0)),
+				ember::Plane3i::fromPointNormal(Vec3i(0, 0, 3), Vec3i(1, 0, 0))
+			});
+
+		assert(autoOrientedSquare.isValid());
+
+		const ember::PlanePoint3i interior(
+			ember::Plane3i::fromPointNormal(Vec3i(1, 0, 0), Vec3i(1, 0, 0)),
+			ember::Plane3i::fromPointNormal(Vec3i(0, 1, 0), Vec3i(0, 1, 0)),
+			pz);
+		assert(interior.hasUniqueIntersection());
+		assert(autoOrientedSquare.classify(interior) < 0);
+		for (const ember::Plane3i& edge : autoOrientedSquare.edgePlanes)
+		{
+			assert(interior.classify(edge) < 0);
+		}
 	}
 
 	{

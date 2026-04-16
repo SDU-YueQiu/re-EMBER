@@ -4,12 +4,105 @@
 
 namespace ember
 {
-    Polygon256::Polygon256(const Plane3i& supportPlane, std::vector<Plane3i> edges)
-        : plane(supportPlane), edgePlanes(std::move(edges))
+    namespace
     {
+        Plane3i flippedPlane(const Plane3i& plane) noexcept
+        {
+            return Plane3i(-plane.a, -plane.b, -plane.c, -plane.d);
+        }
+
+        void orientPolygonEdgesOutward(const Plane3i& supportPlane, std::vector<Plane3i>& edges) noexcept
+        {
+            const std::size_t n = edges.size();
+            if (n < 3)
+            {
+                return;
+            }
+
+            std::vector<PlanePoint3i> vertices;
+            vertices.reserve(n);
+            for (std::size_t i = 0; i < n; ++i)
+            {
+                const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
+                const PlanePoint3i vertex(supportPlane, edges[i], edges[prev]);
+                if (!vertex.hasUniqueIntersection())
+                {
+                    return;
+                }
+                vertices.push_back(vertex);
+            }
+
+            for (std::size_t i = 0; i < n; ++i)
+            {
+                const std::size_t next = (i + 1 == n) ? 0 : (i + 1);
+
+                std::size_t refIndex = n;
+                for (std::size_t k = 0; k < n; ++k)
+                {
+                    if (k != i && k != next)
+                    {
+                        refIndex = k;
+                        break;
+                    }
+                }
+
+                if (refIndex == n)
+                {
+                    return;
+                }
+
+                const int interiorSide = vertices[refIndex].classify(edges[i]);
+                if (interiorSide > 0)
+                {
+                    edges[i] = flippedPlane(edges[i]);
+                }
+            }
+        }
+
+        void orientSegmentBoundsOutward(Plane3i& startPlane, Plane3i& endPlane, const Line256& directionLine) noexcept
+        {
+            if (!directionLine.isValid())
+            {
+                return;
+            }
+
+            const PlanePoint3i startPoint(directionLine.p1, directionLine.p2, startPlane);
+            const PlanePoint3i endPoint(directionLine.p1, directionLine.p2, endPlane);
+            if (!startPoint.hasUniqueIntersection() || !endPoint.hasUniqueIntersection())
+            {
+                return;
+            }
+
+            if (endPoint.classify(startPlane) > 0)
+            {
+                startPlane = flippedPlane(startPlane);
+            }
+            if (startPoint.classify(endPlane) > 0)
+            {
+                endPlane = flippedPlane(endPlane);
+            }
+        }
     }
 
-    void Polygon256::addEdgePlane(const Plane3i& edge)
+    Polygon256::Polygon256(const Plane3i &supportPlane, std::vector<Plane3i> edges)
+        : plane(supportPlane), edgePlanes(std::move(edges))
+    {
+        orientPolygonEdgesOutward(plane, edgePlanes);
+    }
+
+    Segment256::Segment256(const Plane3i& startPlane, const Plane3i& endPlane) noexcept
+        : start(startPlane), end(endPlane), direction(startPlane, endPlane)
+    {
+        orientSegmentBoundsOutward(start, end, direction);
+    }
+
+    Segment256::Segment256(const Plane3i& startPlane, const Plane3i& endPlane, const Line256& directionLine) noexcept
+        : start(startPlane), end(endPlane), direction(directionLine)
+    {
+        orientSegmentBoundsOutward(start, end, direction);
+    }
+
+    void Polygon256::addEdgePlane(const Plane3i &edge)
     {
         edgePlanes.push_back(edge);
     }
@@ -28,8 +121,8 @@ namespace ember
             return false;
         }
 
-        //边平面不与支撑平面平行
-        for (const Plane3i& edge : edgePlanes)
+        // 边平面不与支撑平面平行
+        for (const Plane3i &edge : edgePlanes)
         {
             if (arePlaneNormalsParallel(plane, edge))
             {
@@ -43,7 +136,7 @@ namespace ember
         // 按约定: v_i = (plane, edge_i, edge_{i-1})
         for (std::size_t i = 0; i < n; ++i)
         {
-            //定点有效
+            // 顶点有效
             const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
             const PlanePoint3i v(plane, edgePlanes[i], edgePlanes[prev]);
             if (!v.hasUniqueIntersection())
@@ -62,7 +155,7 @@ namespace ember
         }
 
         // 每个顶点都应在多边形内部或边界（用于过滤错误顺序）
-        for (const PlanePoint3i& v : vertices)
+        for (const PlanePoint3i &v : vertices)
         {
             if (classify(v) == 0)
             {
@@ -74,7 +167,7 @@ namespace ember
         for (std::size_t i = 0; i < n; ++i)
         {
             const std::size_t next = (i + 1 == n) ? 0 : (i + 1);
-            const Plane3i& edge = edgePlanes[i];
+            const Plane3i &edge = edgePlanes[i];
 
             if (vertices[i].classify(edge) != 0 || vertices[next].classify(edge) != 0)
             {
@@ -109,7 +202,7 @@ namespace ember
         return true;
     }
 
-    int Polygon256::classify(const PlanePoint3i& point) const noexcept
+    int Polygon256::classify(const PlanePoint3i &point) const noexcept
     {
         if (!point.hasUniqueIntersection())
         {
@@ -121,10 +214,10 @@ namespace ember
             return 0;
         }
 
-        //要求边平面法向指向一致，但指向内部还是外部不要求
+        // 要求边平面法向指向一致，但指向内部还是外部不要求
         bool hasPositive = false;
         bool hasNegative = false;
-        for (const Plane3i& edge : edgePlanes)
+        for (const Plane3i &edge : edgePlanes)
         {
             const int side = point.classify(edge);
             if (side > 0)
@@ -150,11 +243,11 @@ namespace ember
         {
             return -1;
         }
-        //多边形可能退化成一个点，此时先保证程序正常运行
+        // 多边形可能退化成一个点，此时先保证程序正常运行
         return 0;
     }
 
-    bool Polygon256::containsStrictly(const PlanePoint3i& point) const noexcept
+    bool Polygon256::containsStrictly(const PlanePoint3i &point) const noexcept
     {
         if (!point.hasUniqueIntersection() || point.classify(plane) != 0)
         {
@@ -162,7 +255,7 @@ namespace ember
         }
 
         int sideRef = 0;
-        for (const Plane3i& edge : edgePlanes)
+        for (const Plane3i &edge : edgePlanes)
         {
             const int side = point.classify(edge);
             if (side == 0)
@@ -183,13 +276,13 @@ namespace ember
         return sideRef != 0;
     }
 
-    bool Polygon256::containsOrOnBoundary(const PlanePoint3i& point) const noexcept
+    bool Polygon256::containsOrOnBoundary(const PlanePoint3i &point) const noexcept
     {
         return classify(point) != 0;
     }
 
-    //向内平移两条边构造内部点
-    bool Polygon256::findStrictInteriorPoint(PlanePoint3i& outPoint) const noexcept
+    // 向内平移两条边构造内部点
+    bool Polygon256::findStrictInteriorPoint(PlanePoint3i &outPoint) const noexcept
     {
         const std::size_t n = edgePlanes.size();
         if (n < 3)
@@ -223,11 +316,11 @@ namespace ember
             return n;
         };
 
-        auto buildInsetEdge = [&](const Plane3i& edge,
+        auto buildInsetEdge = [&](const Plane3i &edge,
                                   int interiorSide,
-                                  const PlanePoint3i& boundaryVertex,
-                                  const PlanePoint3i& refVertex,
-                                  Plane3i& outInset) -> bool
+                                  const PlanePoint3i &boundaryVertex,
+                                  const PlanePoint3i &refVertex,
+                                  Plane3i &outInset) -> bool
         {
             if (interiorSide == 0)
             {
@@ -306,9 +399,22 @@ namespace ember
         return false;
     }
 
-    bool areParallel(const Line256& lhs, const Line256& rhs) noexcept
+    bool areParallel(const Line256 &lhs, const Line256 &rhs) noexcept
     {
         const Vec3i crossVec = cross(lhs.directionVector(), rhs.directionVector());
         return isZero(crossVec.x) && isZero(crossVec.y) && isZero(crossVec.z);
+    }
+
+    bool intersectionSegmentPolygon(Segment256 &seg, Polygon256 &poly, PlanePoint3i &outPoint)
+    {
+        outPoint = intersect(seg.direction, poly.plane);
+
+        if (outPoint.hasUniqueIntersection() == false || poly.containsStrictly(outPoint) == false)
+            return false;
+
+        // 点在线段内
+        if (outPoint.classify(seg.start) == -1 && outPoint.classify(seg.end) == -1)
+            return true;
+        return false;
     }
 }

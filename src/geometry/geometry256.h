@@ -38,25 +38,21 @@ namespace ember
         }
     };
 
+    //法向要求：线段内为负，也即start和end平面法向相反向外
     struct Segment256
     {
         Plane3i start;
         Plane3i end;
+
         Line256 direction;
 
-        constexpr Segment256() noexcept = default;
-        constexpr Segment256(const Plane3i& startPlane, const Plane3i& endPlane) noexcept
-            : start(startPlane), end(endPlane), direction(startPlane, endPlane)
-        {
-        }
-
-        constexpr Segment256(const Plane3i& startPlane, const Plane3i& endPlane, const Line256& directionLine) noexcept
-            : start(startPlane), end(endPlane), direction(directionLine)
-        {
-        }
+        Segment256() noexcept = default;
+        Segment256(const Plane3i& startPlane, const Plane3i& endPlane) noexcept;
+        Segment256(const Plane3i& startPlane, const Plane3i& endPlane, const Line256& directionLine) noexcept;
 
         constexpr bool isDegenerate() const noexcept
         {
+            //TODO：未检验start和end重叠的退化情况
             return !direction.isValid();
         }
     };
@@ -94,6 +90,7 @@ namespace ember
         return Line256(p1, p2);
     }
 
+    //没有做有效性检查
     inline constexpr PlanePoint3i intersect(const Line256& line, const Plane3i& plane) noexcept
     {
         return PlanePoint3i(line.p1, line.p2, plane);
@@ -101,5 +98,6 @@ namespace ember
 
     bool areParallel(const Line256& lhs, const Line256& rhs) noexcept;
 
-    
+    //求线段和多边形的交点，如果有交点返回true和outPoint
+    bool intersectionSegmentPolygon(Segment256& seg,Polygon256& poly,PlanePoint3i& outPoint);
 }
