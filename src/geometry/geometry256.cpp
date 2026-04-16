@@ -4,83 +4,89 @@
 
 namespace ember
 {
-    namespace
+    //返回使用平面方程反转后的平面
+    Plane3i flippedPlane(const Plane3i &plane) noexcept
     {
-        Plane3i flippedPlane(const Plane3i& plane) noexcept
+        return Plane3i(-plane.a, -plane.b, -plane.c, -plane.d);
+    }
+
+    //保证多边形边平面法向向外
+    void orientPolygonEdgesOutward(const Plane3i &supportPlane, std::vector<Plane3i> &edges) noexcept
+    {
+        const std::size_t n = edges.size();
+        if (n < 3)
         {
-            return Plane3i(-plane.a, -plane.b, -plane.c, -plane.d);
+            return;
         }
 
-        void orientPolygonEdgesOutward(const Plane3i& supportPlane, std::vector<Plane3i>& edges) noexcept
+        // 计算多边形所有顶点（边平面的交点）
+        std::vector<PlanePoint3i> vertices;
+        vertices.reserve(n);
+        for (std::size_t i = 0; i < n; ++i)
         {
-            const std::size_t n = edges.size();
-            if (n < 3)
+            const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
+            const PlanePoint3i vertex(supportPlane, edges[i], edges[prev]);
+            if (!vertex.hasUniqueIntersection())
             {
                 return;
             }
-
-            std::vector<PlanePoint3i> vertices;
-            vertices.reserve(n);
-            for (std::size_t i = 0; i < n; ++i)
-            {
-                const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
-                const PlanePoint3i vertex(supportPlane, edges[i], edges[prev]);
-                if (!vertex.hasUniqueIntersection())
-                {
-                    return;
-                }
-                vertices.push_back(vertex);
-            }
-
-            for (std::size_t i = 0; i < n; ++i)
-            {
-                const std::size_t next = (i + 1 == n) ? 0 : (i + 1);
-
-                std::size_t refIndex = n;
-                for (std::size_t k = 0; k < n; ++k)
-                {
-                    if (k != i && k != next)
-                    {
-                        refIndex = k;
-                        break;
-                    }
-                }
-
-                if (refIndex == n)
-                {
-                    return;
-                }
-
-                const int interiorSide = vertices[refIndex].classify(edges[i]);
-                if (interiorSide > 0)
-                {
-                    edges[i] = flippedPlane(edges[i]);
-                }
-            }
+            vertices.push_back(vertex);
         }
 
-        void orientSegmentBoundsOutward(Plane3i& startPlane, Plane3i& endPlane, const Line256& directionLine) noexcept
+        // 对每条边进行方向检查
+        for (std::size_t i = 0; i < n; ++i)
         {
-            if (!directionLine.isValid())
+            const std::size_t next = (i + 1 == n) ? 0 : (i + 1);
+
+            // 选择一个参考顶点（非当前边端点）
+            std::size_t refIndex = n;
+            for (std::size_t k = 0; k < n; ++k)
+            {
+                if (k != i && k != next)
+                {
+                    refIndex = k;
+                    break;
+                }
+            }
+
+            if (refIndex == n)
             {
                 return;
             }
 
-            const PlanePoint3i startPoint(directionLine.p1, directionLine.p2, startPlane);
-            const PlanePoint3i endPoint(directionLine.p1, directionLine.p2, endPlane);
-            if (!startPoint.hasUniqueIntersection() || !endPoint.hasUniqueIntersection())
+            // 检查参考顶点相对于当前边平面的位置
+            const int interiorSide = vertices[refIndex].classify(edges[i]);
+            if (interiorSide > 0)
             {
-                return;
+                // 如果参考顶点在正侧（外部），需要翻转边平面方向
+                edges[i] = flippedPlane(edges[i]);
             }
+        }
+    }
 
-            if (endPoint.classify(startPlane) > 0)
-            {
-                startPlane = flippedPlane(startPlane);
-            }
-            if (startPoint.classify(endPlane) > 0)
-            {
-                endPlane = flippedPlane(endPlane);
-            }
+    //保证线段端点平面法向正确
+    void orientSegmentBoundsOutward(Plane3i &startPlane, Plane3i &endPlane, const Line256 &directionLine) noexcept
+    {
+        if (!directionLine.isValid())
+        {
+            return;
+        }
+
+        //TODO：为点添加更多构造函数
+        const PlanePoint3i startPoint(directionLine.p1, directionLine.p2, startPlane);
+        const PlanePoint3i endPoint(directionLine.p1, directionLine.p2, endPlane);
+        if (!startPoint.hasUniqueIntersection() || !endPoint.hasUniqueIntersection())
+        {
+            return;
+        }
+
+        if (endPoint.classify(startPlane) > 0)
+        {
+            startPlane = flippedPlane(startPlane);
+        }
+        if (startPoint.classify(endPlane) > 0)
+        {
+            endPlane = flippedPlane(endPlane);
         }
     }
 
@@ -90,18 +96,13 @@ namespace ember
         orientPolygonEdgesOutward(plane, edgePlanes);
     }
 
-    Segment256::Segment256(const Plane3i& startPlane, const Plane3i& endPlane) noexcept
-        : start(startPlane), end(endPlane), direction(startPlane, endPlane)
-    {
-        orientSegmentBoundsOutward(start, end, direction);
-    }
-
-    Segment256::Segment256(const Plane3i& startPlane, const Plane3i& endPlane, const Line256& directionLine) noexcept
+    Segment256::Segment256(const Plane3i &startPlane, const Plane3i &endPlane, const Line256 &directionLine) noexcept
         : start(startPlane), end(endPlane), direction(directionLine)
     {
         orientSegmentBoundsOutward(start, end, direction);
     }
 
+    // 该方法对法向不封闭
     void Polygon256::addEdgePlane(const Plane3i &edge)
     {
         edgePlanes.push_back(edge);

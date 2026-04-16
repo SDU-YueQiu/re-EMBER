@@ -1,3 +1,5 @@
+#pragma once
+
 #include <vector>
 
 namespace ember
@@ -13,17 +15,17 @@ namespace ember
     };
 
     // 两网格布尔差运算指示函数，使用int指定被减网格和减网格，如A-B，A为被减网格
-    BoolStatus f_diff(WNV &wnv, int subed, int subor)
+    inline BoolStatus f_diff(WNV &wnv, int subed, int subor)
     {
         return (wnv[subed] != 0 && wnv[subor] == 0) ? BoolStatus::IN : BoolStatus::OUT;
     }
 
-    BoolStatus f_intersection(WNV &wnv, int subed, int subor)
+    inline BoolStatus f_intersection(WNV &wnv, int subed, int subor)
     {
         return (wnv[subed] != 0 && wnv[subor] != 0) ? BoolStatus::IN : BoolStatus::OUT;
     }
 
-    BoolStatus f_union(WNV &wnv, int subed, int subor)
+    inline BoolStatus f_union(WNV &wnv, int subed, int subor)
     {
         return (wnv[subed] != 0 || wnv[subor] != 0) ? BoolStatus::IN : BoolStatus::OUT;
     }
