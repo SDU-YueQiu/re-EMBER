@@ -28,10 +28,10 @@ namespace ember
             const std::size_t next = (i + 1 == n) ? 0 : (i + 1);
             const Plane3i& segmentEdge = source.edgePlanes[i];
 
-            const int sSide = sides[i];
-            const int eSide = sides[next];
+            const int sSide = sides[i];//startSide
+            const int eSide = sides[next];//endSide
 
-            if (sSide == 0)
+            if (sSide == 0)//起点在裁剪平面上
             {
 				if (eSide == 0)
                 {
@@ -52,7 +52,7 @@ namespace ember
 					return false;
                 }
             }
-            else if (sSide + eSide == 0)
+            else if (sSide + eSide == 0)//边两端点在裁剪平面两侧->裁剪平面与边相交
             {
                 ++intersectionCount;
                 if (intersectionCount == 1)
@@ -88,13 +88,14 @@ namespace ember
             return false;
         }
 
+        //法向平行要么共面要么不相交
         if (arePlaneNormalsParallel(target.plane, incoming.plane))
         {
             return false;
         }
 
-		Plane3i p0, p1;
-		Plane3i q0, q1;
+		Plane3i p0, p1;//源多边形上的交线边平面
+		Plane3i q0, q1;//新输入多边形上的交线边平面
         if (!computePolygonPlaneIntersection(target, incoming.plane, p0, p1))
         {
             return false;
@@ -117,6 +118,8 @@ namespace ember
 		int side10 = vq1.classify(p0);
 		int side11 = vq1.classify(p1);
 
+        //边平面法向必须指向外侧
+        //vq0 vq1都在p的外侧说明没相交
         if (side00 >= 0 && side10 >= 0) {
             return false;
         }
@@ -167,8 +170,7 @@ namespace ember
         return true;
     }
 
-
-
+    //按顶点分类裁剪
     bool clipLeafGeometryByPlane(const Polygon256& source, const Plane3i& clipPlane, Polygon256& frontClipped, Polygon256& backClipped)
     {
         if (!source.isValid() || arePlaneNormalsParallel(source.plane, clipPlane))
@@ -185,7 +187,7 @@ namespace ember
 		backClipped.WNTV = source.WNTV;
 
 		const std::size_t n = source.edgeCount();
-        const Plane3i oppositePlane(-clipPlane.a, -clipPlane.b, -clipPlane.c, -clipPlane.d);
+        const Plane3i oppositePlane(-clipPlane.a, -clipPlane.b, -clipPlane.c, -clipPlane.d);//-c(x)<0 => c(x)>0
 
 		std::vector<int> sides;
 		sides.resize(n);
@@ -205,8 +207,8 @@ namespace ember
 
             const int sSide = sides[i];
             const int eSide = sides[next];
-            const bool sInside = sSide >= 0;
-            const bool eInside = eSide >= 0;
+            const bool sInside = (sSide >= 0);
+            const bool eInside = (eSide >= 0);
 
 			if (sSide == 0 && eSide == 0)
             {

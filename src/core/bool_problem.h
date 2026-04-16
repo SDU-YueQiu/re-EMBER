@@ -20,6 +20,7 @@ namespace ember
         std::size_t polygonCount() const noexcept;
         void buildTrees();
 
+        //计算当前所有多边形的最小AABB
         std::vector<Plane3i> computeAABBPlanes() const;
 
         const std::vector<Polygon256>& polygons() const noexcept;

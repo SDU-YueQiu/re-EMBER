@@ -8,12 +8,12 @@ namespace ember
         trees_.clear();
     }
 
-    void BoolProblem::addPolygon(const Polygon256& polygon)
+    void BoolProblem::addPolygon(const Polygon256 &polygon)
     {
         polygons_.push_back(polygon);
     }
 
-    void BoolProblem::setPolygons(const std::vector<Polygon256>& polygons)
+    void BoolProblem::setPolygons(const std::vector<Polygon256> &polygons)
     {
         polygons_ = polygons;
         trees_.clear();
@@ -26,23 +26,22 @@ namespace ember
 
     void BoolProblem::buildTrees()
     {
-        //仅叶节点执行
+        // 仅空间划分后的叶节点执行
         const std::size_t n = polygons_.size();
         trees_.clear();
         trees_.resize(n);
 
         for (std::size_t i = 0; i < n; ++i)
         {
-            BSPTree& tree = trees_[i];
+            BSPTree &tree = trees_[i];
             tree.setBasePolygon(polygons_[i]);
 
             for (std::size_t j = 0; j < n; ++j)
             {
                 if (j == i)
-                {
                     continue;
-                }
-
+                
+                //插入多边形时进行相交裁剪
                 tree.insert(polygons_[j]);
             }
         }
@@ -58,7 +57,7 @@ namespace ember
         bool initialized = false;
         Integer xMin, xMax, yMin, yMax, zMin, zMax;
 
-        for (const auto& poly : polygons_)
+        for (const auto &poly : polygons_)
         {
             const std::size_t n = poly.edgePlanes.size();
             for (std::size_t i = 0; i < n; ++i)
@@ -80,19 +79,28 @@ namespace ember
 
                 if (!initialized)
                 {
-                    xMin = fx; xMax = cx;
-                    yMin = fy; yMax = cy;
-                    zMin = fz; zMax = cz;
+                    xMin = fx;
+                    xMax = cx;
+                    yMin = fy;
+                    yMax = cy;
+                    zMin = fz;
+                    zMax = cz;
                     initialized = true;
                 }
                 else
                 {
-                    if (fx < xMin) xMin = fx;
-                    if (cx > xMax) xMax = cx;
-                    if (fy < yMin) yMin = fy;
-                    if (cy > yMax) yMax = cy;
-                    if (fz < zMin) zMin = fz;
-                    if (cz > zMax) zMax = cz;
+                    if (fx < xMin)
+                        xMin = fx;
+                    if (cx > xMax)
+                        xMax = cx;
+                    if (fy < yMin)
+                        yMin = fy;
+                    if (cy > yMax)
+                        yMax = cy;
+                    if (fz < zMin)
+                        zMin = fz;
+                    if (cz > zMax)
+                        zMax = cz;
                 }
             }
         }
@@ -111,21 +119,21 @@ namespace ember
         zMax += margin;
 
         return {
-            Plane3i(-1,  0,  0,  xMin),
-            Plane3i( 1,  0,  0, -xMax),
-            Plane3i( 0, -1,  0,  yMin),
-            Plane3i( 0,  1,  0, -yMax),
-            Plane3i( 0,  0, -1,  zMin),
-            Plane3i( 0,  0,  1, -zMax),
+            Plane3i(-1, 0, 0, xMin),
+            Plane3i(1, 0, 0, -xMax),
+            Plane3i(0, -1, 0, yMin),
+            Plane3i(0, 1, 0, -yMax),
+            Plane3i(0, 0, -1, zMin),
+            Plane3i(0, 0, 1, -zMax),
         };
     }
 
-    const std::vector<Polygon256>& BoolProblem::polygons() const noexcept
+    const std::vector<Polygon256> &BoolProblem::polygons() const noexcept
     {
         return polygons_;
     }
 
-    const std::vector<BSPTree>& BoolProblem::trees() const noexcept
+    const std::vector<BSPTree> &BoolProblem::trees() const noexcept
     {
         return trees_;
     }

@@ -64,6 +64,8 @@ namespace ember
     {
         //TODO：不存网格AB？
         Plane3i plane;//支撑平面
+        
+        //裁剪要求边平面法向必须指向多边形外侧
         std::vector<Plane3i> edgePlanes;
         std::vector<int> WNTV;
 
@@ -74,7 +76,7 @@ namespace ember
         std::size_t edgeCount() const noexcept;
         bool isValid() const noexcept;
 
-        //返回值0在外，在内时根据边平面法向指向不同返回值+-1
+        //返回值0在外，在内时根据边平面法向指向不同返回值+-1（尽管边平面指向有约束向外，但该函数并不强制负号）
         int classify(const PlanePoint3i& point) const noexcept;
         
         bool containsStrictly(const PlanePoint3i& point) const noexcept;

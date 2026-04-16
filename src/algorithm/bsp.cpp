@@ -45,8 +45,9 @@ namespace ember
         {
             addSegmentRecursive(*root, v0, v1, segmentPlane);
         }
-        else {
-            //TODO: 重合的情况按ember论文里的描述处理
+        else 
+        {
+            
         }
     }
 
@@ -79,6 +80,8 @@ namespace ember
         {
             Polygon256 frontGeometry;
             Polygon256 backGeometry;
+            
+            //分割时用平面，对线段端点v0 v1(p0 p1)的分类讨论在进入叶节点之前就进行
             if (!clipLeafGeometryByPlane(node.leafGeometry, insertPlane, frontGeometry, backGeometry))
             {
                 return;
@@ -173,6 +176,7 @@ namespace ember
 
         if (node->isLeaf)
         {
+            //TODO：多线程隐患
             outLeafGeometries.push_back(node->leafGeometry);
             return;
         }
