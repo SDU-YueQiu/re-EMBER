@@ -4,7 +4,7 @@ namespace ember
 {
     bool areCoplanarPolygons(const Polygon256 &lhs, const Polygon256 &rhs) noexcept
     {
-        // 因为直接公式判断的精度未测试，所以先用这种别扭实现
+        // 因为直接公式判断的精度未测试，所以先用这种查顶点在不在两面上的别扭实现
         // TODO：有性能问题再改
 
         if (!arePlaneNormalsParallel(lhs.plane, rhs.plane))

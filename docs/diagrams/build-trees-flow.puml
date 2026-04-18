@@ -1,0 +1,51 @@
+﻿@startuml
+title BoolProblem::buildTrees() 主流程
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultTextAlignment left
+
+start
+
+:接收输入多边形集合 polygons_;
+:清空 trees_ 并按输入数量扩容;
+:外层循环：依次选择 polygons_[i] 作为 base polygon;
+:调用 trees_[i].setBasePolygon(polygons_[i], i);
+:内层循环：遍历其余 polygons_[j];
+
+if (j == i ?) then (是)
+  :跳过自身;
+else (否)
+  :调用 BSPTree::insert(polygons_[j], j);
+
+  if (base polygon 与 incoming polygon 都有效 ?) then (是)
+    :若 root 为空，则先用 base polygon 初始化 root;
+
+    if (computePolygonIntersectionCarrier(base, incoming) 成功 ?) then (是)
+      :得到 splitPlane、v0、v1;
+      :递归执行 addSegmentRecursive(root, v0, v1, splitPlane);
+      :命中叶子时调用 clipLeafGeometryByPlane();
+      :把叶子拆成 front / back 两个子叶子;
+    else (否)
+      if (base 与 incoming 共面 ?) then (是)
+        :调用 insertCoplanarPolygonEdges(incoming);
+        if (baseOrderKey > incomingOrder ?) then (是)
+          :调用 disableOverlapLeaves(incoming);
+        else (否)
+          :保留重叠叶子;
+        endif
+      else (否)
+        :当前树忽略该 polygon;
+      endif
+    endif
+  else (否)
+    :终止本次 insert;
+  endif
+endif
+
+:重复上述内层循环直到所有 incoming polygon 处理完成;
+:重复上述外层循环直到每个输入多边形都建立了一棵树;
+:最终得到 trees_，每个 base polygon 对应一棵 BSPTree;
+
+stop
+
+@enduml

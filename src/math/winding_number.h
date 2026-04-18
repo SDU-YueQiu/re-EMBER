@@ -4,7 +4,7 @@
 
 namespace ember
 {
-    //TODO:当前仅实现两个网格的单一布尔运算，多网格、表达式计算需要写语法解析
+    // TODO:当前仅实现两个网格的单一布尔运算，多网格、表达式计算需要写语法解析
 
     typedef std::vector<int> WNV;
 
@@ -20,13 +20,13 @@ namespace ember
         return (wnv[subed] != 0 && wnv[subor] == 0) ? BoolStatus::IN : BoolStatus::OUT;
     }
 
-    inline BoolStatus f_intersection(WNV &wnv, int subed, int subor)
+    inline BoolStatus f_intersection(WNV &wnv, int A, int B)
     {
-        return (wnv[subed] != 0 && wnv[subor] != 0) ? BoolStatus::IN : BoolStatus::OUT;
+        return (wnv[A] != 0 && wnv[B] != 0) ? BoolStatus::IN : BoolStatus::OUT;
     }
 
-    inline BoolStatus f_union(WNV &wnv, int subed, int subor)
+    inline BoolStatus f_union(WNV &wnv, int A, int B)
     {
-        return (wnv[subed] != 0 || wnv[subor] != 0) ? BoolStatus::IN : BoolStatus::OUT;
+        return (wnv[A] != 0 || wnv[B] != 0) ? BoolStatus::IN : BoolStatus::OUT;
     }
 }

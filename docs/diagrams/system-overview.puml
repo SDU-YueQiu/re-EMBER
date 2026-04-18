@@ -1,0 +1,94 @@
+﻿@startuml
+title kEmber 系统总览图
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultTextAlignment left
+skinparam packageStyle rectangle
+skinparam rectangle {
+  RoundCorner 10
+}
+
+package "应用状态" {
+  rectangle "实验入口\nsrc/core/main.cpp\n当前整体被注释" as Main
+  rectangle "行为样例 / 断言验证\nsrc/tests/math256_tests.cpp" as Tests
+}
+
+package "核心层" {
+  rectangle "BoolProblem\n- 收集输入多边形\n- 为每个输入多边形建立一棵 BSPTree\n- 计算整体 AABB" as BoolProblem
+}
+
+package "算法层" {
+  rectangle "BSPTree\n- setBasePolygon()\n- insert()\n- collectLeafGeometries()\n- addSegmentRecursive()" as BSPTree
+  rectangle "BSPNode\n- isLeaf\n- disabled\n- splitPlane\n- leafGeometry" as BSPNode
+  rectangle "裁剪与求交\n- computePolygonPlaneIntersection()\n- computePolygonIntersectionCarrier()\n- clipLeafGeometryByPlane()" as Clipping
+  rectangle "WNV_tracing\n当前仅有占位结构" as WNVTracing
+}
+
+package "几何层" {
+  rectangle "Polygon256\n- plane\n- edgePlanes\n- isValid()\n- classify()\n- containsStrictly()" as Polygon256
+  rectangle "Segment256" as Segment256
+  rectangle "Line256" as Line256
+}
+
+package "数学层" {
+  rectangle "Plane3i" as Plane3i
+  rectangle "PlanePoint3i" as PlanePoint3i
+  rectangle "HomPoint4i" as HomPoint4i
+  rectangle "Vec2i / Vec3i" as Vec
+  rectangle "WNV / BoolStatus" as WNV
+}
+
+package "第三方依赖" {
+  rectangle "slimcpplib\nint256_t" as Slim
+}
+
+Main ..> BoolProblem : 旧实验流程依赖
+Tests ..> BoolProblem : 行为验证
+Tests ..> BSPTree
+Tests ..> Clipping
+Tests ..> Polygon256
+Tests ..> Plane3i
+
+BoolProblem --> BSPTree : 持有多棵树
+BSPTree --> BSPNode : 递归节点结构
+BSPTree --> Clipping : 调用裁剪与求交
+BSPTree --> Polygon256 : 基底与叶子几何
+Clipping --> Polygon256 : 输入 / 输出
+Clipping --> Plane3i
+Clipping --> PlanePoint3i
+
+Polygon256 --> Plane3i
+Polygon256 --> PlanePoint3i
+Segment256 --> Line256
+Segment256 --> Plane3i
+Line256 --> Plane3i
+PlanePoint3i --> HomPoint4i
+PlanePoint3i --> Plane3i
+Plane3i --> Vec
+
+Vec --> Slim
+Plane3i --> Slim
+HomPoint4i --> Slim
+WNV ..> Polygon256 : 作为状态字段保存
+WNVTracing ..> WNV : 当前未接入主流程
+
+note right of BoolProblem
+当前职责：
+- 问题级组织器
+- 不负责最终布尔结果拼装
+- 不负责 mesh 输出
+end note
+
+note right of BSPTree
+当前职责：
+- 切分单个 base polygon
+- 非共面路径：先求交，再裁剪
+- 共面路径：插入边界，再禁用重叠叶子
+end note
+
+note bottom of Main
+当前仓库的 CMake 仍定义了可执行文件，
+但仓库里没有启用中的 main()。
+end note
+
+@enduml
