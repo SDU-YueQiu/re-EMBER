@@ -1,6 +1,6 @@
 #pragma once
 
-#include "math256.h"
+#include "math/math256.h"
 
 namespace ember
 {

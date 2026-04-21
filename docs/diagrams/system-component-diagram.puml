@@ -1,0 +1,98 @@
+@startuml
+title kEmber UML 组件图
+caption 展示当前代码组件与论文目标组件之间的依赖关系
+
+left to right direction
+
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+skinparam defaultTextAlignment center
+skinparam component {
+  BorderColor #334155
+  FontColor #111827
+}
+skinparam package {
+  BorderColor #334155
+  FontColor #111827
+}
+
+package "接入组件" {
+  component "Application Entry\nsrc/application/main.cpp" as C_App
+  component "IO Adapter\nsrc/io/io.h/.cpp" as C_IO
+}
+
+package "应用组件" {
+  component "BoolProblem\nsrc/core/bool_problem.h/.cpp" as C_Problem
+  component "Result Assembler\n结果汇总与输出筛选" as C_Result
+}
+
+package "求解组件" {
+  component "Subdivision Engine\n论文目标组件" as C_Subdivision
+  component "Reference WNV Propagator\n论文目标组件" as C_Ref
+  component "BSP Builder\nsrc/algorithm/bsp.h/.cpp" as C_BSP
+  component "Clipping / Intersection Carrier\nsrc/geometry/clipping.h/.cpp" as C_Clip
+  component "Leaf Classifier\n论文目标组件" as C_Classify
+}
+
+package "领域组件" {
+  component "Geometry256\nLine256 / Segment256 / Polygon256" as C_Geom
+  component "PlaneGeometry256\nPlane3i / HomPoint4i / PlanePoint3i" as C_Plane
+  component "WindingNumber\nWNV / BoolStatus / f_diff / f_union" as C_Winding
+}
+
+package "基础组件" {
+  component "Math256\n256-bit arithmetic helpers" as C_Math
+  component "slimcpplib Adapter\nint256_t backend" as C_Slim
+  component "Optional External Geometry Libs\nEigen3 / CGAL" as C_Third
+}
+
+database "Mesh Files" as C_FS
+
+interface "IProblemSetup" as I_Setup
+interface "ISolverRuntime" as I_Solver
+interface "IGeometryKernel" as I_Geom
+interface "IArithmeticKernel" as I_Arith
+interface "IFileAccess" as I_File
+
+C_App --> I_Setup
+I_Setup - C_Problem
+
+C_IO --> I_File
+I_File - C_FS
+
+C_Problem --> C_Result
+C_Problem --> I_Solver
+I_Solver - C_Subdivision
+I_Solver - C_BSP
+I_Solver - C_Classify
+
+C_Subdivision --> C_Ref
+C_Subdivision --> C_Geom
+C_Ref --> C_Winding
+C_BSP --> C_Clip
+C_BSP --> C_Geom
+C_Clip --> C_Plane
+C_Clip --> C_Geom
+C_Classify --> C_Winding
+C_Classify --> C_Geom
+C_Result --> C_IO
+
+C_Geom --> I_Geom
+C_Plane --> I_Geom
+I_Geom - C_Math
+
+C_Winding --> I_Arith
+I_Arith - C_Math
+
+C_Math --> C_Slim
+C_Math ..> C_Third : optional
+
+note bottom of C_Subdivision
+当前仓库里，这个组件及其相邻的
+Reference WNV Propagator / Leaf Classifier
+仍主要停留在论文目标层面。
+end note
+
+@enduml

@@ -1,0 +1,132 @@
+@startuml
+title kEmber 分层架构图
+caption 参考论文译文与当前工程目录整理的分层总览，按层展示模块，不强调执行时序
+
+top to bottom direction
+
+skinparam backgroundColor #F3F7EE
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam packageStyle rectangle
+skinparam rectangle {
+  BackgroundColor white
+  BorderColor #2F2F2F
+  FontColor #111827
+  RoundCorner 0
+}
+
+rectangle "命令行 / Demo 调用方" as ExtCaller
+rectangle "输入模型文件\nOBJ / STL / Polygon Soup" as ExtInput
+rectangle "批处理脚本 / 测试驱动" as ExtScript
+rectangle "结果消费者\n可视化 / 下游处理" as ExtOutput
+
+rectangle "用户接口层" #BEEFFF {
+  together {
+    rectangle "程序入口\nsrc/application/main.cpp" as UI_Main
+    rectangle "运行配置 / 参数对象\n任务参数与入口配置" as UI_Config
+    rectangle "批处理入口\n测试 / 脚本调用入口" as UI_Batch
+    rectangle "结果输出接口\n输出组织与展示入口" as UI_Out
+  }
+}
+
+rectangle "应用编排层" #EAC7E9 {
+  together {
+    rectangle "布尔问题装配\nsrc/core/bool_problem.h/.cpp" as APP_Problem
+    rectangle "求解任务编排\n输入 polygon 集合组织" as APP_Orchestrate
+    rectangle "场景边界计算\ncomputeAABBPlanes()" as APP_AABB
+    rectangle "结果汇总\n输出面收集与归并" as APP_Result
+    rectangle "任务数据对象\n局部子问题 / 参考状态" as APP_DTO
+  }
+}
+
+rectangle "核心算法层" #FFE3A8 {
+  together {
+    rectangle "空间细分\n论文 4.1 / 4.2\n规划实现" as ALG_Subdivision
+    rectangle "参考点与 WNV 传播\n论文 4.2.2 / 4.4\n规划实现" as ALG_Ref
+    rectangle "局部 BSP 构建\nsrc/algorithm/bsp.h/.cpp" as ALG_BSP
+    rectangle "裁剪与交线载体\nsrc/geometry/clipping.h/.cpp" as ALG_Clip
+    rectangle "叶面分类\nsegment tracing / f_op(WNV)\n规划实现" as ALG_Classify
+  }
+}
+
+rectangle "几何领域模型层" #FFDFA8 {
+  together {
+    rectangle "几何图元\nLine256 / Segment256 / Polygon256\nsrc/geometry/geometry256.h/.cpp" as DOMAIN_Geom
+    rectangle "平面点线表示\nPlane3i / HomPoint4i / PlanePoint3i\nsrc/geometry/plane_geometry256.h" as DOMAIN_Plane
+    rectangle "绕数与布尔语义\nWNV / BoolStatus / f_diff / f_union\nsrc/math/winding_number.h" as DOMAIN_Winding
+    rectangle "局部 BSP 领域对象\nBSPNode / BSPTree" as DOMAIN_BSP
+    rectangle "参考点对象\nsrc/algorithm/WNV_tracing.h" as DOMAIN_Ref
+  }
+}
+
+rectangle "基础设施与数值层" #F4C5D1 {
+  together {
+    rectangle "文件导入导出适配\nsrc/io/io.h/.cpp\n当前为空壳" as INFRA_IO
+    rectangle "整数数学内核\nsrc/math/math256.h" as INFRA_Math
+    rectangle "第三方整数实现\ninclude/slimcpplib/*.h" as INFRA_Slim
+    rectangle "可选外部几何库\nEigen3 / CGAL\nCMake 可选依赖" as INFRA_3rd
+  }
+}
+
+database "文件系统" as FS
+rectangle "slimcpplib" as SlimLib
+rectangle "Eigen3 / CGAL\n可选" as ThirdLib
+
+ExtCaller --> UI_Main
+ExtInput --> UI_Config
+ExtScript --> UI_Batch
+UI_Out --> ExtOutput
+
+UI_Main --> APP_Problem
+UI_Config --> APP_Orchestrate
+UI_Batch --> APP_Orchestrate
+UI_Out --> APP_Result
+
+APP_Problem --> ALG_BSP
+APP_Orchestrate --> ALG_Subdivision
+APP_Orchestrate --> ALG_BSP
+APP_AABB --> ALG_Subdivision
+APP_Result --> ALG_Classify
+APP_DTO --> ALG_Ref
+
+ALG_Subdivision --> DOMAIN_Geom
+ALG_Subdivision --> DOMAIN_Ref
+ALG_Ref --> DOMAIN_Ref
+ALG_Ref --> DOMAIN_Winding
+ALG_BSP --> DOMAIN_BSP
+ALG_BSP --> DOMAIN_Geom
+ALG_Clip --> DOMAIN_Geom
+ALG_Clip --> DOMAIN_Plane
+ALG_Classify --> DOMAIN_Winding
+ALG_Classify --> DOMAIN_Geom
+
+DOMAIN_Geom --> INFRA_Math
+DOMAIN_Plane --> INFRA_Math
+DOMAIN_Winding --> INFRA_Math
+DOMAIN_BSP --> INFRA_Math
+DOMAIN_Ref --> INFRA_Math
+
+INFRA_IO --> FS
+INFRA_Math --> INFRA_Slim
+INFRA_3rd --> ThirdLib
+INFRA_Slim --> SlimLib
+
+APP_Orchestrate --> APP_AABB
+APP_Orchestrate --> APP_DTO
+APP_Result --> INFRA_IO
+UI_Config --> INFRA_IO
+
+note right of ALG_Subdivision
+论文定义的完整 EMBER 主流程包含：
+空间细分、参考点传播、叶面分类与早停并行。
+当前仓库已实装的核心是局部 BSP、裁剪和精确几何内核。
+end note
+
+legend right
+本图阅读方式：
+1. 自上而下看分层职责
+2. 同层看模块拆分
+3. 箭头仅表示主要依赖方向，不表示执行顺序
+endlegend
+
+@enduml

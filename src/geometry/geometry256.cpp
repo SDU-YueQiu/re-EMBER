@@ -285,6 +285,7 @@ namespace ember
     // 向内平移两条边构造内部点
     bool Polygon256::findStrictInteriorPoint(PlanePoint3i &outPoint) const noexcept
     {
+        //TODO:论文中这里是求浮点重心然后近似，现在是向内平移顶点，
         const std::size_t n = edgePlanes.size();
         if (n < 3)
         {
@@ -364,6 +365,7 @@ namespace ember
                 continue;
             }
 
+            //TODO:现在多边形边平面的约束是法向必须向外，这里现在是多余的
             const int interiorSideA = vertices[refIdxA].classify(edgePlanes[i]);
             const int interiorSideB = vertices[refIdxB].classify(edgePlanes[prev]);
             if (interiorSideA == 0 || interiorSideB == 0)
