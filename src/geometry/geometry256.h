@@ -2,7 +2,7 @@
 
 #include "math/math256.h"
 #include "geometry/plane_geometry256.h"
-#include "math/winding_number.h"
+#include "math/winding_number_f.h"
 
 #include <cstddef>
 #include <vector>

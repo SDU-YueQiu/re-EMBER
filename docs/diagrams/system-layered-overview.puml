@@ -53,7 +53,7 @@ rectangle "几何领域模型层" #FFDFA8 {
   together {
     rectangle "几何图元\nLine256 / Segment256 / Polygon256\nsrc/geometry/geometry256.h/.cpp" as DOMAIN_Geom
     rectangle "平面点线表示\nPlane3i / HomPoint4i / PlanePoint3i\nsrc/geometry/plane_geometry256.h" as DOMAIN_Plane
-    rectangle "绕数与布尔语义\nWNV / BoolStatus / f_diff / f_union\nsrc/math/winding_number.h" as DOMAIN_Winding
+    rectangle "绕数与布尔语义\nWNV / BoolStatus / f_diff / f_union\nsrc/math/winding_number_f.h" as DOMAIN_Winding
     rectangle "局部 BSP 领域对象\nBSPNode / BSPTree" as DOMAIN_BSP
     rectangle "参考点对象\nsrc/algorithm/WNV_tracing.h" as DOMAIN_Ref
   }
