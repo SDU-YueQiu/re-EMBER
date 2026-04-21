@@ -10,4 +10,5 @@ namespace ember
         refPoint(const PlanePoint3i &p, const WNV &w) : point(p), wnv(w) {}
     };
 
+    
 }
