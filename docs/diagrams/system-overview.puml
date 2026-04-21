@@ -1,94 +1,115 @@
-﻿@startuml
-title kEmber 系统总览图
+@startuml
+title kEmber / EMBER system-overview
+caption 基于论文译文与当前仓库结构整理的高层设计总览
+
+left to right direction
+
 skinparam backgroundColor white
 skinparam shadowing false
-skinparam defaultTextAlignment left
+skinparam defaultTextAlignment center
 skinparam packageStyle rectangle
-skinparam rectangle {
-  RoundCorner 10
+skinparam componentStyle rectangle
+skinparam ArrowColor #475569
+skinparam package {
+  BorderColor #334155
+  FontColor #111827
+}
+skinparam component {
+  BorderColor #334155
+  FontColor #111827
+}
+skinparam note {
+  BackgroundColor #FFF7D6
+  BorderColor #D4A017
 }
 
-package "应用状态" {
-  rectangle "实验入口\nsrc/core/main.cpp\n当前整体被注释" as Main
-  rectangle "行为样例 / 断言验证\nsrc/tests/math256_tests.cpp" as Tests
+actor "调用方 / CLI / Demo" as Caller
+database "输入网格 / Polygon Soup" as Input
+database "输出结果 / Result Mesh" as Output
+
+rectangle "kEmber 系统" as System {
+  package "1. 接口与问题编排" #EEF6FF {
+    component "应用入口\nsrc/application/main.cpp\n当前为演示/占位" as App #F6F7F9
+    component "I/O 适配层\nsrc/io/io.h/.cpp\n当前为空壳" as IO #F6F7F9
+    component "问题容器 / 批处理入口\nsrc/core/bool_problem.h/.cpp\n维护 Polygon256 集合并批量 buildTrees()" as BoolProblem #DDF4E4
+    component "结果组装与导出\n按布尔指示函数筛选并输出面\n当前未闭环" as Export #FFE9A8
+  }
+
+  package "2. 细分运行时（论文主流程，待工程化补全）" #FFF7D6 {
+    component "自适应空间细分\nAABB / kd-like split\n参考论文 4.1 / 4.2" as Subdivision #FFE9A8
+    component "参考点与 WNV 传播\nlocal ref point + segment tracing\n参考论文 4.2.2 / 4.4" as RefWNV #FFE9A8
+    component "早停与并行调度\nwork stealing / early-out\n参考论文 4.5" as Runtime #FFE9A8
+  }
+
+  package "3. 叶子局部求解" #F8FAFC {
+    component "局部 BSP 构建\nsrc/algorithm/bsp.h/.cpp" as BSP #DDF4E4
+    component "相交载体与多边形裁剪\nsrc/geometry/clipping.h/.cpp" as Clip #DDF4E4
+    component "WNV / WNTV 状态载体\nsrc/math/winding_number.h\nsrc/algorithm/WNV_tracing.h" as Winding #FFF4CC
+    component "叶面分类与布尔筛选\nsegment tracing + f_op(WNV)\n参考论文 4.4" as Classify #FFE9A8
+  }
+
+  package "4. 精确几何内核" #F8FAFC {
+    component "多边形 / 线段 / 直线\nsrc/geometry/geometry256.h/.cpp" as Geometry #DDF4E4
+    component "平面 / 齐次点 / 三平面交\nsrc/geometry/plane_geometry256.h" as PlaneGeom #DDF4E4
+    component "256 位整数 / 向量 / 行列式\nsrc/math/math256.h" as Math256 #DDF4E4
+    component "slimcpplib\ninclude/slimcpplib/*.h" as Slim #E5E7EB
+  }
+
+  package "5. 验证与回归" #F9FAFB {
+    component "单元测试 / 行为样例\nsrc/tests/math256_tests.*" as Tests #DDF4E4
+  }
 }
 
-package "核心层" {
-  rectangle "BoolProblem\n- 收集输入多边形\n- 为每个输入多边形建立一棵 BSPTree\n- 计算整体 AABB" as BoolProblem
-}
+Caller --> App : 提交场景 / 运算请求
+Input --> IO : 读入模型
+IO --> BoolProblem : 组装 Polygon256 集合
+App --> BoolProblem : 驱动求解
 
-package "算法层" {
-  rectangle "BSPTree\n- setBasePolygon()\n- insert()\n- collectLeafGeometries()\n- addSegmentRecursive()" as BSPTree
-  rectangle "BSPNode\n- isLeaf\n- disabled\n- splitPlane\n- leafGeometry" as BSPNode
-  rectangle "裁剪与求交\n- computePolygonPlaneIntersection()\n- computePolygonIntersectionCarrier()\n- clipLeafGeometryByPlane()" as Clipping
-  rectangle "WNV_tracing\n当前仅有占位结构" as WNVTracing
-}
+BoolProblem --> BSP : 当前主路径\n为每个多边形建立局部树
+BoolProblem ..> Subdivision : 未来主控入口\ncomputeAABBPlanes()
+Subdivision ..> Clip : 按分割平面裁剪子问题
+Subdivision ..> RefWNV : 更新子问题参考点
+Subdivision ..> Runtime : 派发 / 剪枝子问题
+Runtime ..> Subdivision : work stealing / 继续递归
+Subdivision ..> BSP : 到达叶子后转局部求解
 
-package "几何层" {
-  rectangle "Polygon256\n- plane\n- edgePlanes\n- isValid()\n- classify()\n- containsStrictly()" as Polygon256
-  rectangle "Segment256" as Segment256
-  rectangle "Line256" as Line256
-}
+BSP --> Clip : addSegment / clipLeafGeometry
+BSP --> Geometry : 叶节点保存 Polygon256
+Clip --> Geometry : 交线端点与裁剪结果
+Classify ..> Geometry : 读取叶面几何
+Classify ..> Winding : 计算 WNVF / WNVB
+RefWNV ..> Winding : 传播参考 WNV
+Winding ..> Geometry : 状态附着于 Polygon256
 
-package "数学层" {
-  rectangle "Plane3i" as Plane3i
-  rectangle "PlanePoint3i" as PlanePoint3i
-  rectangle "HomPoint4i" as HomPoint4i
-  rectangle "Vec2i / Vec3i" as Vec
-  rectangle "WNV / BoolStatus" as WNV
-}
+Geometry --> PlaneGeom : 点/线/面基元
+PlaneGeom --> Math256 : determinant / classify
+Math256 --> Slim : int256_t
 
-package "第三方依赖" {
-  rectangle "slimcpplib\nint256_t" as Slim
-}
+Classify ..> Export : 保留 / 翻转 / 丢弃输出面
+BoolProblem ..> Export : 汇总子结果
+Export ..> IO : 序列化网格 / 调试产物
+IO --> Output : 写出结果
 
-Main ..> BoolProblem : 旧实验流程依赖
-Tests ..> BoolProblem : 行为验证
-Tests ..> BSPTree
-Tests ..> Clipping
-Tests ..> Polygon256
-Tests ..> Plane3i
+Tests ..> BoolProblem
+Tests ..> BSP
+Tests ..> Clip
+Tests ..> Geometry
+Tests ..> PlaneGeom
+Tests ..> Math256
 
-BoolProblem --> BSPTree : 持有多棵树
-BSPTree --> BSPNode : 递归节点结构
-BSPTree --> Clipping : 调用裁剪与求交
-BSPTree --> Polygon256 : 基底与叶子几何
-Clipping --> Polygon256 : 输入 / 输出
-Clipping --> Plane3i
-Clipping --> PlanePoint3i
-
-Polygon256 --> Plane3i
-Polygon256 --> PlanePoint3i
-Segment256 --> Line256
-Segment256 --> Plane3i
-Line256 --> Plane3i
-PlanePoint3i --> HomPoint4i
-PlanePoint3i --> Plane3i
-Plane3i --> Vec
-
-Vec --> Slim
-Plane3i --> Slim
-HomPoint4i --> Slim
-WNV ..> Polygon256 : 作为状态字段保存
-WNVTracing ..> WNV : 当前未接入主流程
-
-note right of BoolProblem
-当前职责：
-- 问题级组织器
-- 不负责最终布尔结果拼装
-- 不负责 mesh 输出
+note top of Subdivision
+论文高层流程的主干是：
+递归细分 -> 参考点传播 -> 局部 BSP -> WNV 分类 -> 结果筛选。
+当前仓库已经实现其中最底层的精确几何、裁剪与局部 BSP。
 end note
 
-note right of BSPTree
-当前职责：
-- 切分单个 base polygon
-- 非共面路径：先求交，再裁剪
-- 共面路径：插入边界，再禁用重叠叶子
-end note
-
-note bottom of Main
-当前仓库的 CMake 仍定义了可执行文件，
-但仓库里没有启用中的 main()。
-end note
+legend right
+|= 颜色 |= 含义 |
+|<#DDF4E4>| 当前仓库已有实现 |
+|<#FFF4CC>| 已有类型或占位，但流程尚未闭环 |
+|<#F6F7F9>| 演示入口或空壳适配层 |
+|<#FFE9A8>| 论文定义的目标模块，待工程化补全 |
+|<#E5E7EB>| 第三方基础依赖 |
+endlegend
 
 @enduml

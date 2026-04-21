@@ -4,7 +4,7 @@
 
 #include "geometry/geometry256.h"
 #include "math/math256.h"
-#include "math/plane_geometry256.h"
+#include "geometry/plane_geometry256.h"
 #include "algorithm/clipping.h"
 #include "algorithm/bsp.h"
 

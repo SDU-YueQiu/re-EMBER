@@ -8,14 +8,13 @@
 - 调用前需要满足什么约束
 - 还有哪些容易踩坑的补充说明
 
-如果你是从系统层面接手项目，建议先看 [HANDOVER_GUIDE.md](D:\Projects\Course\EMBER\kEmber\docs\HANDOVER_GUIDE.md)。
 
 ## 1. 目录索引
 
 | 模块 | 主要文件 | 主要内容 | 备注 |
 | --- | --- | --- | --- |
 | 数学基础 | `src/math/math256.h` | 256 位整数、向量、行列式、符号判断 | 所有几何算法的基础 |
-| 平面几何基础 | `src/math/plane_geometry256.h` | 平面、齐次点、三平面交点 | 点和线的核心表示基础 |
+| 平面几何基础 | `src/geometry/plane_geometry256.h` | 平面、齐次点、三平面交点 | 点和线的核心表示基础 |
 | 布尔状态辅助 | `src/math/winding_number.h` | `WNV`、`BoolStatus`、简单布尔状态函数 | 目前只是辅助，不是完整求解器 |
 | 几何对象 | `src/geometry/geometry256.h` | `Line256`、`Segment256`、`Polygon256` | 当前最重要的数据抽象层 |
 | 裁剪/求交 | `src/algorithm/clipping.h` | 多边形-平面求交、交线载体、叶子裁剪 | BSP 的关键下游依赖 |
@@ -29,9 +28,9 @@
 | `Integer` | `src/math/math256.h` | 256 位整数 | 实际类型为 `slim::int256_t` |
 | `Vec2i` | `src/math/math256.h` | 二维整数向量 | 用于 2D 行列式和方向判断 |
 | `Vec3i` | `src/math/math256.h` | 三维整数向量 | 用于平面法向与空间行列式 |
-| `Plane3i` | `src/math/plane_geometry256.h` | 平面 `a*x+b*y+c*z+d=0` | 整个几何系统的基础实体 |
-| `HomPoint4i` | `src/math/plane_geometry256.h` | 齐次点 | 用于精确平面关系判断 |
-| `PlanePoint3i` | `src/math/plane_geometry256.h` | 三平面交点 | 当前代码中“点”的主表示方式 |
+| `Plane3i` | `src/geometry/plane_geometry256.h` | 平面 `a*x+b*y+c*z+d=0` | 整个几何系统的基础实体 |
+| `HomPoint4i` | `src/geometry/plane_geometry256.h` | 齐次点 | 用于精确平面关系判断 |
+| `PlanePoint3i` | `src/geometry/plane_geometry256.h` | 三平面交点 | 当前代码中“点”的主表示方式 |
 | `Line256` | `src/geometry/geometry256.h` | 两平面交线 | 不是端点式线段表示 |
 | `Segment256` | `src/geometry/geometry256.h` | 直线 + 两个端点约束平面 | 构造时会自动调整端点平面方向 |
 | `Polygon256` | `src/geometry/geometry256.h` | 支撑平面 + 边界平面序列 | 默认针对凸多边形 |
@@ -371,20 +370,3 @@
 | 退化情况 | 整边重合、平面平行、非唯一交点等情况，当前很多接口会直接返回 `false` |
 | 共面裁决 | `BSPTree` 中共面重叠依赖 `orderKey` 进行优先级处理 |
 | 稳定性 | `WNTV/WNVF/WNVB` 相关语义还没有在系统层闭合，不建议过度依赖 |
-
-## 12. 参考实现来源
-
-| 文件 | 用途 |
-| --- | --- |
-| `src/math/math256.h` | 数值与向量基础 |
-| `src/math/plane_geometry256.h` | 平面与点的表示 |
-| `src/math/winding_number.h` | 布尔状态辅助 |
-| `src/geometry/geometry256.h` | 几何对象接口 |
-| `src/geometry/geometry256.cpp` | 几何对象实现 |
-| `src/algorithm/clipping.h` | 裁剪/求交接口 |
-| `src/algorithm/clipping.cpp` | 裁剪/求交实现 |
-| `src/algorithm/bsp.h` | BSP 接口 |
-| `src/algorithm/bsp.cpp` | BSP 实现 |
-| `src/core/bool_problem.h` | 问题级接口 |
-| `src/core/bool_problem.cpp` | 问题级实现 |
-| `src/tests/math256_tests.cpp` | 当前最可靠的行为验证样例 |

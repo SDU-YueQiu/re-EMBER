@@ -1,7 +1,7 @@
 #pragma once
 
 #include "math/math256.h"
-#include "math/plane_geometry256.h"
+#include "geometry/plane_geometry256.h"
 #include "math/winding_number.h"
 
 #include <cstddef>
