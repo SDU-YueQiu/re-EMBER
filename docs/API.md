@@ -15,7 +15,7 @@
 | --- | --- | --- | --- |
 | 数学基础 | `src/math/math256.h` | 256 位整数、向量、行列式、符号判断 | 所有几何算法的基础 |
 | 平面几何基础 | `src/geometry/plane_geometry256.h` | 平面、齐次点、三平面交点 | 点和线的核心表示基础 |
-| 布尔状态辅助 | `src/math/winding_number.h` | `WNV`、`BoolStatus`、简单布尔状态函数 | 目前只是辅助，不是完整求解器 |
+| 布尔状态辅助 | `src/math/winding_number_f.h` | `WNV`、`BoolStatus`、简单布尔状态函数 | 目前只是辅助，不是完整求解器 |
 | 几何对象 | `src/geometry/geometry256.h` | `Line256`、`Segment256`、`Polygon256` | 当前最重要的数据抽象层 |
 | 裁剪/求交 | `src/algorithm/clipping.h` | 多边形-平面求交、交线载体、叶子裁剪 | BSP 的关键下游依赖 |
 | BSP | `src/algorithm/bsp.h` | `BSPNode`、`BSPTree` | 单个基底多边形的切分结构 |
@@ -37,8 +37,8 @@
 | `BSPNode` | `src/algorithm/bsp.h` | BSP 树节点 | 更偏内部结构，不建议上层直接依赖 |
 | `BSPTree` | `src/algorithm/bsp.h` | 单个基底多边形的切分树 | 当前算法层的核心输出对象 |
 | `BoolProblem` | `src/core/bool_problem.h` | 问题级容器 | 负责组织多边形和批量建树 |
-| `WNV` | `src/math/winding_number.h` | 绕组数向量 | 当前只作为状态载体 |
-| `BoolStatus` | `src/math/winding_number.h` | `IN/OUT` 状态 | 用于简单布尔状态判断 |
+| `WNV` | `src/math/winding_number_f.h` | 绕组数向量 | 当前只作为状态载体 |
+| `BoolStatus` | `src/math/winding_number_f.h` | `IN/OUT` 状态 | 用于简单布尔状态判断 |
 
 ## 3. 数学基础接口
 
@@ -134,7 +134,7 @@
 
 ## 5. 布尔状态辅助接口
 
-### 5.1 `winding_number.h`
+### 5.1 `winding_number_f.h`
 
 | 名称 | 介绍 | 参数 | 返回值 | 补充 |
 | --- | --- | --- | --- | --- |

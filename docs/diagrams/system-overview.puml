@@ -44,7 +44,7 @@ rectangle "kEmber 系统" as System {
   package "3. 叶子局部求解" #F8FAFC {
     component "局部 BSP 构建\nsrc/algorithm/bsp.h/.cpp" as BSP #DDF4E4
     component "相交载体与多边形裁剪\nsrc/geometry/clipping.h/.cpp" as Clip #DDF4E4
-    component "WNV / WNTV 状态载体\nsrc/math/winding_number.h\nsrc/algorithm/WNV_tracing.h" as Winding #FFF4CC
+    component "WNV / WNTV 状态载体\nsrc/math/winding_number_f.h\nsrc/algorithm/WNV_tracing.h" as Winding #FFF4CC
     component "叶面分类与布尔筛选\nsegment tracing + f_op(WNV)\n参考论文 4.4" as Classify #FFE9A8
   }
 

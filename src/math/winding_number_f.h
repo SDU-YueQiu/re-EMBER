@@ -1,3 +1,5 @@
+//环绕数和面分类时的指示函数
+
 #pragma once
 
 #include <vector>
