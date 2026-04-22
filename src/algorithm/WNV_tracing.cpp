@@ -2,78 +2,208 @@
 
 namespace ember
 {
+    enum class PathPointStatus
+    {
+        OFF_POSITIVE,
+        OFF_NEGATIVE,
+        ON_POLYGON_STRICT,
+        ON_BOUNDARY,
+        ON_PLANE_OUTSIDE
+    };
+
+    PathPointStatus classifyPathPoint(const PlanePoint3i &point, const Polygon256 &poly) noexcept
+    {
+        const int planeSide = point.classify(poly.plane);
+        if (planeSide > 0)
+        {
+            return PathPointStatus::OFF_POSITIVE;
+        }
+        if (planeSide < 0)
+        {
+            return PathPointStatus::OFF_NEGATIVE;
+        }
+        if (poly.containsStrictly(point))
+        {
+            return PathPointStatus::ON_POLYGON_STRICT;
+        }
+        if (poly.containsOrOnBoundary(point))
+        {
+            return PathPointStatus::ON_BOUNDARY;
+        }
+        return PathPointStatus::ON_PLANE_OUTSIDE;
+    }
+
+    int offPlaneSide(PathPointStatus status) noexcept
+    {
+        if (status == PathPointStatus::OFF_POSITIVE)
+        {
+            return 1;
+        }
+        if (status == PathPointStatus::OFF_NEGATIVE)
+        {
+            return -1;
+        }
+        return 0;
+    }
+
+    bool accumulateWNTV(WNV &targetWNV, const WNV &delta, int sigma) noexcept
+    {
+        if (targetWNV.size() != delta.size())
+        {
+            return false;
+        }
+
+        for (std::size_t i = 0; i < targetWNV.size(); ++i)
+        {
+            targetWNV[i] += sigma * delta[i];
+        }
+
+        return true;
+    }
 
     traceStatus tracePathWNV(const refPoint &refpoint, const Path &path, const std::vector<Polygon256> &polygons, WNV &targetWNV)
     {
-        // 实现为对path里的每条线段遍历所有多边形求交，然后累加wnvt到wnv上
-
+        // 按 polygon 扫整条 path，把连续的面内段折叠成一次穿越事件再累加 WNTV。
         auto tmpwnv = refpoint.wnv;
 
-        bool prePointInPolygon = false;
+        if (path.empty())
+        {
+            targetWNV = tmpwnv;
+            return SUCCESS;
+        }
 
-        for (int i = 0; i < path.size(); i++)
+        std::vector<PlanePoint3i> pathPoints;
+        pathPoints.reserve(path.size() + 1);
+        for (std::size_t i = 0; i < path.size(); ++i)
         {
             const auto &seg = path[i];
-
-            // TODO：测试中若发现性能需要优化，应为调用前明确约束参数有效性然后关闭该函数的有效性检查
             if (!seg.isValid())
-                return INVALID_SEGMENT;
-
-            for (int j = 0; j < polygons.size(); j++)
             {
-                const auto &poly = polygons[j];
-                if (!poly.isValid())
-                    return INVALID_POLYGON;
+                return INVALID_SEGMENT;
+            }
 
-                PlanePoint3i intersectPoint;
-                // 线段与多边形存在内部交点（仅一个）
-                if (intersectionSegmentPolygon(seg, poly, intersectPoint))
+            if (i == 0)
+            {
+                pathPoints.push_back(seg.getStartPoint());
+            }
+            pathPoints.push_back(seg.getEndPoint());
+        }
+
+        for (const auto &poly : polygons)
+        {
+            if (!poly.isValid())
+            {
+                return INVALID_POLYGON;
+            }
+            if (poly.WNTV.size() != tmpwnv.size())
+            {
+                return FAIL;
+            }
+
+            PathPointStatus prevStatus = classifyPathPoint(pathPoints.front(), poly);
+            if (prevStatus == PathPointStatus::ON_BOUNDARY)
+            {
+                return BOUNDARY_HIT;
+            }
+            if (prevStatus == PathPointStatus::ON_POLYGON_STRICT)
+            {
+                return START_AT_POLYGON;
+            }
+
+            int pendingSide = offPlaneSide(prevStatus);
+            bool insideRun = false;
+
+            for (std::size_t i = 0; i < path.size(); ++i)
+            {
+                const auto &seg = path[i];
+                const PathPointStatus currStatus = classifyPathPoint(pathPoints[i + 1], poly);
+
+                if (currStatus == PathPointStatus::ON_BOUNDARY)
                 {
-                    if (!poly.containsStrictly(intersectPoint))
+                    return BOUNDARY_HIT;
+                }
+
+                if (currStatus == PathPointStatus::ON_POLYGON_STRICT)
+                {
+                    if (prevStatus == PathPointStatus::ON_PLANE_OUTSIDE)
+                    {
                         return BOUNDARY_HIT;
-
-                    PlanePoint3i startPoint = seg.getStartPoint();
-                    PlanePoint3i endPoint = seg.getEndPoint();
-
-                    int scp = startPoint.classify(poly.plane); // start point classify polygon
-                    int ecp = endPoint.classify(poly.plane);
-
-                    // 路径起点落在多边形内部时无法处理
-                    // 其他情况该线段终点会和前面一条线段起点并做一次计算不会进这条分支
-                    if (scp == 0)
-                    {
-                        if (i == 0)
-                            return START_AT_POLYGON;
-                        else
-                            return FAIL; // 正常情况下不会到这儿
                     }
 
-                    if (ecp == 0)
+                    const int prevSide = offPlaneSide(prevStatus);
+                    if (prevSide != 0)
                     {
-                        if (i == path.size() - 1)
-                            return END_AT_POLYGON;
-                        else // 末端在多边形外部，只看当前线段起点和下一条线段终点
-                        {
-                            const auto &nextEndPoint = path[i + 1].getEndPoint();
-                            int necp = nextEndPoint.classify(poly.plane);//next ecp
-                            if(necp)
-                        }
+                        pendingSide = prevSide;
+                        insideRun = true;
+                    }
+                    else if (prevStatus != PathPointStatus::ON_POLYGON_STRICT)
+                    {
+                        return FAIL;
                     }
 
-                    // clean case
-                    // 点对面分类时已经包含了面的法向量
-                    int sigma = (scp - ecp) / 2;
-                    for (int k = 0; k < tmpwnv.size(); ++k)
-                        tmpwnv[k] += sigma * poly.WNTV[k];
+                    prevStatus = currStatus;
+                    continue;
+                }
+
+                if (currStatus == PathPointStatus::ON_PLANE_OUTSIDE)
+                {
+                    if (prevStatus == PathPointStatus::ON_POLYGON_STRICT)
+                    {
+                        return BOUNDARY_HIT;
+                    }
+
+                    prevStatus = currStatus;
+                    continue;
+                }
+
+                const int currSide = offPlaneSide(currStatus);
+                if (currSide == 0)
+                {
+                    return FAIL;
+                }
+
+                if (insideRun)
+                {
+                    const int sigma = (pendingSide - currSide) / 2;
+                    if (sigma != 0 && !accumulateWNTV(tmpwnv, poly.WNTV, sigma))
+                    {
+                        return FAIL;
+                    }
+                    insideRun = false;
                 }
                 else
-                    continue;
+                {
+                    const int prevSide = offPlaneSide(prevStatus);
+                    if (prevSide != 0 && prevSide != currSide)
+                    {
+                        PlanePoint3i intersectPoint;
+                        if (intersectionSegmentPolygon(seg, poly, intersectPoint))
+                        {
+                            if (!poly.containsStrictly(intersectPoint))
+                            {
+                                return BOUNDARY_HIT;
+                            }
+
+                            const int sigma = (prevSide - currSide) / 2;
+                            if (!accumulateWNTV(tmpwnv, poly.WNTV, sigma))
+                            {
+                                return FAIL;
+                            }
+                        }
+                    }
+                }
+
+                pendingSide = currSide;
+                prevStatus = currStatus;
+            }
+
+            if (insideRun || prevStatus == PathPointStatus::ON_POLYGON_STRICT)
+            {
+                return END_AT_POLYGON;
             }
         }
 
-        // 成功计算wnv
         targetWNV = tmpwnv;
-
         return SUCCESS;
     }
 }
