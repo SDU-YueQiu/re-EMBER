@@ -44,8 +44,8 @@ namespace ember
      * @param[out] targetWNV 成功时写入传播后的 WNV；仅在返回 `SUCCESS` 时有效。
      *
      * @retval SUCCESS 成功完成传播，结果已写入 `targetWNV`。
-     * @retval PATH_INVALID 路径无效，无法完成传播。
-     * @retval INPUT_INVALID 输入多边形或路径中线段无效。
+     * @retval PATH_INVALID 路径无法完成传播，需要重新选择路径。
+     * @retval INPUT_INVALID 输入多边形或路径中线段不合法或路径不连续、起点不是参考点等不合法问题。
      * @retval FAIL 未预期失败情况
      *
      */
