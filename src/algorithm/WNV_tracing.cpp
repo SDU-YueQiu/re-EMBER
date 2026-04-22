@@ -17,9 +17,20 @@ namespace ember
         {
             if (!poly.isValid())
                 return INPUT_INVALID;
+            if (poly.WNTV.size() != refpoint.wnv.size())
+                return INPUT_INVALID;
+        }
+
+        if (path.empty())
+        {
+            targetWNV = refpoint.wnv;
+            return SUCCESS;
         }
 
         // 检查路径是否连续
+        if (!areSamePlanePoint(path[0].getStartPoint(), refpoint.point))
+            return INPUT_INVALID;
+
         for (int i = 1; i < path.size(); i++)
         {
             auto preEnd = path[i - 1].getEndPoint();
@@ -66,12 +77,13 @@ namespace ember
                     for (int k = 0; k < tmpwnv.size(); ++k)
                         tmpwnv[k] += sigma * poly.WNTV[k];
                 }
-                else
-                    continue;
+
+                pcs = pce;
             }
         }
 
         // 成功计算wnv
+        targetWNV.resize(tmpwnv.size());
         targetWNV = tmpwnv;
 
         return SUCCESS;
