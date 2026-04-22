@@ -157,7 +157,7 @@ namespace ember
         // 每个顶点都应在多边形内部或边界（用于过滤错误顺序）
         for (const PlanePoint3i &v : vertices)
         {
-            if (classify(v) == 0)
+            if (!containsOrOnBoundary(v))
             {
                 return false;
             }
@@ -211,15 +211,16 @@ namespace ember
     {
         if (!point.hasUniqueIntersection())
         {
-            return 0;
+            return -2;
         }
 
-        if (point.classify(plane) != 0)
+        const int planeSide = point.classify(plane);
+        if (planeSide != 0)
         {
-            return 0;
+            return planeSide;
         }
 
-        // 要求边平面法向指向一致，但指向内部还是外部不要求
+        // 在支撑平面上时：边平面符号一致表示点在多边形内或边界上；符号混杂表示共面但在外部。
         bool hasPositive = false;
         bool hasNegative = false;
         for (const Plane3i &edge : edgePlanes)
@@ -236,19 +237,10 @@ namespace ember
 
             if (hasPositive && hasNegative)
             {
-                return 0;
+                return 2;
             }
         }
 
-        if (hasPositive)
-        {
-            return 1;
-        }
-        if (hasNegative)
-        {
-            return -1;
-        }
-        // 多边形可能退化成一个点，此时先保证程序正常运行
         return 0;
     }
 
@@ -283,7 +275,7 @@ namespace ember
 
     bool Polygon256::containsOrOnBoundary(const PlanePoint3i &point) const noexcept
     {
-        return classify(point) != 0;
+        return point.hasUniqueIntersection() && classify(point) == 0;
     }
 
     // 向内平移两条边构造内部点

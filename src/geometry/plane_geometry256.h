@@ -68,6 +68,7 @@ namespace ember
 
     inline constexpr bool areSameHomPoint(const HomPoint4i &lhs, const HomPoint4i &rhs) noexcept
     {
+        //TODO：检查该函数的精度是否会溢出
         if (lhs.hasSameComponents(rhs))
         {
             return true;
