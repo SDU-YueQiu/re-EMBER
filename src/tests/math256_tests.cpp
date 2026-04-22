@@ -5,7 +5,7 @@
 #include "geometry/geometry256.h"
 #include "math/math256.h"
 #include "geometry/plane_geometry256.h"
-#include "algorithm/clipping.h"
+#include "geometry/clipping.h"
 #include "algorithm/bsp.h"
 
 using ember::Integer;
@@ -218,6 +218,14 @@ void runMath256Tests()
 		{
 			assert(interior.classify(edge) < 0);
 		}
+
+		ember::Polygon256 inwardSquare;
+		inwardSquare.plane = pz;
+		inwardSquare.addEdgePlane(ember::Plane3i::fromPointNormal(Vec3i(0, 0, 3), Vec3i(0, 1, 0)));
+		inwardSquare.addEdgePlane(ember::Plane3i::fromPointNormal(Vec3i(2, 0, 3), Vec3i(-1, 0, 0)));
+		inwardSquare.addEdgePlane(ember::Plane3i::fromPointNormal(Vec3i(0, 2, 3), Vec3i(0, -1, 0)));
+		inwardSquare.addEdgePlane(ember::Plane3i::fromPointNormal(Vec3i(0, 0, 3), Vec3i(1, 0, 0)));
+		assert(!inwardSquare.isValid());
 	}
 
 	{

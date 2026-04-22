@@ -4,13 +4,13 @@
 
 namespace ember
 {
-    //返回使用平面方程反转后的平面
+    // 返回使用平面方程反转后的平面
     Plane3i flippedPlane(const Plane3i &plane) noexcept
     {
         return Plane3i(-plane.a, -plane.b, -plane.c, -plane.d);
     }
 
-    //保证多边形边平面法向向外
+    // 保证多边形边平面法向向外
     void orientPolygonEdgesOutward(const Plane3i &supportPlane, std::vector<Plane3i> &edges) noexcept
     {
         const std::size_t n = edges.size();
@@ -64,7 +64,7 @@ namespace ember
         }
     }
 
-    //保证线段端点平面法向正确
+    // 保证线段端点平面法向正确
     void orientSegmentBoundsOutward(Plane3i &startPlane, Plane3i &endPlane, const Line256 &directionLine) noexcept
     {
         if (!directionLine.isValid())
@@ -72,7 +72,7 @@ namespace ember
             return;
         }
 
-        //TODO：为点添加更多构造函数
+        // TODO：为点添加更多构造函数
         const PlanePoint3i startPoint(directionLine.p1, directionLine.p2, startPlane);
         const PlanePoint3i endPoint(directionLine.p1, directionLine.p2, endPlane);
         if (!startPoint.hasUniqueIntersection() || !endPoint.hasUniqueIntersection())
@@ -102,7 +102,6 @@ namespace ember
         orientSegmentBoundsOutward(start, end, direction);
     }
 
-    // 该方法对法向不封闭
     void Polygon256::addEdgePlane(const Plane3i &edge)
     {
         edgePlanes.push_back(edge);
@@ -197,6 +196,11 @@ namespace ember
                 {
                     return false; // 同一条边两侧都有顶点，非凸或顺序错误
                 }
+            }
+
+            if (refSide != -1)
+            {
+                return false; // 法向约定要求非邻接顶点都在边平面的负侧，即边平面法向向外
             }
         }
 
@@ -364,7 +368,7 @@ namespace ember
                 continue;
             }
 
-            //TODO:现在多边形边平面的约束是法向必须向外，这里现在是多余的
+            // TODO:现在多边形边平面的约束是法向必须向外，这里现在是多余的
             const int interiorSideA = vertices[refIdxA].classify(edgePlanes[i]);
             const int interiorSideB = vertices[refIdxB].classify(edgePlanes[prev]);
             if (interiorSideA == 0 || interiorSideB == 0)
@@ -407,16 +411,17 @@ namespace ember
         return isZero(crossVec.x) && isZero(crossVec.y) && isZero(crossVec.z);
     }
 
-    bool intersectionSegmentPolygon(Segment256 &seg, Polygon256 &poly, PlanePoint3i &outPoint)
+    bool intersectionSegmentPolygon(const Segment256 &seg, const Polygon256 &poly, PlanePoint3i &outPoint)
     {
         outPoint = intersect(seg.direction, poly.plane);
 
-        if (outPoint.hasUniqueIntersection() == false || poly.containsStrictly(outPoint) == false)
+        if (outPoint.hasUniqueIntersection() == false || poly.containsOrOnBoundary(outPoint) == false)
             return false;
 
-        // 点在线段内
-        if (outPoint.classify(seg.start) == -1 && outPoint.classify(seg.end) == -1)
+        // 点在线段内（含端点）
+        if (outPoint.classify(seg.start) != 1 && outPoint.classify(seg.end) != 1)
             return true;
+
         return false;
     }
 }

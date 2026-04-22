@@ -50,6 +50,16 @@ namespace ember
         Segment256(const Plane3i &startPlane, const Plane3i &endPlane) noexcept;
         Segment256(const Plane3i &startPlane, const Plane3i &endPlane, const Line256 &directionLine) noexcept;
 
+        constexpr PlanePoint3i getStartPoint() const noexcept
+        {
+            return intersect(direction, start);
+        }
+
+        constexpr PlanePoint3i getEndPoint() const noexcept
+        {
+            return intersect(direction, end);
+        }
+
         constexpr bool isValid() const noexcept
         {
             PlanePoint3i s = intersect(direction, start);
@@ -81,8 +91,10 @@ namespace ember
         Polygon256() = default;
         Polygon256(const Plane3i &supportPlane, std::vector<Plane3i> edges);
 
+        // 该方法对法向不封闭
         void addEdgePlane(const Plane3i &edge);
         std::size_t edgeCount() const noexcept;
+
         bool isValid() const noexcept;
 
         // 返回值0在外，在内时根据边平面法向指向不同返回值+-1（尽管边平面指向有约束向外，但该函数并不强制负号）
@@ -106,6 +118,17 @@ namespace ember
 
     bool areParallel(const Line256 &lhs, const Line256 &rhs) noexcept;
 
-    // 求线段和多边形的交点，如果有交点返回true和outPoint
-    bool intersectionSegmentPolygon(Segment256 &seg, Polygon256 &poly, PlanePoint3i &outPoint);
+    /**
+     * @brief 求线段和多边形的交点
+     * 
+     * 并不区分严格内部，交在边上也行
+     * 
+     * @param seg 输入线段
+     * @param poly 输入多边形
+     * @param[out] outPoint 输出交点坐标（如果有交点）
+     * @return 如果有交点返回true，否则返回false
+     * 
+     * @todo 添加交在不同地方的不同返回状态
+     */
+    bool intersectionSegmentPolygon(const Segment256 &seg, const Polygon256 &poly, PlanePoint3i &outPoint);
 }
