@@ -110,7 +110,7 @@ void runMath256Tests()
 
 		assert(poly.isValid());
 		assert(poly.edgeCount() == 4u);
-		assert(poly.classify(lineHit) < 0);
+		assert(poly.classify(lineHit) == 0);
 		assert(poly.containsOrOnBoundary(lineHit));
 
 		{
@@ -213,7 +213,7 @@ void runMath256Tests()
 			ember::Plane3i::fromPointNormal(Vec3i(0, 1, 0), Vec3i(0, 1, 0)),
 			pz);
 		assert(interior.hasUniqueIntersection());
-		assert(autoOrientedSquare.classify(interior) < 0);
+		assert(autoOrientedSquare.classify(interior) == 0);
 		for (const ember::Plane3i& edge : autoOrientedSquare.edgePlanes)
 		{
 			assert(interior.classify(edge) < 0);

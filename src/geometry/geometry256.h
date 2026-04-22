@@ -47,7 +47,6 @@ namespace ember
         Line256 direction;
 
         Segment256() noexcept = default;
-        Segment256(const Plane3i &startPlane, const Plane3i &endPlane) noexcept;
         Segment256(const Plane3i &startPlane, const Plane3i &endPlane, const Line256 &directionLine) noexcept;
 
         constexpr PlanePoint3i getStartPoint() const noexcept
@@ -97,7 +96,11 @@ namespace ember
 
         bool isValid() const noexcept;
 
-        // 返回值0在外，在内时根据边平面法向指向不同返回值+-1（尽管边平面指向有约束向外，但该函数并不强制负号）
+        // 临时返回约定：
+        // -2: 输入点无唯一交点，属于数据错误
+        // -1/+1: 点不在多边形内，且分别位于支撑平面负侧/正侧
+        //  0: 点在多边形内或边界上
+        //  2: 点在支撑平面上，但不在多边形内
         int classify(const PlanePoint3i &point) const noexcept;
 
         bool containsStrictly(const PlanePoint3i &point) const noexcept;
@@ -121,7 +124,7 @@ namespace ember
     /**
      * @brief 求线段和多边形的交点
      * 
-     * 并不区分严格内部，交在边上也行
+     * 并不区分严格内部，交在边上也行，但只能有一个交点，有一段重叠的返回false
      * 
      * @param seg 输入线段
      * @param poly 输入多边形
