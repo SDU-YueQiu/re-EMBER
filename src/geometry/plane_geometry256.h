@@ -159,6 +159,8 @@ namespace ember
         {
         }
 
+        constexpr PlanePoint3i() noexcept = default;
+
         constexpr bool hasUniqueIntersection() const noexcept
         {
             return ember::hasUniqueIntersection(p, q, r);

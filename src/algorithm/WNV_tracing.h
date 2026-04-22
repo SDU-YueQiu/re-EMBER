@@ -21,12 +21,13 @@ namespace ember
     /// 路径追踪结果状态。
     enum traceStatus
     {
-        SUCCESS,         ///< 成功完成传播，结果已写入 `targetWNV`。
-        BOUNDARY_HIT,    ///< 路径与某多边形边界相交，无法唯一确定穿越事件。
-        END_POINT_HIT,   ///< 路径终点落在某多边形内部。
-        PATH_COPLANAR,   ///< 路径中的某段与某多边形支撑平面共面。
-        INVALID_SEGMENT, ///< 路径中的某段退化或不满足 `Segment256` 约束。
-        INVALID_POLYGON  ///< 输入多边形退化或不满足 `Polygon256` 约束。
+        SUCCESS,          ///< 成功完成传播，结果已写入 `targetWNV`。
+        BOUNDARY_HIT,     ///< 路径与某多边形边界相交，无法唯一确定穿越事件。
+        END_AT_POLYGON,   ///< 路径终点落在某多边形内部。
+        INVALID_SEGMENT,  ///< 路径中的某段退化或不满足 `Segment256` 约束。
+        INVALID_POLYGON,  ///< 输入多边形退化或不满足 `Polygon256` 约束。
+        START_AT_POLYGON, ///< 路径起点落在某多边形内部。
+        FAIL              ///< 未预期失败情况
     };
 
     /**
@@ -36,6 +37,8 @@ namespace ember
      * 计算同一平面前后两侧的 WNV 时，建议只调用一次本函数，再结合平面法向区分
      * `Wf` 和 `Wb`，而不是调用两遍路径重复追踪。
      *
+     * 注意因为底层屎山，这里有些返回值还没发判断，需要在底层重构之后才能返回
+     *
      * @param[in] refpoint 已知 WNV 的参考点。
      * @param[in] path 用于传播的路径。
      * @param[in] polygons 参与更新 WNV 的多边形集合。
@@ -43,10 +46,13 @@ namespace ember
      *
      * @retval SUCCESS 成功完成传播，结果已写入 `targetWNV`。
      * @retval BOUNDARY_HIT 路径与某多边形边界相交，无法唯一确定穿越事件。
-     * @retval END_POINT_HIT 路径终点落在某多边形内部。
-     * @retval PATH_COPLANAR 路径中的某段与某多边形支撑平面共面。
+     * @retval END_AT_POLYGON 路径终点落在某多边形内部。
      * @retval INVALID_SEGMENT 路径中的某段退化或不满足 `Segment256` 约束。
      * @retval INVALID_POLYGON 输入多边形退化或不满足 `Polygon256` 约束。
+     * @retval START_AT_POLYGON 路径起点落在某多边形内部。
+     * @retval FAIL 未预期失败情况
+     *
+     * @todo 重构几何底层后能正常返回失败原因
      */
     traceStatus tracePathWNV(const refPoint &refpoint, const Path &path, const std::vector<Polygon256> &polygons, WNV &targetWNV);
 }
