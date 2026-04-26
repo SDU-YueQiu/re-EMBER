@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "algorithm/shit_wrapper.h"
 
@@ -261,3 +261,4 @@ namespace ember
         std::unique_ptr<BoolProblem> rightChild_;
     };
 }
+

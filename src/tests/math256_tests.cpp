@@ -1,6 +1,7 @@
-#include "math256_tests.h"
+﻿#include "math256_tests.h"
 
 #include <cassert>
+#include <iostream>
 
 #include "geometry/geometry256.h"
 #include "math/math256.h"
@@ -96,8 +97,12 @@ void runMath256Tests()
 		const ember::Line256 otherLine(py, pz);
 		assert(!ember::areParallel(line, otherLine));
 
-		ember::Segment256 segment(px, py);
-		assert(!segment.isDegenerate());
+		const ember::Line256 axisSegmentLine(px, py);
+		const ember::Segment256 segment(
+			ember::Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, 0, 1)),
+			ember::Plane3i::fromPointNormal(Vec3i(0, 0, 6), Vec3i(0, 0, 1)),
+			axisSegmentLine);
+		assert(segment.isValid());
 
 		ember::Polygon256 poly(
 			pz,
@@ -371,3 +376,4 @@ void runMath256Tests()
 		assert(foundOverlapLeaf);
 	}
 }
+

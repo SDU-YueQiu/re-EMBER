@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "math/math256.h"
 
@@ -185,3 +185,4 @@ namespace ember
                   << "))";
     }
 }
+

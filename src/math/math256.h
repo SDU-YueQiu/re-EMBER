@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <slimcpplib/long_int.h>
 #include <slimcpplib/long_io.h>

@@ -1,4 +1,4 @@
-#include "geometry/geometry256.h"
+﻿#include "geometry/geometry256.h"
 #include "geometry/clipping.h"
 #include <memory>
 #include <vector>
@@ -80,3 +80,4 @@ namespace ember
         std::size_t baseOrderKey = 0;
     };
 }
+

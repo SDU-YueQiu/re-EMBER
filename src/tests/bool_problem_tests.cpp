@@ -1,8 +1,8 @@
-﻿#include "core/bool_problem.h"
+﻿#include "bool_problem_tests.h"
 
-#include <iostream>
-#include <string>
-#include <vector>
+#include "core/bool_problem.h"
+
+#include <cassert>
 
 namespace
 {
@@ -54,47 +54,55 @@ namespace
             makeFaceXY(zmin, xmin, xmax, ymin, ymax, -1),
             makeFaceXY(zmax, xmin, xmax, ymin, ymax, 1)};
     }
-
-    const char *toString(BoolOp op)
-    {
-        switch (op)
-        {
-        case BoolOp::Union:
-            return "union";
-        case BoolOp::Intersection:
-            return "intersection";
-        case BoolOp::Difference:
-            return "difference";
-        }
-
-        return "unknown";
-    }
 }
 
-int main()
+void runBoolProblemTests()
 {
-    const std::vector<Polygon256> lhs = makeAxisAlignedBox(0, 0, 0, 2, 2, 2);
-    const std::vector<Polygon256> rhs = makeAxisAlignedBox(1, 1, 1, 3, 3, 3);
+    const std::vector<Polygon256> lhs = makeAxisAlignedBox(0, 0, 0, 1, 1, 1);
+    const std::vector<Polygon256> rhs = makeAxisAlignedBox(3, 3, 3, 4, 4, 4);
 
-    for (const BoolOp op : {BoolOp::Union, BoolOp::Intersection, BoolOp::Difference})
     {
         ember::BoolProblem problem(2);
-        problem.setOperation(op);
+        problem.setOperation(BoolOp::Union);
         problem.setOperands(lhs, rhs);
         problem.solve();
 
         std::vector<const ember::BoolProblem *> leaves;
         problem.collectLeafProblems(leaves);
 
-        std::cout
-            << "operation=" << toString(op)
-            << " leaves=" << leaves.size()
-            << " result_fragments=" << problem.resultFragments().size()
-            << " solved=" << (problem.isSolved() ? "true" : "false")
-            << " discarded=" << (problem.isDiscarded() ? "true" : "false")
-            << std::endl;
+        assert(problem.isSolved());
+        assert(!problem.isDiscarded());
+        assert(problem.resultFragments().size() == 12u);
+        assert(!leaves.empty());
+        for (const ember::BoolProblem *leaf : leaves)
+        {
+            assert(leaf->polygonCount() <= 2u);
+        }
+        for (const Polygon256 &fragment : problem.resultFragments())
+        {
+            assert(fragment.WNVF.size() == 2u);
+            assert(fragment.WNVB.size() == 2u);
+        }
     }
 
-    return 0;
+    {
+        ember::BoolProblem problem(2);
+        problem.setOperation(BoolOp::Intersection);
+        problem.setOperands(lhs, rhs);
+        problem.solve();
+
+        assert(problem.isSolved());
+        assert(problem.resultFragments().empty());
+    }
+
+    {
+        ember::BoolProblem problem(2);
+        problem.setOperation(BoolOp::Difference);
+        problem.setOperands(lhs, rhs);
+        problem.solve();
+
+        assert(problem.isSolved());
+        assert(problem.resultFragments().size() == 6u);
+    }
 }
 
