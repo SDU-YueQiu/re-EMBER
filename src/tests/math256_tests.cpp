@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <iostream>
+#include <stdexcept>
 
 #include "geometry/geometry256.h"
 #include "math/math256.h"
@@ -12,6 +13,16 @@
 using ember::Integer;
 using ember::Vec2i;
 using ember::Vec3i;
+
+#undef assert
+#define assert(expr)                                                                \
+    do                                                                              \
+    {                                                                               \
+        if (!(expr))                                                                \
+        {                                                                           \
+            throw std::runtime_error("math256_tests assertion failed: " #expr);     \
+        }                                                                           \
+    } while (false)
 
 void runMath256Tests()
 {
