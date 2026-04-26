@@ -1,4 +1,4 @@
-#include "clipping.h"
+﻿#include "clipping.h"
 
 namespace ember
 {
@@ -260,3 +260,4 @@ namespace ember
         return ret;
     }
 }
+

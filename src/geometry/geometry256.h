@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "math/math256.h"
 #include "geometry/plane_geometry256.h"
@@ -51,18 +51,18 @@ namespace ember
 
         constexpr PlanePoint3i getStartPoint() const noexcept
         {
-            return intersect(direction, start);
+            return PlanePoint3i(direction.p1, direction.p2, start);
         }
 
         constexpr PlanePoint3i getEndPoint() const noexcept
         {
-            return intersect(direction, end);
+            return PlanePoint3i(direction.p1, direction.p2, end);
         }
 
         constexpr bool isValid() const noexcept
         {
-            PlanePoint3i s = intersect(direction, start);
-            PlanePoint3i e = intersect(direction, end);
+            PlanePoint3i s(direction.p1, direction.p2, start);
+            PlanePoint3i e(direction.p1, direction.p2, end);
             if (!s.hasUniqueIntersection() || !e.hasUniqueIntersection())
                 return false;
 
@@ -135,3 +135,4 @@ namespace ember
      */
     bool intersectionSegmentPolygon(const Segment256 &seg, const Polygon256 &poly, PlanePoint3i &outPoint);
 }
+

@@ -1,4 +1,4 @@
-#include "bsp.h"
+﻿#include "bsp.h"
 
 namespace ember
 {
@@ -258,3 +258,4 @@ namespace ember
         collectLeafGeometriesRecursive(node->back.get(), outLeafGeometries);
     }
 }
+

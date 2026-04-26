@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // TODO：本文件是临时抽象层，存放所有新添加的重构前难以分类的几何处理等辅助函数，用于阻断前面的实现屎山外溢
 
@@ -110,32 +110,37 @@ namespace ember
 
         const PlanePoint3i startPoint = seg.getStartPoint();
         const PlanePoint3i endPoint = seg.getEndPoint();
+        const std::size_t edgeCount = poly.edgePlanes.size();
 
-        const std::size_t n = poly.edgePlanes.size();
-        for (std::size_t i = 0; i < n; ++i)
+        for (std::size_t edgeIndex = 0; edgeIndex < edgeCount; ++edgeIndex)
         {
-            const Plane3i &edgePlane = poly.edgePlanes[i];
-            const auto &nextEdgePlane = poly.edgePlanes[(i + 1) % n];
-            const auto &prevEdgePlane = poly.edgePlanes[(i - 1 + n) % n];
+            const std::size_t nextIndex = (edgeIndex + 1 == edgeCount) ? 0 : (edgeIndex + 1);
+            const std::size_t prevIndex = (edgeIndex == 0) ? (edgeCount - 1) : (edgeIndex - 1);
 
-            const Segment256 edge(prevEdgePlane, nextEdgePlane, {poly.plane, edgePlane});
+            const Plane3i &edgePlane = poly.edgePlanes[edgeIndex];
+            const Plane3i &nextEdgePlane = poly.edgePlanes[nextIndex];
+            const Plane3i &prevEdgePlane = poly.edgePlanes[prevIndex];
 
-            const PlanePoint3i edgeVertex0 = edge.getStartPoint();
-            const PlanePoint3i edgeVertex1 = edge.getEndPoint();
+            const Line256 polygonEdgeLine = Line256(poly.plane, edgePlane);
+            const Segment256 polygonEdge = Segment256(prevEdgePlane, nextEdgePlane, polygonEdgeLine);
+            const PlanePoint3i edgeVertex0 = polygonEdge.getStartPoint();
+            const PlanePoint3i edgeVertex1 = polygonEdge.getEndPoint();
 
             const PlanePoint3i edgeHit = intersect(seg.direction, edgePlane);
             if (edgeHit.hasUniqueIntersection())
             {
-                if (isPointOnSegment(edgeHit, seg) && isPointOnSegment(edgeHit, edge))
+                if (isPointOnSegment(edgeHit, seg) && isPointOnSegment(edgeHit, polygonEdge))
                 {
                     return true;
                 }
                 continue;
             }
 
-            // 唯一求交失败时，只额外处理“线段与该边共线”的情况。
-            if (startPoint.classify(poly.plane) != 0 || endPoint.classify(poly.plane) != 0 ||
-                startPoint.classify(edgePlane) != 0 || endPoint.classify(edgePlane) != 0)
+            if (startPoint.classify(poly.plane) != 0 || endPoint.classify(poly.plane) != 0)
+            {
+                continue;
+            }
+            if (startPoint.classify(edgePlane) != 0 || endPoint.classify(edgePlane) != 0)
             {
                 continue;
             }
@@ -144,7 +149,7 @@ namespace ember
             {
                 return true;
             }
-            if (isPointOnSegment(startPoint, edge) || isPointOnSegment(endPoint, edge))
+            if (isPointOnSegment(startPoint, polygonEdge) || isPointOnSegment(endPoint, polygonEdge))
             {
                 return true;
             }
@@ -213,6 +218,9 @@ namespace ember
         PlanePoint3i targetPoint;
         std::vector<Segment256> path;
     };
+
+    inline constexpr PlanePoint3i makeIntegerPoint(const Integer &x, const Integer &y, const Integer &z) noexcept;
+    inline constexpr bool isPointInsideOrOnAABB(const PlanePoint3i &point, const AABB3i &box) noexcept;
 
     namespace detail
     {
@@ -1425,3 +1433,4 @@ namespace ember
         return outPolygons;
     }
 }
+

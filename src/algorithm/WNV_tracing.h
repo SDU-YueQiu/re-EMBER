@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "geometry/geometry256.h"
 #include <vector>
@@ -76,3 +76,4 @@ namespace ember
         WNV &frontWNV,
         WNV &backWNV);
 }
+

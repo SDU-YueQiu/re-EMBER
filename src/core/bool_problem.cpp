@@ -1,4 +1,5 @@
-#include "bool_problem.h"
+﻿#include "bool_problem.h"
+#include "algorithm/bsp.h"
 #include "algorithm/WNV_tracing.h"
 
 #include <algorithm>
@@ -562,3 +563,4 @@ namespace ember
         collectLeafProblemsRecursive(node->rightChild_.get(), outLeaves);
     }
 }
+

@@ -1,4 +1,4 @@
-#include "geometry256.h"
+﻿#include "geometry256.h"
 
 #include <utility>
 
@@ -417,3 +417,4 @@ namespace ember
         return false;
     }
 }
+
