@@ -22,15 +22,13 @@ namespace ember
      * @brief subdivision 阶段保存的局部参考点状态。
      *
      * `point` 始终表示当前子问题中选取的几何参考位置，
-     * `wnv` 表示该点已知或暂存的 WNV。
-     * 当 `hasExactWNV == false` 时，说明该点的几何位置已经更新，
-     * 但路径传播尚未补齐，此状态只可用于继续细分，不可直接用于分类。
+     * `wnv` 表示该点的精确已知 WNV。
+     * 当前实现要求所有继续递归的活动节点都必须满足该状态精确有效。
      */
     struct SubdivisionRefState
     {
         PlanePoint3i point;
         WNV wnv;
-        bool hasExactWNV = false;
     };
 
     /**
@@ -104,8 +102,8 @@ namespace ember
          * @brief 执行当前阶段的 subdivision。
          *
          * 该过程会初始化根 AABB、根参考点，并递归细分到叶子子问题。
-         * 当参考点被投影到新子盒但尚未完成路径传播时，
-         * `reference().hasExactWNV` 会被标记为 `false`。
+         * 如果某次切分无法为子问题建立精确的参考点 WNV，
+         * 当前节点会停止继续细分并保留为叶子节点。
          */
         void solve();
 
@@ -220,7 +218,7 @@ namespace ember
         void solveRecursive();
         bool shouldStopSubdivision() const noexcept;
         bool createChildrenFromSplit(const AABBSplit3i &split);
-        SubdivisionRefState makeChildReference(const AABB3i &childBox) const;
+        bool makeChildReference(const AABB3i &childBox, SubdivisionRefState &outReference) const;
 
         static void assignOperandWNTV(std::vector<Polygon256> &polygons, std::size_t dimension, std::size_t hotIndex);
         static void clearClassificationState(std::vector<Polygon256> &polygons);
