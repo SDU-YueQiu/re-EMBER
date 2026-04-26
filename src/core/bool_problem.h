@@ -38,7 +38,7 @@ namespace ember
      * 递归子节点则保存局部 polygon soup、局部 AABB 和参考点状态。
      *
      * @note 当前实现已覆盖 subdivision、子问题 reference 传播，以及叶子阶段的局部 BSP
-     *       编排；面分类与布尔结果筛选将在后续任务补全。
+     *       编排；面分类与布尔结果筛选也已接入当前主流程。
      */
     class BoolProblem
     {
@@ -179,6 +179,14 @@ namespace ember
         const std::vector<Polygon256> &leafFragments() const noexcept;
 
         /**
+         * @brief 读取当前节点筛选出的布尔结果面。
+         *
+         * @return 仅包含 `(OUT, IN)` 或 `(IN, OUT)` 过渡的结果面集合。
+         * @note 对非叶节点该数组为空。
+         */
+        const std::vector<Polygon256> &resultFragments() const noexcept;
+
+        /**
          * @brief 读取左子问题。
          *
          * @return 若左子问题存在则返回其指针，否则返回 `nullptr`。
@@ -225,9 +233,11 @@ namespace ember
         void initializeRootReference();
         void solveRecursive();
         void solveLeafArrangement();
+        void classifyLeafFragmentsAndCollectResults();
         bool shouldStopSubdivision() const noexcept;
         bool createChildrenFromSplit(const AABBSplit3i &split);
         bool makeChildReference(const AABB3i &childBox, SubdivisionRefState &outReference) const;
+        BoolStatus evaluateBooleanIndicator(const WNV &wnv) const noexcept;
 
         static void assignOperandWNTV(std::vector<Polygon256> &polygons, std::size_t dimension, std::size_t hotIndex);
         static void clearClassificationState(std::vector<Polygon256> &polygons);
@@ -246,6 +256,7 @@ namespace ember
         SubdivisionRefState reference_;
         std::vector<Polygon256> polygons_;
         std::vector<Polygon256> leafFragments_;
+        std::vector<Polygon256> resultFragments_;
         std::unique_ptr<BoolProblem> leftChild_;
         std::unique_ptr<BoolProblem> rightChild_;
     };

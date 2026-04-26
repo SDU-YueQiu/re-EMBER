@@ -50,4 +50,29 @@ namespace ember
      *
      */
     traceStatus tracePathWNV(const refPoint &refpoint, const Path &path, const std::vector<Polygon256> &polygons, WNV &targetWNV);
+
+    /**
+     * @brief 按给定路径传播到位于曲面内部的目标点，并计算其前后两侧 WNV。
+     *
+     * @param[in] refpoint 已知 WNV 的参考点。
+     * @param[in] path 从 `refpoint.point` 到目标曲面点的传播路径。
+     * @param[in] polygons 当前子问题中的输入多边形集合。
+     * @param[in] referencePlane 目标曲面点所属参考曲面的支撑平面。
+     * @param[out] frontWNV 成功时写入目标点法向前侧的 WNV。
+     * @param[out] backWNV 成功时写入目标点法向后侧的 WNV。
+     *
+     * @retval SUCCESS 成功计算出 `frontWNV` 与 `backWNV`。
+     * @retval PATH_INVALID 路径在传播意义上无效，需要重新选择路径。
+     * @retval INPUT_INVALID 输入路径、多边形或参考平面不合法。
+     * @retval FAIL 未预期失败情况。
+     *
+     * @note 该接口实现论文 3.4 节中“终点 `y` 落在曲面上”的修正规则。
+     */
+    traceStatus tracePathWNVToSurfacePoint(
+        const refPoint &refpoint,
+        const Path &path,
+        const std::vector<Polygon256> &polygons,
+        const Plane3i &referencePlane,
+        WNV &frontWNV,
+        WNV &backWNV);
 }
