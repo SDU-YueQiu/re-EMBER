@@ -2,6 +2,7 @@
 #include "algorithm/WNV_tracing.h"
 
 #include <algorithm>
+#include <iterator>
 #include <utility>
 
 namespace ember
@@ -163,6 +164,11 @@ namespace ember
         return polygons_;
     }
 
+    const std::vector<Polygon256> &BoolProblem::leafFragments() const noexcept
+    {
+        return leafFragments_;
+    }
+
     const BoolProblem *BoolProblem::leftChild() const noexcept
     {
         return leftChild_.get();
@@ -201,6 +207,7 @@ namespace ember
         splitPlane_ = Plane3i();
         aabb_ = AABB3i();
         reference_ = SubdivisionRefState();
+        leafFragments_.clear();
         leftChild_.reset();
         rightChild_.reset();
     }
@@ -224,6 +231,7 @@ namespace ember
         if (shouldStopSubdivision())
         {
             isLeaf_ = true;
+            solveLeafArrangement();
             solved_ = true;
             return;
         }
@@ -232,6 +240,7 @@ namespace ember
         if (!splitAABBAtMidpoint(aabb_, split))
         {
             isLeaf_ = true;
+            solveLeafArrangement();
             solved_ = true;
             return;
         }
@@ -241,6 +250,7 @@ namespace ember
         {
             splitPlane_ = Plane3i();
             isLeaf_ = true;
+            solveLeafArrangement();
             solved_ = true;
             return;
         }
@@ -260,6 +270,39 @@ namespace ember
             (!leftChild_ || leftChild_->discarded_) &&
             (!rightChild_ || rightChild_->discarded_);
         solved_ = true;
+    }
+
+    void BoolProblem::solveLeafArrangement()
+    {
+        leafFragments_.clear();
+        if (discarded_ || polygons_.empty())
+        {
+            return;
+        }
+
+        const std::size_t polygonCount = polygons_.size();
+        for (std::size_t i = 0; i < polygonCount; ++i)
+        {
+            BSPTree tree;
+            tree.setBasePolygon(polygons_[i], i);
+
+            for (std::size_t j = 0; j < polygonCount; ++j)
+            {
+                if (i == j)
+                {
+                    continue;
+                }
+
+                tree.insert(polygons_[j], j);
+            }
+
+            std::vector<Polygon256> localFragments = tree.collectLeafGeometries();
+            clearClassificationState(localFragments);
+            leafFragments_.insert(
+                leafFragments_.end(),
+                std::make_move_iterator(localFragments.begin()),
+                std::make_move_iterator(localFragments.end()));
+        }
     }
 
     bool BoolProblem::shouldStopSubdivision() const noexcept
