@@ -1382,6 +1382,26 @@ namespace ember
     }
 
     /**
+     * @brief 反转多边形的几何朝向。
+     *
+     * @param[in] polygon 输入多边形。
+     * @return 支撑平面法向翻转、边顺序反转后的同一几何多边形。
+     */
+    inline Polygon256 reversePolygonOrientation(const Polygon256 &polygon)
+    {
+        std::vector<Plane3i> reversedEdges = polygon.edgePlanes;
+        std::reverse(reversedEdges.begin(), reversedEdges.end());
+
+        Polygon256 reversedPolygon(
+            Plane3i(-polygon.plane.a, -polygon.plane.b, -polygon.plane.c, -polygon.plane.d),
+            std::move(reversedEdges));
+        reversedPolygon.WNTV = polygon.WNTV;
+        reversedPolygon.WNVF = polygon.WNVF;
+        reversedPolygon.WNVB = polygon.WNVB;
+        return reversedPolygon;
+    }
+
+    /**
      * @brief 将多边形集合逐个裁到 AABB 内部。
      *
      * @param[in] polygons 输入多边形集合。

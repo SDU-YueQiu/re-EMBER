@@ -169,6 +169,11 @@ namespace ember
         return leafFragments_;
     }
 
+    const std::vector<Polygon256> &BoolProblem::resultFragments() const noexcept
+    {
+        return resultFragments_;
+    }
+
     const BoolProblem *BoolProblem::leftChild() const noexcept
     {
         return leftChild_.get();
@@ -208,6 +213,7 @@ namespace ember
         aabb_ = AABB3i();
         reference_ = SubdivisionRefState();
         leafFragments_.clear();
+        resultFragments_.clear();
         leftChild_.reset();
         rightChild_.reset();
     }
@@ -232,6 +238,7 @@ namespace ember
         {
             isLeaf_ = true;
             solveLeafArrangement();
+            classifyLeafFragmentsAndCollectResults();
             solved_ = true;
             return;
         }
@@ -241,6 +248,7 @@ namespace ember
         {
             isLeaf_ = true;
             solveLeafArrangement();
+            classifyLeafFragmentsAndCollectResults();
             solved_ = true;
             return;
         }
@@ -251,6 +259,7 @@ namespace ember
             splitPlane_ = Plane3i();
             isLeaf_ = true;
             solveLeafArrangement();
+            classifyLeafFragmentsAndCollectResults();
             solved_ = true;
             return;
         }
@@ -302,6 +311,67 @@ namespace ember
                 leafFragments_.end(),
                 std::make_move_iterator(localFragments.begin()),
                 std::make_move_iterator(localFragments.end()));
+        }
+    }
+
+    void BoolProblem::classifyLeafFragmentsAndCollectResults()
+    {
+        resultFragments_.clear();
+        if (discarded_ || leafFragments_.empty())
+        {
+            return;
+        }
+
+        const refPoint localReference(reference_.point, reference_.wnv);
+        for (Polygon256 &fragment : leafFragments_)
+        {
+            const std::vector<LeafClassificationPathCandidate> candidates =
+                enumerateLeafClassificationPathCandidates(reference_.point, fragment, aabb_);
+
+            bool classified = false;
+            for (const LeafClassificationPathCandidate &candidate : candidates)
+            {
+                WNV frontWNV;
+                WNV backWNV;
+                const traceStatus status = tracePathWNVToSurfacePoint(
+                    localReference,
+                    candidate.path,
+                    polygons_,
+                    fragment.plane,
+                    frontWNV,
+                    backWNV);
+
+                if (status == SUCCESS)
+                {
+                    fragment.WNVF = std::move(frontWNV);
+                    fragment.WNVB = std::move(backWNV);
+                    classified = true;
+                    break;
+                }
+
+                if (status != PATH_INVALID)
+                {
+                    break;
+                }
+            }
+
+            if (!classified)
+            {
+                fragment.WNVF.clear();
+                fragment.WNVB.clear();
+                continue;
+            }
+
+            const BoolStatus frontStatus = evaluateBooleanIndicator(fragment.WNVF);
+            const BoolStatus backStatus = evaluateBooleanIndicator(fragment.WNVB);
+            if (frontStatus == OUT && backStatus == IN)
+            {
+                resultFragments_.push_back(fragment);
+            }
+            else if (frontStatus == IN && backStatus == OUT)
+            {
+                resultFragments_.push_back(reversePolygonOrientation(fragment));
+            }
         }
     }
 
@@ -400,6 +470,22 @@ namespace ember
 
         outReference = SubdivisionRefState();
         return false;
+    }
+
+    BoolStatus BoolProblem::evaluateBooleanIndicator(const WNV &wnv) const noexcept
+    {
+        WNV tmp = wnv;
+        switch (op_)
+        {
+        case BoolOp::Union:
+            return f_union(tmp, 0, 1);
+        case BoolOp::Intersection:
+            return f_intersection(tmp, 0, 1);
+        case BoolOp::Difference:
+            return f_diff(tmp, 0, 1);
+        }
+
+        return OUT;
     }
 
     void BoolProblem::assignOperandWNTV(std::vector<Polygon256> &polygons, std::size_t dimension, std::size_t hotIndex)
