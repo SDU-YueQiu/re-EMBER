@@ -34,7 +34,7 @@ namespace ember
     {
         basePolygon = polygon;
         baseOrderKey = orderKey;
-        root.reset();
+        root = std::make_unique<BSPNode>(basePolygon);
     }
 
     void BSPTree::insert(const Polygon256 &polygon, std::size_t incomingOrder)
@@ -49,13 +49,6 @@ namespace ember
         {
             std::cout << "BSPTree::insert !basePolygon.isValid()" << std::endl;
             return;
-        }
-
-        // 相当于初始化
-        // TODO:在这儿进行有点儿丑陋
-        if (!root)
-        {
-            root = std::make_unique<BSPNode>(basePolygon);
         }
 
         Plane3i segmentPlane;

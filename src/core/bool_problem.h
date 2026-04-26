@@ -37,8 +37,8 @@ namespace ember
      * 根节点负责接收两组输入多边形并启动空间细分；
      * 递归子节点则保存局部 polygon soup、局部 AABB 和参考点状态。
      *
-     * @note 当前实现只覆盖 subdivision 及其直接相关状态管理。
-     *       叶子 BSP、路径构造、WNV 传播与面分类将在后续任务补全。
+     * @note 当前实现已覆盖 subdivision、子问题 reference 传播，以及叶子阶段的局部 BSP
+     *       编排；面分类与布尔结果筛选将在后续任务补全。
      */
     class BoolProblem
     {
@@ -171,6 +171,14 @@ namespace ember
         const std::vector<Polygon256> &polygons() const noexcept;
 
         /**
+         * @brief 读取当前叶子节点求出的局部 arrangement 结果。
+         *
+         * @return 当前节点在叶子阶段收集到的全部启用 leaf polygon。
+         * @note 对非叶节点该数组为空。
+         */
+        const std::vector<Polygon256> &leafFragments() const noexcept;
+
+        /**
          * @brief 读取左子问题。
          *
          * @return 若左子问题存在则返回其指针，否则返回 `nullptr`。
@@ -216,6 +224,7 @@ namespace ember
         void resetSubdivisionState() noexcept;
         void initializeRootReference();
         void solveRecursive();
+        void solveLeafArrangement();
         bool shouldStopSubdivision() const noexcept;
         bool createChildrenFromSplit(const AABBSplit3i &split);
         bool makeChildReference(const AABB3i &childBox, SubdivisionRefState &outReference) const;
@@ -236,6 +245,7 @@ namespace ember
         AABB3i aabb_;
         SubdivisionRefState reference_;
         std::vector<Polygon256> polygons_;
+        std::vector<Polygon256> leafFragments_;
         std::unique_ptr<BoolProblem> leftChild_;
         std::unique_ptr<BoolProblem> rightChild_;
     };
