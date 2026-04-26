@@ -275,6 +275,22 @@ namespace ember
             rightChild_->solveRecursive();
         }
 
+        resultFragments_.clear();
+        if (leftChild_ && !leftChild_->discarded_)
+        {
+            resultFragments_.insert(
+                resultFragments_.end(),
+                leftChild_->resultFragments_.begin(),
+                leftChild_->resultFragments_.end());
+        }
+        if (rightChild_ && !rightChild_->discarded_)
+        {
+            resultFragments_.insert(
+                resultFragments_.end(),
+                rightChild_->resultFragments_.begin(),
+                rightChild_->resultFragments_.end());
+        }
+
         discarded_ =
             (!leftChild_ || leftChild_->discarded_) &&
             (!rightChild_ || rightChild_->discarded_);

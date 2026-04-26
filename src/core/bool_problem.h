@@ -182,7 +182,7 @@ namespace ember
          * @brief 读取当前节点筛选出的布尔结果面。
          *
          * @return 仅包含 `(OUT, IN)` 或 `(IN, OUT)` 过渡的结果面集合。
-         * @note 对非叶节点该数组为空。
+         * @note 对叶节点，这是当前局部子问题的结果面；对内部节点，这是其全部子树结果的汇总。
          */
         const std::vector<Polygon256> &resultFragments() const noexcept;
 
