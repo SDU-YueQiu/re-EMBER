@@ -202,6 +202,18 @@ namespace ember
         std::vector<Segment256> path;
     };
 
+    /**
+     * @brief 叶子面分类阶段的路径候选。
+     *
+     * `targetPoint` 是位于 leaf polygon 严格内部的分类点，
+     * `path` 是从局部参考点传播到该点的一条候选路径。
+     */
+    struct LeafClassificationPathCandidate
+    {
+        PlanePoint3i targetPoint;
+        std::vector<Segment256> path;
+    };
+
     namespace detail
     {
         /**
@@ -254,6 +266,17 @@ namespace ember
             }
 
             return 0;
+        }
+
+        /**
+         * @brief 判断两个平面方程是否按当前存储形式完全相同。
+         */
+        inline constexpr bool areSamePlaneEquation(const Plane3i &lhs, const Plane3i &rhs) noexcept
+        {
+            return lhs.a == rhs.a &&
+                   lhs.b == rhs.b &&
+                   lhs.c == rhs.c &&
+                   lhs.d == rhs.d;
         }
 
         /**
@@ -398,6 +421,170 @@ namespace ember
                 currentX = nextX;
                 currentY = nextY;
                 currentZ = nextZ;
+            }
+
+            return areSamePlanePoint(currentPoint, targetPoint);
+        }
+
+        /**
+         * @brief 按给定轴顺序，从多边形包围盒中心附近构造轴对齐探测线上的严格内部点。
+         *
+         * @param[in] polygon 待分类的 leaf polygon。
+         * @param[in] axis 作为探测线方向的坐标轴。
+         * @param[in] coord0 第一条正交轴的整数坐标。
+         * @param[in] coord1 第二条正交轴的整数坐标。
+         * @param[out] outPoint 当成功时写入严格内部点。
+         * @return 当探测线与多边形支撑平面唯一相交且交点严格落在内部时返回 `true`。
+         */
+        inline bool buildAxisProbeInteriorPoint(
+            const Polygon256 &polygon,
+            SplitAxis3i axis,
+            const Integer &coord0,
+            const Integer &coord1,
+            PlanePoint3i &outPoint)
+        {
+            Line256 probeLine;
+            switch (axis)
+            {
+            case SplitAxis3i::X:
+                probeLine = makeLine(
+                    Plane3i(0, 1, 0, -coord0),
+                    Plane3i(0, 0, 1, -coord1));
+                break;
+            case SplitAxis3i::Y:
+                probeLine = makeLine(
+                    Plane3i(1, 0, 0, -coord0),
+                    Plane3i(0, 0, 1, -coord1));
+                break;
+            case SplitAxis3i::Z:
+                probeLine = makeLine(
+                    Plane3i(1, 0, 0, -coord0),
+                    Plane3i(0, 1, 0, -coord1));
+                break;
+            }
+
+            const PlanePoint3i candidate = intersect(probeLine, polygon.plane);
+            if (!candidate.hasUniqueIntersection() || !polygon.containsStrictly(candidate))
+            {
+                return false;
+            }
+
+            outPoint = candidate;
+            return true;
+        }
+
+        /**
+         * @brief 从点的定义平面中按给定索引读取某一个平面。
+         */
+        inline constexpr Plane3i getPointDefiningPlane(const PlanePoint3i &point, int planeIndex) noexcept
+        {
+            switch (planeIndex)
+            {
+            case 0:
+                return point.p;
+            case 1:
+                return point.q;
+            default:
+                return point.r;
+            }
+        }
+
+        /**
+         * @brief 用三个平面恢复一个 `PlanePoint3i`。
+         */
+        inline constexpr PlanePoint3i makePointFromPlanes(const std::array<Plane3i, 3> &planes) noexcept
+        {
+            return PlanePoint3i(planes[0], planes[1], planes[2]);
+        }
+
+        /**
+         * @brief 构造两个共享两张平面的点之间的一段路径线段。
+         *
+         * @param[in] startPoint 路径起点。
+         * @param[in] endPoint 路径终点。
+         * @param[in] replacedPlaneIndex 本段中被替换的那张定义平面索引。
+         * @param[out] outSegment 成功时写入线段。
+         * @return 当共享平面能够定义唯一支撑线，且线段端点与输入一致时返回 `true`。
+         */
+        inline bool buildPlaneReplacementSegment(
+            const PlanePoint3i &startPoint,
+            const PlanePoint3i &endPoint,
+            int replacedPlaneIndex,
+            Segment256 &outSegment)
+        {
+            const Plane3i startPlanes[3] = {startPoint.p, startPoint.q, startPoint.r};
+            const Plane3i endPlanes[3] = {endPoint.p, endPoint.q, endPoint.r};
+
+            int sharedIndices[2];
+            int cursor = 0;
+            for (int i = 0; i < 3; ++i)
+            {
+                if (i == replacedPlaneIndex)
+                {
+                    continue;
+                }
+                sharedIndices[cursor++] = i;
+            }
+
+            const Line256 direction = makeLine(
+                startPlanes[sharedIndices[0]],
+                startPlanes[sharedIndices[1]]);
+            if (!direction.isValid())
+            {
+                return false;
+            }
+
+            outSegment = Segment256(
+                startPlanes[replacedPlaneIndex],
+                endPlanes[replacedPlaneIndex],
+                direction);
+
+            return outSegment.isValid() &&
+                   areSamePlanePoint(outSegment.getStartPoint(), startPoint) &&
+                   areSamePlanePoint(outSegment.getEndPoint(), endPoint);
+        }
+
+        /**
+         * @brief 按给定平面替换顺序构造从参考点到目标点的 1 到 3 段路径。
+         *
+         * @param[in] refPoint 已知 WNV 的局部参考点。
+         * @param[in] targetPoint 严格内部的目标分类点。
+         * @param[in] box 当前叶子子问题的 AABB。
+         * @param[in] planeReplacementOrder 依次替换的定义平面索引。
+         * @param[out] outPath 成功时写入完整候选路径。
+         * @return 当所有中间点都落在 AABB 内，且每段线段都能精确定义时返回 `true`。
+         */
+        inline bool buildPlaneReplacementPath(
+            const PlanePoint3i &refPoint,
+            const PlanePoint3i &targetPoint,
+            const AABB3i &box,
+            const std::vector<int> &planeReplacementOrder,
+            std::vector<Segment256> &outPath)
+        {
+            std::array<Plane3i, 3> currentPlanes = {refPoint.p, refPoint.q, refPoint.r};
+            const Plane3i targetPlanes[3] = {targetPoint.p, targetPoint.q, targetPoint.r};
+            PlanePoint3i currentPoint = refPoint;
+
+            outPath.clear();
+            for (const int replacedIndex : planeReplacementOrder)
+            {
+                currentPlanes[replacedIndex] = targetPlanes[replacedIndex];
+                const PlanePoint3i nextPoint = makePointFromPlanes(currentPlanes);
+                if (!nextPoint.hasUniqueIntersection() || !isPointInsideOrOnAABB(nextPoint, box))
+                {
+                    outPath.clear();
+                    return false;
+                }
+
+                Segment256 segment;
+                if (!buildPlaneReplacementSegment(currentPoint, nextPoint, replacedIndex, segment))
+                {
+                    outPath.clear();
+                    return false;
+                }
+
+                outPath.push_back(std::move(segment));
+                currentPoint = nextPoint;
             }
 
             return areSamePlanePoint(currentPoint, targetPoint);
@@ -1047,6 +1234,149 @@ namespace ember
 
                 return lhs.path.size() < rhs.path.size();
             });
+
+        return candidates;
+    }
+
+    /**
+     * @brief 为 leaf polygon 生成严格内部分类点候选。
+     *
+     * @param[in] polygon 待分类的 leaf polygon。
+     * @return 先返回论文中“中心附近轴对齐探测线”的命中点，再返回更保守的 fallback 内部点。
+     */
+    inline std::vector<PlanePoint3i> enumerateLeafClassificationPointCandidates(const Polygon256 &polygon)
+    {
+        std::vector<PlanePoint3i> candidates;
+        if (!polygon.isValid())
+        {
+            return candidates;
+        }
+
+        const std::vector<Polygon256> singleton = {polygon};
+        const AABB3i polygonBox = computeAABB(singleton, 0);
+        if (isValidAABB(polygonBox))
+        {
+            const Integer centerX = floorDiv(polygonBox.xMin + polygonBox.xMax, 2);
+            const Integer centerY = floorDiv(polygonBox.yMin + polygonBox.yMax, 2);
+            const Integer centerZ = floorDiv(polygonBox.zMin + polygonBox.zMax, 2);
+
+            const Integer absNx = polygon.plane.a < 0 ? -polygon.plane.a : polygon.plane.a;
+            const Integer absNy = polygon.plane.b < 0 ? -polygon.plane.b : polygon.plane.b;
+            const Integer absNz = polygon.plane.c < 0 ? -polygon.plane.c : polygon.plane.c;
+
+            std::vector<std::pair<Integer, SplitAxis3i>> axisPriority = {
+                {absNx, SplitAxis3i::X},
+                {absNy, SplitAxis3i::Y},
+                {absNz, SplitAxis3i::Z}};
+            std::stable_sort(
+                axisPriority.begin(),
+                axisPriority.end(),
+                [](const auto &lhs, const auto &rhs)
+                {
+                    return lhs.first > rhs.first;
+                });
+
+            for (const auto &[_, axis] : axisPriority)
+            {
+                PlanePoint3i candidate;
+                switch (axis)
+                {
+                case SplitAxis3i::X:
+                    if (detail::buildAxisProbeInteriorPoint(polygon, axis, centerY, centerZ, candidate))
+                    {
+                        candidates.push_back(candidate);
+                    }
+                    break;
+                case SplitAxis3i::Y:
+                    if (detail::buildAxisProbeInteriorPoint(polygon, axis, centerX, centerZ, candidate))
+                    {
+                        candidates.push_back(candidate);
+                    }
+                    break;
+                case SplitAxis3i::Z:
+                    if (detail::buildAxisProbeInteriorPoint(polygon, axis, centerX, centerY, candidate))
+                    {
+                        candidates.push_back(candidate);
+                    }
+                    break;
+                }
+            }
+        }
+
+        PlanePoint3i fallbackPoint;
+        if (polygon.findStrictInteriorPoint(fallbackPoint))
+        {
+            bool duplicated = false;
+            for (const PlanePoint3i &existing : candidates)
+            {
+                if (areSamePlanePoint(existing, fallbackPoint))
+                {
+                    duplicated = true;
+                    break;
+                }
+            }
+
+            if (!duplicated)
+            {
+                candidates.push_back(fallbackPoint);
+            }
+        }
+
+        return candidates;
+    }
+
+    /**
+     * @brief 枚举从局部参考点到 leaf polygon 内部点的分类路径候选。
+     *
+     * @param[in] referencePoint 当前叶子子问题的局部参考点。
+     * @param[in] polygon 待分类的 leaf polygon。
+     * @param[in] box 当前叶子子问题的 AABB。
+     * @return 先返回轴对齐探测线更自然的目标点，再对每个目标点枚举所有可行的平面替换顺序。
+     */
+    inline std::vector<LeafClassificationPathCandidate> enumerateLeafClassificationPathCandidates(
+        const PlanePoint3i &referencePoint,
+        const Polygon256 &polygon,
+        const AABB3i &box)
+    {
+        std::vector<LeafClassificationPathCandidate> candidates;
+        if (!referencePoint.hasUniqueIntersection() || !polygon.isValid() || !isValidAABB(box))
+        {
+            return candidates;
+        }
+
+        const std::vector<PlanePoint3i> targetPoints = enumerateLeafClassificationPointCandidates(polygon);
+        for (const PlanePoint3i &targetPoint : targetPoints)
+        {
+            std::vector<int> changedPlaneIndices;
+            if (!detail::areSamePlaneEquation(referencePoint.p, targetPoint.p))
+            {
+                changedPlaneIndices.push_back(0);
+            }
+            if (!detail::areSamePlaneEquation(referencePoint.q, targetPoint.q))
+            {
+                changedPlaneIndices.push_back(1);
+            }
+            if (!detail::areSamePlaneEquation(referencePoint.r, targetPoint.r))
+            {
+                changedPlaneIndices.push_back(2);
+            }
+
+            if (changedPlaneIndices.empty())
+            {
+                candidates.push_back({targetPoint, {}});
+                continue;
+            }
+
+            std::sort(changedPlaneIndices.begin(), changedPlaneIndices.end());
+            do
+            {
+                std::vector<Segment256> path;
+                if (detail::buildPlaneReplacementPath(referencePoint, targetPoint, box, changedPlaneIndices, path))
+                {
+                    candidates.push_back({targetPoint, std::move(path)});
+                }
+            } while (std::next_permutation(changedPlaneIndices.begin(), changedPlaneIndices.end()));
+        }
 
         return candidates;
     }
