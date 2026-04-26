@@ -4,8 +4,10 @@
 
 #include "geometry/clipping.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
+#include <utility>
 #include <vector>
 
 namespace ember
@@ -191,8 +193,20 @@ namespace ember
         bool valid = false;
     };
 
+    /**
+     * @brief subdivision 阶段的局部参考点传播路径候选。
+     */
+    struct AABBPathCandidate
+    {
+        PlanePoint3i targetPoint;
+        std::vector<Segment256> path;
+    };
+
     namespace detail
     {
+        /**
+         * @brief 将整数截断到闭区间 `[lower, upper]` 内。
+         */
         inline constexpr Integer clampInteger(const Integer &value, const Integer &lower, const Integer &upper) noexcept
         {
             if (value < lower)
@@ -206,6 +220,9 @@ namespace ember
             return value;
         }
 
+        /**
+         * @brief 读取 AABB 在指定坐标轴上的跨度。
+         */
         inline constexpr Integer axisSpan(const AABB3i &box, SplitAxis3i axis) noexcept
         {
             switch (axis)
@@ -221,6 +238,176 @@ namespace ember
             return 0;
         }
 
+        /**
+         * @brief 为 `SplitAxis3i` 提供稳定的排序编号。
+         */
+        inline constexpr int axisOrderKey(SplitAxis3i axis) noexcept
+        {
+            switch (axis)
+            {
+            case SplitAxis3i::X:
+                return 0;
+            case SplitAxis3i::Y:
+                return 1;
+            case SplitAxis3i::Z:
+                return 2;
+            }
+
+            return 0;
+        }
+
+        /**
+         * @brief 尝试从 `PlanePoint3i` 恢复精确整数坐标。
+         *
+         * @return 仅当三个坐标都能无歧义恢复为整数时返回 `true`。
+         */
+        inline bool tryExtractExactIntegerPoint(
+            const PlanePoint3i &point,
+            Integer &x,
+            Integer &y,
+            Integer &z) noexcept
+        {
+            if (!point.hasUniqueIntersection() || isZero(point.x.w))
+            {
+                return false;
+            }
+
+            const Integer xFloor = floorDiv(point.x.x, point.x.w);
+            const Integer xCeil = ceilDiv(point.x.x, point.x.w);
+            const Integer yFloor = floorDiv(point.x.y, point.x.w);
+            const Integer yCeil = ceilDiv(point.x.y, point.x.w);
+            const Integer zFloor = floorDiv(point.x.z, point.x.w);
+            const Integer zCeil = ceilDiv(point.x.z, point.x.w);
+
+            if (xFloor != xCeil || yFloor != yCeil || zFloor != zCeil)
+            {
+                return false;
+            }
+
+            x = xFloor;
+            y = yFloor;
+            z = zFloor;
+            return true;
+        }
+
+        /**
+         * @brief 构造一条单轴变化的轴对齐线段。
+         *
+         * @return 仅当两端点恰好只在一个坐标轴上不同且线段合法时返回 `true`。
+         */
+        inline bool buildAxisAlignedSegment(
+            const PlanePoint3i &startPoint,
+            const PlanePoint3i &endPoint,
+            Segment256 &outSegment)
+        {
+            Integer x0, y0, z0;
+            Integer x1, y1, z1;
+            if (!tryExtractExactIntegerPoint(startPoint, x0, y0, z0) ||
+                !tryExtractExactIntegerPoint(endPoint, x1, y1, z1))
+            {
+                return false;
+            }
+
+            const bool diffX = (x0 != x1);
+            const bool diffY = (y0 != y1);
+            const bool diffZ = (z0 != z1);
+            const int diffCount = static_cast<int>(diffX) + static_cast<int>(diffY) + static_cast<int>(diffZ);
+            if (diffCount != 1)
+            {
+                return false;
+            }
+
+            if (diffX)
+            {
+                outSegment = Segment256(
+                    Plane3i(1, 0, 0, -x0),
+                    Plane3i(1, 0, 0, -x1),
+                    makeLine(Plane3i(0, 1, 0, -y0), Plane3i(0, 0, 1, -z0)));
+                return outSegment.isValid();
+            }
+
+            if (diffY)
+            {
+                outSegment = Segment256(
+                    Plane3i(0, 1, 0, -y0),
+                    Plane3i(0, 1, 0, -y1),
+                    makeLine(Plane3i(1, 0, 0, -x0), Plane3i(0, 0, 1, -z0)));
+                return outSegment.isValid();
+            }
+
+            outSegment = Segment256(
+                Plane3i(0, 0, 1, -z0),
+                Plane3i(0, 0, 1, -z1),
+                makeLine(Plane3i(1, 0, 0, -x0), Plane3i(0, 1, 0, -y0)));
+            return outSegment.isValid();
+        }
+
+        /**
+         * @brief 按给定轴顺序构造一条 Manhattan 风格的角点路径。
+         */
+        inline bool buildAxisAlignedCornerPath(
+            const PlanePoint3i &startPoint,
+            const PlanePoint3i &targetPoint,
+            const std::vector<SplitAxis3i> &axisOrder,
+            std::vector<Segment256> &outPath)
+        {
+            Integer currentX, currentY, currentZ;
+            Integer targetX, targetY, targetZ;
+            if (!tryExtractExactIntegerPoint(startPoint, currentX, currentY, currentZ) ||
+                !tryExtractExactIntegerPoint(targetPoint, targetX, targetY, targetZ))
+            {
+                return false;
+            }
+
+            outPath.clear();
+            PlanePoint3i currentPoint = startPoint;
+            for (const SplitAxis3i axis : axisOrder)
+            {
+                Integer nextX = currentX;
+                Integer nextY = currentY;
+                Integer nextZ = currentZ;
+
+                switch (axis)
+                {
+                case SplitAxis3i::X:
+                    nextX = targetX;
+                    break;
+                case SplitAxis3i::Y:
+                    nextY = targetY;
+                    break;
+                case SplitAxis3i::Z:
+                    nextZ = targetZ;
+                    break;
+                }
+
+                if (nextX == currentX && nextY == currentY && nextZ == currentZ)
+                {
+                    continue;
+                }
+
+                const PlanePoint3i nextPoint = makeIntegerPoint(nextX, nextY, nextZ);
+                Segment256 segment;
+                if (!buildAxisAlignedSegment(currentPoint, nextPoint, segment))
+                {
+                    outPath.clear();
+                    return false;
+                }
+
+                outPath.push_back(std::move(segment));
+                currentPoint = nextPoint;
+                currentX = nextX;
+                currentY = nextY;
+                currentZ = nextZ;
+            }
+
+            return areSamePlanePoint(currentPoint, targetPoint);
+        }
+
+        /**
+         * @brief 用切分平面把凸多边形裁到某个半空间内。
+         *
+         * @param[in] keepNonPositive 为 `true` 时保留 `<= 0` 一侧，否则保留 `>= 0` 一侧。
+         */
         inline bool clipPolygonToHalfSpace(const Polygon256 &source, const Plane3i &clipPlane, bool keepNonPositive, Polygon256 &outPolygon)
         {
             if (!source.isValid())
@@ -294,6 +481,9 @@ namespace ember
             return outPolygon.isValid();
         }
 
+        /**
+         * @brief 选择当前 AABB 中跨度最大的可继续切分轴。
+         */
         inline bool chooseLongestSplittableAxis(const AABB3i &box, SplitAxis3i &outAxis) noexcept
         {
             const Integer one = 1;
@@ -609,13 +799,12 @@ namespace ember
     }
 
     /**
-     * @brief 将点按当前临时规则投影到目标 AABB 内。
+     * @brief 将点逐坐标投影到目标 AABB 内。
      *
      * @param[in] point 需要投影的点。
      * @param[in] box 目标包围盒。
      * @return 若输入有效，则返回逐坐标 clamp 后的整数点。
-     * @note 当前 subdivision 只需要稳定地在子盒中放置一个几何参考点。
-     *       路径传播尚未接入，因此这里使用整数投影占位，后续任务会补全精确 WNV 更新。
+     * @note subdivision 中会优先尝试以该投影点为目标构造单段传播路径。
      */
     inline PlanePoint3i projectPointToAABB(const PlanePoint3i &point, const AABB3i &box)
     {
@@ -663,6 +852,203 @@ namespace ember
 
         outPolygon = current;
         return outPolygon.isValid();
+    }
+
+    /**
+     * @brief 枚举从当前参考点到目标子 AABB 的轴对齐传播路径候选。
+     *
+     * @param[in] startPoint 已知 WNV 的当前参考点，要求为精确整数点。
+     * @param[in] targetBox 目标子 AABB。
+     * @return 结果按“投影目标优先、离投影点更近优先、路径段数更少优先”排序。
+     * @note subdivision 阶段的路径构造只使用 AABB 面和切分平面来定义轴对齐线段，
+     *       不使用通用的换平面路径构造。
+     */
+    inline std::vector<AABBPathCandidate> enumerateAABBPathCandidates(const PlanePoint3i &startPoint, const AABB3i &targetBox)
+    {
+        std::vector<AABBPathCandidate> candidates;
+        if (!startPoint.hasUniqueIntersection() || !isValidAABB(targetBox))
+        {
+            return candidates;
+        }
+
+        const PlanePoint3i preferredTarget = projectPointToAABB(startPoint, targetBox);
+
+        Integer startX, startY, startZ;
+        Integer preferredX, preferredY, preferredZ;
+        if (!detail::tryExtractExactIntegerPoint(startPoint, startX, startY, startZ) ||
+            !detail::tryExtractExactIntegerPoint(preferredTarget, preferredX, preferredY, preferredZ))
+        {
+            return candidates;
+        }
+
+        std::vector<Integer> xChoices;
+        std::vector<Integer> yChoices;
+        std::vector<Integer> zChoices;
+
+        xChoices.push_back(preferredX);
+        yChoices.push_back(preferredY);
+        zChoices.push_back(preferredZ);
+
+        for (const Integer &delta : {Integer(1), Integer(2)})
+        {
+            if (preferredX - delta >= targetBox.xMin)
+            {
+                xChoices.push_back(preferredX - delta);
+            }
+            if (preferredX + delta <= targetBox.xMax)
+            {
+                xChoices.push_back(preferredX + delta);
+            }
+            if (preferredY - delta >= targetBox.yMin)
+            {
+                yChoices.push_back(preferredY - delta);
+            }
+            if (preferredY + delta <= targetBox.yMax)
+            {
+                yChoices.push_back(preferredY + delta);
+            }
+            if (preferredZ - delta >= targetBox.zMin)
+            {
+                zChoices.push_back(preferredZ - delta);
+            }
+            if (preferredZ + delta <= targetBox.zMax)
+            {
+                zChoices.push_back(preferredZ + delta);
+            }
+        }
+
+        xChoices.push_back(targetBox.xMin);
+        xChoices.push_back(targetBox.xMax);
+        yChoices.push_back(targetBox.yMin);
+        yChoices.push_back(targetBox.yMax);
+        zChoices.push_back(targetBox.zMin);
+        zChoices.push_back(targetBox.zMax);
+
+        std::sort(xChoices.begin(), xChoices.end());
+        xChoices.erase(std::unique(xChoices.begin(), xChoices.end()), xChoices.end());
+        std::sort(yChoices.begin(), yChoices.end());
+        yChoices.erase(std::unique(yChoices.begin(), yChoices.end()), yChoices.end());
+        std::sort(zChoices.begin(), zChoices.end());
+        zChoices.erase(std::unique(zChoices.begin(), zChoices.end()), zChoices.end());
+
+        std::vector<PlanePoint3i> targetPoints;
+        for (const Integer &xChoice : xChoices)
+        {
+            for (const Integer &yChoice : yChoices)
+            {
+                for (const Integer &zChoice : zChoices)
+                {
+                    const PlanePoint3i targetPoint = makeIntegerPoint(xChoice, yChoice, zChoice);
+
+                    bool duplicated = false;
+                    for (const PlanePoint3i &existing : targetPoints)
+                    {
+                        if (areSamePlanePoint(existing, targetPoint))
+                        {
+                            duplicated = true;
+                            break;
+                        }
+                    }
+
+                    if (!duplicated)
+                    {
+                        targetPoints.push_back(targetPoint);
+                    }
+                }
+            }
+        }
+
+        for (const PlanePoint3i &targetPoint : targetPoints)
+        {
+            Integer targetX, targetY, targetZ;
+            detail::tryExtractExactIntegerPoint(targetPoint, targetX, targetY, targetZ);
+
+            std::vector<SplitAxis3i> changedAxes;
+            changedAxes.reserve(3);
+            if (startX != targetX)
+            {
+                changedAxes.push_back(SplitAxis3i::X);
+            }
+            if (startY != targetY)
+            {
+                changedAxes.push_back(SplitAxis3i::Y);
+            }
+            if (startZ != targetZ)
+            {
+                changedAxes.push_back(SplitAxis3i::Z);
+            }
+
+            std::sort(
+                changedAxes.begin(),
+                changedAxes.end(),
+                [](SplitAxis3i lhs, SplitAxis3i rhs)
+                {
+                    return detail::axisOrderKey(lhs) < detail::axisOrderKey(rhs);
+                });
+
+            if (changedAxes.empty())
+            {
+                candidates.push_back({targetPoint, {}});
+                continue;
+            }
+
+            do
+            {
+                std::vector<Segment256> path;
+                if (detail::buildAxisAlignedCornerPath(startPoint, targetPoint, changedAxes, path))
+                {
+                    candidates.push_back({targetPoint, std::move(path)});
+                }
+            } while (std::next_permutation(
+                changedAxes.begin(),
+                changedAxes.end(),
+                [](SplitAxis3i lhs, SplitAxis3i rhs)
+                {
+                    return detail::axisOrderKey(lhs) < detail::axisOrderKey(rhs);
+                }));
+        }
+
+        std::stable_sort(
+            candidates.begin(),
+            candidates.end(),
+            [preferredX, preferredY, preferredZ](const AABBPathCandidate &lhs, const AABBPathCandidate &rhs)
+            {
+                Integer lhsX, lhsY, lhsZ;
+                Integer rhsX, rhsY, rhsZ;
+                detail::tryExtractExactIntegerPoint(lhs.targetPoint, lhsX, lhsY, lhsZ);
+                detail::tryExtractExactIntegerPoint(rhs.targetPoint, rhsX, rhsY, rhsZ);
+
+                const bool lhsPreferred = (lhsX == preferredX && lhsY == preferredY && lhsZ == preferredZ);
+                const bool rhsPreferred = (rhsX == preferredX && rhsY == preferredY && rhsZ == preferredZ);
+                if (lhsPreferred != rhsPreferred)
+                {
+                    return lhsPreferred;
+                }
+
+                const Integer lhsDx = lhsX - preferredX;
+                const Integer lhsDy = lhsY - preferredY;
+                const Integer lhsDz = lhsZ - preferredZ;
+                const Integer rhsDx = rhsX - preferredX;
+                const Integer rhsDy = rhsY - preferredY;
+                const Integer rhsDz = rhsZ - preferredZ;
+
+                const Integer lhsDistance =
+                    (lhsDx < 0 ? -lhsDx : lhsDx) +
+                    (lhsDy < 0 ? -lhsDy : lhsDy) +
+                    (lhsDz < 0 ? -lhsDz : lhsDz);
+                const Integer rhsDistance =
+                    (rhsDx < 0 ? -rhsDx : rhsDx) +
+                    (rhsDy < 0 ? -rhsDy : rhsDy) +
+                    (rhsDz < 0 ? -rhsDz : rhsDz);
+                if (lhsDistance != rhsDistance)
+                {
+                    return lhsDistance < rhsDistance;
+                }
+
+                return lhs.path.size() < rhs.path.size();
+            });
+
+        return candidates;
     }
 
     /**

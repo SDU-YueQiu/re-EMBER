@@ -1,4 +1,5 @@
 #include "bool_problem.h"
+#include "algorithm/WNV_tracing.h"
 
 #include <algorithm>
 #include <utility>
@@ -208,7 +209,6 @@ namespace ember
     {
         reference_.point = getAABBCornerPoint(aabb_, false, false, false);
         reference_.wnv.assign(computeWNVSize(polygons_), 0);
-        reference_.hasExactWNV = true;
     }
 
     void BoolProblem::solveRecursive()
@@ -239,7 +239,7 @@ namespace ember
         splitPlane_ = split.splitPlane;
         if (!createChildrenFromSplit(split))
         {
-            discarded_ = true;
+            splitPlane_ = Plane3i();
             isLeaf_ = true;
             solved_ = true;
             return;
@@ -294,6 +294,17 @@ namespace ember
             return false;
         }
 
+        SubdivisionRefState leftReference;
+        SubdivisionRefState rightReference;
+        if (!leftPolygons.empty() && !makeChildReference(split.left, leftReference))
+        {
+            return false;
+        }
+        if (!rightPolygons.empty() && !makeChildReference(split.right, rightReference))
+        {
+            return false;
+        }
+
         if (!leftPolygons.empty())
         {
             leftChild_ = std::make_unique<BoolProblem>(leafPolygonThreshold_);
@@ -301,7 +312,7 @@ namespace ember
             leftChild_->depth_ = depth_ + 1;
             leftChild_->polygons_ = std::move(leftPolygons);
             leftChild_->aabb_ = split.left;
-            leftChild_->reference_ = makeChildReference(split.left);
+            leftChild_->reference_ = std::move(leftReference);
         }
 
         if (!rightPolygons.empty())
@@ -311,29 +322,41 @@ namespace ember
             rightChild_->depth_ = depth_ + 1;
             rightChild_->polygons_ = std::move(rightPolygons);
             rightChild_->aabb_ = split.right;
-            rightChild_->reference_ = makeChildReference(split.right);
+            rightChild_->reference_ = std::move(rightReference);
         }
 
         return true;
     }
 
-    SubdivisionRefState BoolProblem::makeChildReference(const AABB3i &childBox) const
+    bool BoolProblem::makeChildReference(const AABB3i &childBox, SubdivisionRefState &outReference) const
     {
         if (isPointInsideOrOnAABB(reference_.point, childBox))
         {
-            return reference_;
+            outReference = reference_;
+            return true;
         }
 
-        SubdivisionRefState childRef = reference_;
-        childRef.point = projectPointToAABB(reference_.point, childBox);
-        if (!childRef.point.hasUniqueIntersection())
+        const refPoint sourceRef(reference_.point, reference_.wnv);
+        const std::vector<AABBPathCandidate> candidates = enumerateAABBPathCandidates(reference_.point, childBox);
+        for (const AABBPathCandidate &candidate : candidates)
         {
-            childRef.point = getAABBCornerPoint(childBox, false, false, false);
+            WNV propagatedWNV;
+            const traceStatus status = tracePathWNV(sourceRef, candidate.path, polygons_, propagatedWNV);
+            if (status == SUCCESS)
+            {
+                outReference.point = candidate.targetPoint;
+                outReference.wnv = std::move(propagatedWNV);
+                return true;
+            }
+
+            if (status != PATH_INVALID)
+            {
+                break;
+            }
         }
 
-        // TODO：后续接入路径传播后，这里需要真正更新 childRef.wnv。
-        childRef.hasExactWNV = false;
-        return childRef;
+        outReference = SubdivisionRefState();
+        return false;
     }
 
     void BoolProblem::assignOperandWNTV(std::vector<Polygon256> &polygons, std::size_t dimension, std::size_t hotIndex)
