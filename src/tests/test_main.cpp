@@ -1,4 +1,5 @@
 #include "bool_problem_tests.h"
+#include "io_tests.h"
 #include "math256_tests.h"
 
 #include <chrono>
@@ -26,6 +27,7 @@ int main()
     {
         runNamedTest("math256", runMath256Tests);
         runNamedTest("bool_problem", runBoolProblemTests);
+        runNamedTest("io", runIoTests);
         std::cout << "[Test] all passed" << std::endl;
         return 0;
     }
