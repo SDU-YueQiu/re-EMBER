@@ -426,11 +426,11 @@ namespace ember
 
         SubdivisionRefState leftReference;
         SubdivisionRefState rightReference;
-        if (!leftPolygons.empty() && !makeChildReference(split.left, leftReference))
+        if (!leftPolygons.empty() && !makeChildReference(split.left, leftPolygons, leftReference))
         {
             return false;
         }
-        if (!rightPolygons.empty() && !makeChildReference(split.right, rightReference))
+        if (!rightPolygons.empty() && !makeChildReference(split.right, rightPolygons, rightReference))
         {
             return false;
         }
@@ -458,18 +458,48 @@ namespace ember
         return true;
     }
 
-    bool BoolProblem::makeChildReference(const AABB3i &childBox, SubdivisionRefState &outReference) const
+    bool BoolProblem::makeChildReference(
+        const AABB3i &childBox,
+        const std::vector<Polygon256> &childPolygons,
+        SubdivisionRefState &outReference) const
     {
         if (isPointInsideOrOnAABB(reference_.point, childBox))
         {
-            outReference = reference_;
-            return true;
+            bool onSurface = false;
+            for (const Polygon256 &polygon : childPolygons)
+            {
+                if (polygon.classify(reference_.point) == 0)
+                {
+                    onSurface = true;
+                    break;
+                }
+            }
+
+            if (!onSurface)
+            {
+                outReference = reference_;
+                return true;
+            }
         }
 
         const refPoint sourceRef(reference_.point, reference_.wnv);
         const std::vector<AABBPathCandidate> candidates = enumerateAABBPathCandidates(reference_.point, childBox);
         for (const AABBPathCandidate &candidate : candidates)
         {
+            bool onSurface = false;
+            for (const Polygon256 &polygon : childPolygons)
+            {
+                if (polygon.classify(candidate.targetPoint) == 0)
+                {
+                    onSurface = true;
+                    break;
+                }
+            }
+            if (onSurface)
+            {
+                continue;
+            }
+
             WNV propagatedWNV;
             const traceStatus status = tracePathWNV(sourceRef, candidate.path, polygons_, propagatedWNV);
             if (status == SUCCESS)
