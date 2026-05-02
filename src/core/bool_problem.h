@@ -236,7 +236,10 @@ namespace ember
         void classifyLeafFragmentsAndCollectResults();
         bool shouldStopSubdivision() const noexcept;
         bool createChildrenFromSplit(const AABBSplit3i &split);
-        bool makeChildReference(const AABB3i &childBox, SubdivisionRefState &outReference) const;
+        bool makeChildReference(
+            const AABB3i &childBox,
+            const std::vector<Polygon256> &childPolygons,
+            SubdivisionRefState &outReference) const;
         BoolStatus evaluateBooleanIndicator(const WNV &wnv) const noexcept;
 
         static void assignOperandWNTV(std::vector<Polygon256> &polygons, std::size_t dimension, std::size_t hotIndex);

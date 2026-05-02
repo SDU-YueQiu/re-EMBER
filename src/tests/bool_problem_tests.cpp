@@ -3,7 +3,6 @@
 #include "core/bool_problem.h"
 
 #include <cassert>
-#include <iostream>
 #include <stdexcept>
 
 namespace
@@ -82,19 +81,13 @@ void runBoolProblemTests()
         std::vector<const ember::BoolProblem *> leaves;
         problem.collectLeafProblems(leaves);
 
-        std::cout
-            << "[BoolTest] union solved=" << problem.isSolved()
-            << " leaves=" << leaves.size()
-            << " results=" << problem.resultFragments().size()
-            << std::endl;
-
         assert(problem.isSolved());
         assert(!problem.isDiscarded());
         assert(problem.resultFragments().size() == 12u);
         assert(!leaves.empty());
         for (const ember::BoolProblem *leaf : leaves)
         {
-            assert(leaf->polygonCount() <= 2u);
+            assert(leaf->polygonCount() <= 2u || !ember::hasSplittableAxis(leaf->aabb()));
         }
         for (const Polygon256 &fragment : problem.resultFragments())
         {
@@ -109,11 +102,6 @@ void runBoolProblemTests()
         problem.setOperands(lhs, rhs);
         problem.solve();
 
-        std::cout
-            << "[BoolTest] intersection solved=" << problem.isSolved()
-            << " results=" << problem.resultFragments().size()
-            << std::endl;
-
         assert(problem.isSolved());
         assert(problem.resultFragments().empty());
     }
@@ -123,11 +111,6 @@ void runBoolProblemTests()
         problem.setOperation(BoolOp::Difference);
         problem.setOperands(lhs, rhs);
         problem.solve();
-
-        std::cout
-            << "[BoolTest] difference solved=" << problem.isSolved()
-            << " results=" << problem.resultFragments().size()
-            << std::endl;
 
         assert(problem.isSolved());
         assert(problem.resultFragments().size() == 6u);

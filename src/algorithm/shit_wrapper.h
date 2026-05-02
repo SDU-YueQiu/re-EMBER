@@ -277,6 +277,35 @@ namespace ember
         }
 
         /**
+         * @brief 为指定轴构造穿过区间中点的轴对齐平面，并尽量约掉公因子以减少位宽增长。
+         *
+         * 当 `lower + upper` 为偶数时，中点是整数，直接返回 `x - mid = 0` 一类平面；
+         * 当和为奇数时，中点是半整数，返回 `2x - (lower + upper) = 0`。
+         */
+        inline constexpr Plane3i makeMidpointAxisPlane(
+            SplitAxis3i axis,
+            const Integer &lower,
+            const Integer &upper) noexcept
+        {
+            const Integer sum = lower + upper;
+            const bool even = isZero(sum % 2);
+
+            if (axis == SplitAxis3i::X)
+            {
+                return even ? Plane3i(1, 0, 0, -(sum / 2))
+                            : Plane3i(2, 0, 0, -sum);
+            }
+            if (axis == SplitAxis3i::Y)
+            {
+                return even ? Plane3i(0, 1, 0, -(sum / 2))
+                            : Plane3i(0, 2, 0, -sum);
+            }
+
+            return even ? Plane3i(0, 0, 1, -(sum / 2))
+                        : Plane3i(0, 0, 2, -sum);
+        }
+
+        /**
          * @brief 判断两个平面方程是否按当前存储形式完全相同。
          */
         inline constexpr bool areSamePlaneEquation(const Plane3i &lhs, const Plane3i &rhs) noexcept
@@ -447,27 +476,21 @@ namespace ember
         inline bool buildAxisProbeInteriorPoint(
             const Polygon256 &polygon,
             SplitAxis3i axis,
-            const Integer &coord0,
-            const Integer &coord1,
+            const Plane3i &plane0,
+            const Plane3i &plane1,
             PlanePoint3i &outPoint)
         {
             Line256 probeLine;
             switch (axis)
             {
             case SplitAxis3i::X:
-                probeLine = makeLine(
-                    Plane3i(0, 1, 0, -coord0),
-                    Plane3i(0, 0, 1, -coord1));
+                probeLine = makeLine(plane0, plane1);
                 break;
             case SplitAxis3i::Y:
-                probeLine = makeLine(
-                    Plane3i(1, 0, 0, -coord0),
-                    Plane3i(0, 0, 1, -coord1));
+                probeLine = makeLine(plane0, plane1);
                 break;
             case SplitAxis3i::Z:
-                probeLine = makeLine(
-                    Plane3i(1, 0, 0, -coord0),
-                    Plane3i(0, 1, 0, -coord1));
+                probeLine = makeLine(plane0, plane1);
                 break;
             }
 
@@ -503,6 +526,109 @@ namespace ember
         inline constexpr PlanePoint3i makePointFromPlanes(const std::array<Plane3i, 3> &planes) noexcept
         {
             return PlanePoint3i(planes[0], planes[1], planes[2]);
+        }
+
+        /**
+         * @brief 为一个齐次点的指定坐标构造轴对齐坐标平面。
+         *
+         * 若该点某坐标为 `p / w`，则返回 `w * x - p = 0` 一类平面。
+         */
+        inline constexpr Plane3i makeCoordinatePlaneFromPoint(const PlanePoint3i &point, SplitAxis3i axis) noexcept
+        {
+            switch (axis)
+            {
+            case SplitAxis3i::X:
+                return Plane3i(point.x.w, 0, 0, -point.x.x);
+            case SplitAxis3i::Y:
+                return Plane3i(0, point.x.w, 0, -point.x.y);
+            case SplitAxis3i::Z:
+                return Plane3i(0, 0, point.x.w, -point.x.z);
+            }
+
+            return Plane3i();
+        }
+
+        /**
+         * @brief 按轴对齐坐标平面构造一段单轴变化的路径线段。
+         */
+        inline bool buildAxisAlignedSegmentFromCoordinatePlanes(
+            const std::array<Plane3i, 3> &startCoordinatePlanes,
+            const std::array<Plane3i, 3> &endCoordinatePlanes,
+            SplitAxis3i changedAxis,
+            Segment256 &outSegment)
+        {
+            std::array<int, 2> fixedIndices = {1, 2};
+            if (changedAxis == SplitAxis3i::Y)
+            {
+                fixedIndices = {0, 2};
+            }
+            else if (changedAxis == SplitAxis3i::Z)
+            {
+                fixedIndices = {0, 1};
+            }
+
+            const Line256 direction(
+                startCoordinatePlanes[fixedIndices[0]],
+                startCoordinatePlanes[fixedIndices[1]]);
+            if (!direction.isValid())
+            {
+                return false;
+            }
+
+            const int changedIndex = axisOrderKey(changedAxis);
+            outSegment = Segment256(
+                startCoordinatePlanes[changedIndex],
+                endCoordinatePlanes[changedIndex],
+                direction);
+            return outSegment.isValid();
+        }
+
+        /**
+         * @brief 按坐标轴顺序构造 1 到 3 段轴对齐路径。
+         */
+        inline bool buildAxisAlignedCoordinatePath(
+            const PlanePoint3i &startPoint,
+            const PlanePoint3i &targetPoint,
+            const AABB3i &box,
+            const std::vector<SplitAxis3i> &axisOrder,
+            std::vector<Segment256> &outPath)
+        {
+            std::array<Plane3i, 3> currentCoordinatePlanes = {
+                makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::X),
+                makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::Y),
+                makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::Z)};
+            const std::array<Plane3i, 3> targetCoordinatePlanes = {
+                makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::X),
+                makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Y),
+                makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Z)};
+
+            PlanePoint3i currentPoint = startPoint;
+            outPath.clear();
+            for (const SplitAxis3i axis : axisOrder)
+            {
+                const int axisIndex = axisOrderKey(axis);
+                const std::array<Plane3i, 3> startCoordinatePlanes = currentCoordinatePlanes;
+                currentCoordinatePlanes[axisIndex] = targetCoordinatePlanes[axisIndex];
+
+                const PlanePoint3i nextPoint = makePointFromPlanes(currentCoordinatePlanes);
+                if (!nextPoint.hasUniqueIntersection() || !isPointInsideOrOnAABB(nextPoint, box))
+                {
+                    outPath.clear();
+                    return false;
+                }
+
+                Segment256 segment;
+                if (!buildAxisAlignedSegmentFromCoordinatePlanes(startCoordinatePlanes, currentCoordinatePlanes, axis, segment))
+                {
+                    outPath.clear();
+                    return false;
+                }
+
+                outPath.push_back(std::move(segment));
+                currentPoint = nextPoint;
+            }
+
+            return areSamePlanePoint(currentPoint, targetPoint);
         }
 
         /**
@@ -1264,9 +1390,9 @@ namespace ember
         const AABB3i polygonBox = computeAABB(singleton, 0);
         if (isValidAABB(polygonBox))
         {
-            const Integer centerX = floorDiv(polygonBox.xMin + polygonBox.xMax, 2);
-            const Integer centerY = floorDiv(polygonBox.yMin + polygonBox.yMax, 2);
-            const Integer centerZ = floorDiv(polygonBox.zMin + polygonBox.zMax, 2);
+            const Plane3i centerXPlane = detail::makeMidpointAxisPlane(SplitAxis3i::X, polygonBox.xMin, polygonBox.xMax);
+            const Plane3i centerYPlane = detail::makeMidpointAxisPlane(SplitAxis3i::Y, polygonBox.yMin, polygonBox.yMax);
+            const Plane3i centerZPlane = detail::makeMidpointAxisPlane(SplitAxis3i::Z, polygonBox.zMin, polygonBox.zMax);
 
             const Integer absNx = polygon.plane.a < 0 ? -polygon.plane.a : polygon.plane.a;
             const Integer absNy = polygon.plane.b < 0 ? -polygon.plane.b : polygon.plane.b;
@@ -1290,19 +1416,19 @@ namespace ember
                 switch (axis)
                 {
                 case SplitAxis3i::X:
-                    if (detail::buildAxisProbeInteriorPoint(polygon, axis, centerY, centerZ, candidate))
+                    if (detail::buildAxisProbeInteriorPoint(polygon, axis, centerYPlane, centerZPlane, candidate))
                     {
                         candidates.push_back(candidate);
                     }
                     break;
                 case SplitAxis3i::Y:
-                    if (detail::buildAxisProbeInteriorPoint(polygon, axis, centerX, centerZ, candidate))
+                    if (detail::buildAxisProbeInteriorPoint(polygon, axis, centerXPlane, centerZPlane, candidate))
                     {
                         candidates.push_back(candidate);
                     }
                     break;
                 case SplitAxis3i::Z:
-                    if (detail::buildAxisProbeInteriorPoint(polygon, axis, centerX, centerY, candidate))
+                    if (detail::buildAxisProbeInteriorPoint(polygon, axis, centerXPlane, centerYPlane, candidate))
                     {
                         candidates.push_back(candidate);
                     }
@@ -1355,6 +1481,51 @@ namespace ember
         const std::vector<PlanePoint3i> targetPoints = enumerateLeafClassificationPointCandidates(polygon);
         for (const PlanePoint3i &targetPoint : targetPoints)
         {
+            std::vector<SplitAxis3i> changedAxes;
+            if (referencePoint.x.x * targetPoint.x.w != targetPoint.x.x * referencePoint.x.w)
+            {
+                changedAxes.push_back(SplitAxis3i::X);
+            }
+            if (referencePoint.x.y * targetPoint.x.w != targetPoint.x.y * referencePoint.x.w)
+            {
+                changedAxes.push_back(SplitAxis3i::Y);
+            }
+            if (referencePoint.x.z * targetPoint.x.w != targetPoint.x.z * referencePoint.x.w)
+            {
+                changedAxes.push_back(SplitAxis3i::Z);
+            }
+
+            std::sort(
+                changedAxes.begin(),
+                changedAxes.end(),
+                [](SplitAxis3i lhs, SplitAxis3i rhs)
+                {
+                    return detail::axisOrderKey(lhs) < detail::axisOrderKey(rhs);
+                });
+
+            if (changedAxes.empty())
+            {
+                candidates.push_back({targetPoint, {}});
+            }
+            else
+            {
+                std::vector<SplitAxis3i> axisOrder = changedAxes;
+                do
+                {
+                    std::vector<Segment256> path;
+                    if (detail::buildAxisAlignedCoordinatePath(referencePoint, targetPoint, box, axisOrder, path))
+                    {
+                        candidates.push_back({targetPoint, std::move(path)});
+                    }
+                } while (std::next_permutation(
+                    axisOrder.begin(),
+                    axisOrder.end(),
+                    [](SplitAxis3i lhs, SplitAxis3i rhs)
+                    {
+                        return detail::axisOrderKey(lhs) < detail::axisOrderKey(rhs);
+                    }));
+            }
+
             std::vector<int> changedPlaneIndices;
             if (!detail::areSamePlaneEquation(referencePoint.p, targetPoint.p))
             {
@@ -1371,7 +1542,6 @@ namespace ember
 
             if (changedPlaneIndices.empty())
             {
-                candidates.push_back({targetPoint, {}});
                 continue;
             }
 
