@@ -1,58 +1,162 @@
-﻿#include "core/bool_problem.h"
+#include "core/bool_problem.h"
+#include "io/io.h"
 
+#include <cstddef>
+#include <cstdint>
+#include <exception>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <vector>
 
 namespace
 {
     using ember::BoolOp;
-    using ember::Plane3i;
-    using ember::Polygon256;
-    using ember::Vec3i;
 
-    Polygon256 makeFaceXY(int z, int xmin, int xmax, int ymin, int ymax, int normalZ)
+    // 命令行入口只负责组装两输入布尔任务，不扩展到表达式树或多输入场景。
+    struct CliOptions
     {
-        return Polygon256(
-            Plane3i::fromPointNormal(Vec3i(0, 0, z), Vec3i(0, 0, normalZ)),
-            std::vector<Plane3i>{
-                Plane3i::fromPointNormal(Vec3i(xmin, ymin, z), Vec3i(0, -1, 0)),
-                Plane3i::fromPointNormal(Vec3i(xmax, ymin, z), Vec3i(1, 0, 0)),
-                Plane3i::fromPointNormal(Vec3i(xmin, ymax, z), Vec3i(0, 1, 0)),
-                Plane3i::fromPointNormal(Vec3i(xmin, ymin, z), Vec3i(-1, 0, 0))});
+        std::string lhsPath;
+        std::string rhsPath;
+        std::string outputPath;
+        BoolOp operation = BoolOp::Intersection;
+        std::optional<std::uint64_t> scale;
+        std::size_t leafThreshold = 25;
+    };
+
+    void printUsage()
+    {
+        std::cerr
+            << "Usage: kEmber --lhs <file.obj> --rhs <file.obj> "
+            << "--op union|intersection|difference --out <result.obj> "
+            << "[--scale <positive_integer>] [--leaf-threshold <positive_integer>]"
+            << std::endl;
     }
 
-    Polygon256 makeFaceYZ(int x, int ymin, int ymax, int zmin, int zmax, int normalX)
+    // CLI 数值参数统一要求正整数，避免导入尺度和阈值出现 0 或负值。
+    bool parsePositiveUInt64(const std::string &token, std::uint64_t &outValue)
     {
-        return Polygon256(
-            Plane3i::fromPointNormal(Vec3i(x, 0, 0), Vec3i(normalX, 0, 0)),
-            std::vector<Plane3i>{
-                Plane3i::fromPointNormal(Vec3i(x, ymin, zmin), Vec3i(0, -1, 0)),
-                Plane3i::fromPointNormal(Vec3i(x, ymin, zmax), Vec3i(0, 0, 1)),
-                Plane3i::fromPointNormal(Vec3i(x, ymax, zmin), Vec3i(0, 1, 0)),
-                Plane3i::fromPointNormal(Vec3i(x, ymin, zmin), Vec3i(0, 0, -1))});
+        try
+        {
+            std::size_t consumed = 0;
+            const unsigned long long parsed = std::stoull(token, &consumed, 10);
+            if (consumed != token.size() || parsed == 0)
+            {
+                return false;
+            }
+
+            outValue = static_cast<std::uint64_t>(parsed);
+            return true;
+        }
+        catch (...)
+        {
+            return false;
+        }
     }
 
-    Polygon256 makeFaceXZ(int y, int xmin, int xmax, int zmin, int zmax, int normalY)
+    // 第一版只开放当前内核已经支持的三种二元布尔运算。
+    bool parseBoolOp(const std::string &token, BoolOp &outOp)
     {
-        return Polygon256(
-            Plane3i::fromPointNormal(Vec3i(0, y, 0), Vec3i(0, normalY, 0)),
-            std::vector<Plane3i>{
-                Plane3i::fromPointNormal(Vec3i(xmin, y, zmin), Vec3i(-1, 0, 0)),
-                Plane3i::fromPointNormal(Vec3i(xmin, y, zmax), Vec3i(0, 0, 1)),
-                Plane3i::fromPointNormal(Vec3i(xmax, y, zmin), Vec3i(1, 0, 0)),
-                Plane3i::fromPointNormal(Vec3i(xmin, y, zmin), Vec3i(0, 0, -1))});
+        if (token == "union")
+        {
+            outOp = BoolOp::Union;
+            return true;
+        }
+        if (token == "intersection")
+        {
+            outOp = BoolOp::Intersection;
+            return true;
+        }
+        if (token == "difference")
+        {
+            outOp = BoolOp::Difference;
+            return true;
+        }
+
+        return false;
     }
 
-    std::vector<Polygon256> makeAxisAlignedBox(int xmin, int ymin, int zmin, int xmax, int ymax, int zmax)
+    // 解析最小外围 CLI：文件路径、布尔运算、共享量化尺度和叶子阈值。
+    bool parseArgs(int argc, char **argv, CliOptions &outOptions)
     {
-        return {
-            makeFaceYZ(xmin, ymin, ymax, zmin, zmax, -1),
-            makeFaceYZ(xmax, ymin, ymax, zmin, zmax, 1),
-            makeFaceXZ(ymin, xmin, xmax, zmin, zmax, -1),
-            makeFaceXZ(ymax, xmin, xmax, zmin, zmax, 1),
-            makeFaceXY(zmin, xmin, xmax, ymin, ymax, -1),
-            makeFaceXY(zmax, xmin, xmax, ymin, ymax, 1)};
+        outOptions = CliOptions();
+        bool hasOperation = false;
+
+        for (int i = 1; i < argc; ++i)
+        {
+            const std::string arg(argv[i]);
+            if (arg == "--lhs" || arg == "--rhs" || arg == "--op" || arg == "--out" ||
+                arg == "--scale" || arg == "--leaf-threshold")
+            {
+                if (i + 1 >= argc)
+                {
+                    std::cerr << "Missing value for argument: " << arg << std::endl;
+                    return false;
+                }
+
+                const std::string value(argv[++i]);
+                if (arg == "--lhs")
+                {
+                    outOptions.lhsPath = value;
+                }
+                else if (arg == "--rhs")
+                {
+                    outOptions.rhsPath = value;
+                }
+                else if (arg == "--out")
+                {
+                    outOptions.outputPath = value;
+                }
+                else if (arg == "--op")
+                {
+                    if (!parseBoolOp(value, outOptions.operation))
+                    {
+                        std::cerr << "Unsupported boolean operation: " << value << std::endl;
+                        return false;
+                    }
+
+                    hasOperation = true;
+                }
+                else if (arg == "--scale")
+                {
+                    std::uint64_t scaleValue = 0;
+                    if (!parsePositiveUInt64(value, scaleValue))
+                    {
+                        std::cerr << "Scale must be a positive integer." << std::endl;
+                        return false;
+                    }
+
+                    outOptions.scale = scaleValue;
+                }
+                else if (arg == "--leaf-threshold")
+                {
+                    std::uint64_t thresholdValue = 0;
+                    if (!parsePositiveUInt64(value, thresholdValue))
+                    {
+                        std::cerr << "Leaf threshold must be a positive integer." << std::endl;
+                        return false;
+                    }
+
+                    outOptions.leafThreshold = static_cast<std::size_t>(thresholdValue);
+                }
+
+                continue;
+            }
+
+            std::cerr << "Unknown argument: " << arg << std::endl;
+            return false;
+        }
+
+        if (outOptions.lhsPath.empty() ||
+            outOptions.rhsPath.empty() ||
+            outOptions.outputPath.empty() ||
+            !hasOperation)
+        {
+            std::cerr << "Missing required arguments." << std::endl;
+            return false;
+        }
+
+        return true;
     }
 
     const char *toString(BoolOp op)
@@ -71,30 +175,86 @@ namespace
     }
 }
 
-int main()
+int main(int argc, char **argv)
 {
-    const std::vector<Polygon256> lhs = makeAxisAlignedBox(0, 0, 0, 2, 2, 2);
-    const std::vector<Polygon256> rhs = makeAxisAlignedBox(1, 1, 1, 3, 3, 3);
-
-    for (const BoolOp op : {BoolOp::Union, BoolOp::Intersection, BoolOp::Difference})
+    CliOptions options;
+    if (!parseArgs(argc, argv, options))
     {
-        ember::BoolProblem problem(2);
-        problem.setOperation(op);
-        problem.setOperands(lhs, rhs);
-        problem.solve();
-
-        std::vector<const ember::BoolProblem *> leaves;
-        problem.collectLeafProblems(leaves);
-
-        std::cout
-            << "operation=" << toString(op)
-            << " leaves=" << leaves.size()
-            << " result_fragments=" << problem.resultFragments().size()
-            << " solved=" << (problem.isSolved() ? "true" : "false")
-            << " discarded=" << (problem.isDiscarded() ? "true" : "false")
-            << std::endl;
+        printUsage();
+        return 1;
     }
 
-    return 0;
-}
+    try
+    {
+        // 应用层只做三件事：OBJ -> polygon soup、驱动 BoolProblem、结果写回 OBJ。
+        ember::ObjMeshData lhsMesh;
+        ember::ObjMeshData rhsMesh;
+        std::string error;
 
+        if (!ember::readObjMesh(options.lhsPath, lhsMesh, error))
+        {
+            std::cerr << error << std::endl;
+            return 1;
+        }
+        if (!ember::readObjMesh(options.rhsPath, rhsMesh, error))
+        {
+            std::cerr << error << std::endl;
+            return 1;
+        }
+
+        ember::QuantizeOptions quantizeOptions;
+        quantizeOptions.explicitScale = options.scale;
+
+        // 左右操作数必须进入同一个整数坐标系，否则后续精确谓词没有共同语义。
+        std::uint64_t sharedScale = 0;
+        if (!ember::chooseSharedScale({lhsMesh, rhsMesh}, quantizeOptions, sharedScale, error))
+        {
+            std::cerr << error << std::endl;
+            return 1;
+        }
+
+        std::vector<ember::Polygon256> lhsPolygons;
+        std::vector<ember::Polygon256> rhsPolygons;
+        if (!ember::buildPolygonSoup(lhsMesh, sharedScale, lhsPolygons, error))
+        {
+            std::cerr << error << std::endl;
+            return 1;
+        }
+        if (!ember::buildPolygonSoup(rhsMesh, sharedScale, rhsPolygons, error))
+        {
+            std::cerr << error << std::endl;
+            return 1;
+        }
+
+        ember::BoolProblem problem(options.leafThreshold);
+        problem.setOperation(options.operation);
+        problem.setOperands(lhsPolygons, rhsPolygons);
+        problem.solve();
+
+        // 默认直接导出 OBJ n-gon；三角化和拓扑恢复属于调用方后处理。
+        std::size_t exportedFaces = 0;
+        if (!ember::writePolygonSoupObj(problem.resultFragments(), options.outputPath, exportedFaces, error))
+        {
+            std::cerr << error << std::endl;
+            return 1;
+        }
+
+        std::cout
+            << "operation=" << toString(options.operation)
+            << " lhs_input_faces=" << lhsMesh.faces.size()
+            << " rhs_input_faces=" << rhsMesh.faces.size()
+            << " scale=" << sharedScale
+            << " lhs_polygons=" << lhsPolygons.size()
+            << " rhs_polygons=" << rhsPolygons.size()
+            << " result_fragments=" << problem.resultFragments().size()
+            << " exported_faces=" << exportedFaces
+            << std::endl;
+
+        return 0;
+    }
+    catch (const std::exception &ex)
+    {
+        std::cerr << ex.what() << std::endl;
+        return 1;
+    }
+}
