@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <iterator>
+#include <sstream>
+#include <stdexcept>
 #include <utility>
 
 namespace ember
@@ -19,6 +21,23 @@ namespace ember
             }
 
             return dimension;
+        }
+
+        const char *traceStatusName(traceStatus status) noexcept
+        {
+            switch (status)
+            {
+            case SUCCESS:
+                return "SUCCESS";
+            case PATH_INVALID:
+                return "PATH_INVALID";
+            case INPUT_INVALID:
+                return "INPUT_INVALID";
+            case FAIL:
+                return "FAIL";
+            }
+
+            return "UNKNOWN";
         }
     }
 
@@ -205,6 +224,7 @@ namespace ember
         collectLeafProblemsRecursive(this, outLeaves);
     }
 
+    // 重置由求解流程派生出的状态，保留调用方配置和输入 polygon soup。
     void BoolProblem::resetSubdivisionState() noexcept
     {
         isLeaf_ = true;
@@ -219,12 +239,14 @@ namespace ember
         rightChild_.reset();
     }
 
+    // 使用根 AABB 的最小角点建立初始参考点，并按输入 WNTV 维度置零。
     void BoolProblem::initializeRootReference()
     {
         reference_.point = getAABBCornerPoint(aabb_, false, false, false);
         reference_.wnv.assign(computeWNVSize(polygons_), 0);
     }
 
+    // 递归推进 subdivision；到达叶子后立即执行局部 BSP 和 WNV 分类。
     void BoolProblem::solveRecursive()
     {
         if (polygons_.empty() || !isValidAABB(aabb_))
@@ -298,6 +320,7 @@ namespace ember
         solved_ = true;
     }
 
+    // 对叶子节点内的每个 polygon 建立局部 BSP，并收集启用的 fragment。
     void BoolProblem::solveLeafArrangement()
     {
         leafFragments_.clear();
@@ -331,6 +354,7 @@ namespace ember
         }
     }
 
+    // 对每个 leaf fragment 追踪到严格内部点；分类失败属于不可恢复错误。
     void BoolProblem::classifyLeafFragmentsAndCollectResults()
     {
         resultFragments_.clear();
@@ -340,12 +364,14 @@ namespace ember
         }
 
         const refPoint localReference(reference_.point, reference_.wnv);
-        for (Polygon256 &fragment : leafFragments_)
+        for (std::size_t fragmentIndex = 0; fragmentIndex < leafFragments_.size(); ++fragmentIndex)
         {
+            Polygon256 &fragment = leafFragments_[fragmentIndex];
             const std::vector<LeafClassificationPathCandidate> candidates =
                 enumerateLeafClassificationPathCandidates(reference_.point, fragment, aabb_);
 
             bool classified = false;
+            traceStatus lastStatus = FAIL;
             for (const LeafClassificationPathCandidate &candidate : candidates)
             {
                 WNV frontWNV;
@@ -366,6 +392,7 @@ namespace ember
                     break;
                 }
 
+                lastStatus = status;
                 if (status != PATH_INVALID)
                 {
                     break;
@@ -374,9 +401,15 @@ namespace ember
 
             if (!classified)
             {
-                fragment.WNVF.clear();
-                fragment.WNVB.clear();
-                continue;
+                std::ostringstream message;
+                message << "BoolProblem failed to classify leaf fragment "
+                        << fragmentIndex
+                        << " after "
+                        << candidates.size()
+                        << " candidates; last trace status = "
+                        << traceStatusName(lastStatus)
+                        << ".";
+                throw std::runtime_error(message.str());
             }
 
             const BoolStatus frontStatus = evaluateBooleanIndicator(fragment.WNVF);
@@ -392,11 +425,13 @@ namespace ember
         }
     }
 
+    // 叶子阈值和 AABB 可切分性共同决定当前节点是否停止递归。
     bool BoolProblem::shouldStopSubdivision() const noexcept
     {
         return polygons_.size() <= leafPolygonThreshold_ || !hasSplittableAxis(aabb_);
     }
 
+    // 裁剪当前 polygon soup 到左右子 AABB，并为每个非空子问题建立参考状态。
     bool BoolProblem::createChildrenFromSplit(const AABBSplit3i &split)
     {
         std::vector<Polygon256> leftPolygons;
@@ -458,6 +493,7 @@ namespace ember
         return true;
     }
 
+    // 优先复用仍在子 AABB 内且不落在表面上的参考点，否则枚举 AABB 路径传播 WNV。
     bool BoolProblem::makeChildReference(
         const AABB3i &childBox,
         const std::vector<Polygon256> &childPolygons,
@@ -519,6 +555,7 @@ namespace ember
         return false;
     }
 
+    // 将 WNV 交给当前布尔运算的二元指示函数，返回内外状态。
     BoolStatus BoolProblem::evaluateBooleanIndicator(const WNV &wnv) const noexcept
     {
         WNV tmp = wnv;
@@ -535,6 +572,7 @@ namespace ember
         return OUT;
     }
 
+    // 写入基础 WNTV，并清理可能来自上游的前后侧分类缓存。
     void BoolProblem::assignOperandWNTV(std::vector<Polygon256> &polygons, std::size_t dimension, std::size_t hotIndex)
     {
         for (Polygon256 &polygon : polygons)
@@ -550,6 +588,7 @@ namespace ember
         }
     }
 
+    // 清理 polygon 集合上的 WNVF/WNVB，使后续分类不会读取陈旧结果。
     void BoolProblem::clearClassificationState(std::vector<Polygon256> &polygons)
     {
         for (Polygon256 &polygon : polygons)
@@ -559,6 +598,7 @@ namespace ember
         }
     }
 
+    // 只读遍历版本：跳过空节点和已丢弃节点，只返回有效叶子。
     void BoolProblem::collectLeafProblemsRecursive(const BoolProblem *node, std::vector<const BoolProblem *> &outLeaves)
     {
         if (!node || node->discarded_)
@@ -576,6 +616,7 @@ namespace ember
         collectLeafProblemsRecursive(node->rightChild_.get(), outLeaves);
     }
 
+    // 可变遍历版本：与只读版本保持相同过滤规则。
     void BoolProblem::collectLeafProblemsRecursive(BoolProblem *node, std::vector<BoolProblem *> &outLeaves)
     {
         if (!node || node->discarded_)
@@ -593,4 +634,3 @@ namespace ember
         collectLeafProblemsRecursive(node->rightChild_.get(), outLeaves);
     }
 }
-

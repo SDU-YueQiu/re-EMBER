@@ -9,6 +9,7 @@ namespace
 {
     using ember::BoolOp;
     using ember::Plane3i;
+    using ember::PlanePoint3i;
     using ember::Polygon256;
     using ember::Vec3i;
 
@@ -55,6 +56,16 @@ namespace
             makeFaceXY(zmin, xmin, xmax, ymin, ymax, -1),
             makeFaceXY(zmax, xmin, xmax, ymin, ymax, 1)};
     }
+
+    Polygon256 makeThinTriangleXY()
+    {
+        return Polygon256(
+            Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, 0, 1)),
+            std::vector<Plane3i>{
+                Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, -1, 0)),
+                Plane3i(1, 100, 0, -100),
+                Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(-1, 0, 0))});
+    }
 }
 
 #undef assert
@@ -71,6 +82,62 @@ void runBoolProblemTests()
 {
     const std::vector<Polygon256> lhs = makeAxisAlignedBox(0, 0, 0, 1, 1, 1);
     const std::vector<Polygon256> rhs = makeAxisAlignedBox(3, 3, 3, 4, 4, 4);
+
+    {
+        const Polygon256 square = makeFaceXY(0, 0, 2, 0, 2, 1);
+        const std::vector<PlanePoint3i> candidates = ember::enumerateLeafClassificationPointCandidates(square);
+        assert(!candidates.empty());
+        assert(square.containsStrictly(candidates.front()));
+        assert(ember::areSamePlanePoint(candidates.front(), ember::makeIntegerPoint(1, 1, 0)));
+    }
+
+    {
+        const Polygon256 thinTriangle = makeThinTriangleXY();
+        assert(thinTriangle.isValid());
+
+        const PlanePoint3i roundedCentroid = ember::makeIntegerPoint(33, 0, 0);
+        assert(!thinTriangle.containsStrictly(roundedCentroid));
+
+        const std::vector<PlanePoint3i> candidates = ember::enumerateLeafClassificationPointCandidates(thinTriangle);
+        assert(!candidates.empty());
+        for (const PlanePoint3i &candidate : candidates)
+        {
+            assert(thinTriangle.containsStrictly(candidate));
+        }
+    }
+
+    {
+        ember::AABB3i box;
+        box.xMin = 0;
+        box.xMax = 10;
+        box.yMin = 0;
+        box.yMax = 10;
+        box.zMin = 0;
+        box.zMax = 10;
+        box.valid = true;
+
+        const PlanePoint3i reference = ember::makeIntegerPoint(1, 1, 1);
+        const PlanePoint3i target(
+            Plane3i(1, -100, -100, 1791),
+            Plane3i(0, 1, 0, -9),
+            Plane3i(0, 0, 1, -9));
+
+        std::vector<ember::Segment256> path;
+        assert(ember::detail::buildPlaneReplacementPath(reference, target, box, {0, 1, 2}, path));
+        assert(!path.empty());
+        assert(ember::areSamePlanePoint(path.front().getStartPoint(), reference));
+        assert(ember::areSamePlanePoint(path.back().getEndPoint(), target));
+        for (std::size_t i = 0; i < path.size(); ++i)
+        {
+            assert(path[i].isValid());
+            assert(ember::isPointInsideOrOnAABB(path[i].getStartPoint(), box));
+            assert(ember::isPointInsideOrOnAABB(path[i].getEndPoint(), box));
+            if (i != 0)
+            {
+                assert(ember::areSamePlanePoint(path[i - 1].getEndPoint(), path[i].getStartPoint()));
+            }
+        }
+    }
 
     {
         ember::BoolProblem problem(2);

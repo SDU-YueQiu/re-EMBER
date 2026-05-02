@@ -229,38 +229,147 @@ namespace ember
         void collectLeafProblems(std::vector<BoolProblem *> &outLeaves);
 
     private:
+        /**
+         * @brief 重置 subdivision 派生状态。
+         *
+         * 清空子树、局部 AABB、参考点、leaf fragment 与结果面，
+         * 但保留输入 polygon soup、布尔运算类型和叶子阈值配置。
+         */
         void resetSubdivisionState() noexcept;
+
+        /**
+         * @brief 为根问题初始化局部参考点及其 WNV。
+         *
+         * 当前实现选择根 AABB 的最小角点作为外部参考点，并按输入 WNTV
+         * 最大维度初始化零 WNV。
+         */
         void initializeRootReference();
+
+        /**
+         * @brief 递归执行当前子问题的 subdivision、leaf arrangement 与分类。
+         */
         void solveRecursive();
+
+        /**
+         * @brief 在叶子节点内为每个输入 polygon 构造局部 BSP arrangement。
+         */
         void solveLeafArrangement();
+
+        /**
+         * @brief 分类 leaf fragments 并收集通过当前布尔指示函数的结果面。
+         *
+         * @throws std::runtime_error 当任一 leaf fragment 无法成功计算前后侧 WNV 时抛出。
+         */
         void classifyLeafFragmentsAndCollectResults();
+
+        /**
+         * @brief 判断当前子问题是否应停止继续空间细分。
+         *
+         * @return 多边形数量不超过阈值，或局部 AABB 已无可切分轴时返回 `true`。
+         */
         bool shouldStopSubdivision() const noexcept;
+
+        /**
+         * @brief 根据一次 AABB 切分创建左右子问题。
+         *
+         * @param[in] split 已计算出的左右 AABB 与切分平面。
+         * @return 至少创建一个子问题且其参考点可传播时返回 `true`。
+         */
         bool createChildrenFromSplit(const AABBSplit3i &split);
+
+        /**
+         * @brief 为目标子 AABB 构造局部参考点并传播 WNV。
+         *
+         * @param[in] childBox 目标子问题的 AABB。
+         * @param[in] childPolygons 裁剪到目标子问题内的 polygon soup。
+         * @param[out] outReference 成功时写入子问题参考点与 WNV。
+         * @return 成功复用或传播参考点时返回 `true`。
+         */
         bool makeChildReference(
             const AABB3i &childBox,
             const std::vector<Polygon256> &childPolygons,
             SubdivisionRefState &outReference) const;
+
+        /**
+         * @brief 将 WNV 代入当前布尔运算的指示函数。
+         *
+         * @param[in] wnv 待判断的 winding-number 状态。
+         * @return 当前布尔运算下该状态对应的内外分类。
+         */
         BoolStatus evaluateBooleanIndicator(const WNV &wnv) const noexcept;
 
+        /**
+         * @brief 为一组输入 polygon 写入指定维度的基础 WNTV。
+         *
+         * @param[in,out] polygons 待标注的 polygon 集合。
+         * @param[in] dimension WNV/WNTV 总维度。
+         * @param[in] hotIndex 当前集合对应的非零 WNTV 分量。
+         */
         static void assignOperandWNTV(std::vector<Polygon256> &polygons, std::size_t dimension, std::size_t hotIndex);
+
+        /**
+         * @brief 清空 polygon 集合中缓存的前后侧 WNV 分类结果。
+         *
+         * @param[in,out] polygons 待清理的 polygon 集合。
+         */
         static void clearClassificationState(std::vector<Polygon256> &polygons);
+
+        /**
+         * @brief 递归收集未丢弃的只读叶子子问题。
+         *
+         * @param[in] node 当前遍历节点。
+         * @param[out] outLeaves 追加写入叶子节点指针的容器。
+         */
         static void collectLeafProblemsRecursive(const BoolProblem *node, std::vector<const BoolProblem *> &outLeaves);
+
+        /**
+         * @brief 递归收集未丢弃的可变叶子子问题。
+         *
+         * @param[in] node 当前遍历节点。
+         * @param[out] outLeaves 追加写入叶子节点指针的容器。
+         */
         static void collectLeafProblemsRecursive(BoolProblem *node, std::vector<BoolProblem *> &outLeaves);
 
+        /// 当前布尔运算类型。
         BoolOp op_ = BoolOp::Intersection;
+
+        /// 叶子阶段停止继续细分的 polygon 数量阈值。
         std::size_t leafPolygonThreshold_ = 25;
+
+        /// 当前节点在 subdivision 树中的深度。
         std::size_t depth_ = 0;
+
+        /// 当前节点是否为叶子子问题。
         bool isLeaf_ = true;
+
+        /// 当前节点是否已被判定为空子问题。
         bool discarded_ = false;
+
+        /// 当前节点是否已完成求解流程。
         bool solved_ = false;
 
+        /// 当前节点最近一次细分使用的切分平面。
         Plane3i splitPlane_;
+
+        /// 当前节点的局部 AABB。
         AABB3i aabb_;
+
+        /// 当前节点保存的局部参考点及其 WNV。
         SubdivisionRefState reference_;
+
+        /// 当前节点持有的局部 polygon soup。
         std::vector<Polygon256> polygons_;
+
+        /// 叶子阶段局部 BSP 生成的全部 leaf fragments。
         std::vector<Polygon256> leafFragments_;
+
+        /// 当前节点或其子树筛选出的布尔结果面。
         std::vector<Polygon256> resultFragments_;
+
+        /// 左子问题；不存在或为空时为 `nullptr`。
         std::unique_ptr<BoolProblem> leftChild_;
+
+        /// 右子问题；不存在或为空时为 `nullptr`。
         std::unique_ptr<BoolProblem> rightChild_;
     };
 }
