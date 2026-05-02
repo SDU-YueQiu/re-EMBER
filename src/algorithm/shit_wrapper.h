@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <iterator>
 #include <utility>
 #include <vector>
 
@@ -220,10 +221,14 @@ namespace ember
     };
 
     inline constexpr PlanePoint3i makeIntegerPoint(const Integer &x, const Integer &y, const Integer &z) noexcept;
+    inline constexpr bool isValidAABB(const AABB3i &box) noexcept;
+    inline constexpr std::array<Plane3i, 6> makeAABBPlanes(const AABB3i &box) noexcept;
     inline constexpr bool isPointInsideOrOnAABB(const PlanePoint3i &point, const AABB3i &box) noexcept;
 
     namespace detail
     {
+        inline constexpr Plane3i makeCoordinatePlaneFromPoint(const PlanePoint3i &point, SplitAxis3i axis) noexcept;
+
         /**
          * @brief 将整数截断到闭区间 `[lower, upper]` 内。
          */
@@ -505,6 +510,269 @@ namespace ember
         }
 
         /**
+         * @brief 向候选列表追加一个不重复的严格内部点。
+         */
+        inline bool appendUniqueStrictInteriorPoint(
+            std::vector<PlanePoint3i> &candidates,
+            const Polygon256 &polygon,
+            const PlanePoint3i &candidate)
+        {
+            if (!polygon.containsStrictly(candidate))
+            {
+                return false;
+            }
+
+            for (const PlanePoint3i &existing : candidates)
+            {
+                if (areSamePlanePoint(existing, candidate))
+                {
+                    return false;
+                }
+            }
+
+            candidates.push_back(candidate);
+            return true;
+        }
+
+        /**
+         * @brief 对有理坐标执行确定性的最近整数舍入。
+         */
+        inline Integer roundDivNearest(Integer numerator, Integer denominator) noexcept
+        {
+            if (denominator < 0)
+            {
+                numerator = -numerator;
+                denominator = -denominator;
+            }
+            if (isZero(denominator))
+            {
+                return 0;
+            }
+
+            const Integer half = denominator / 2;
+            if (numerator >= 0)
+            {
+                return (numerator + half) / denominator;
+            }
+
+            return -((-numerator + half) / denominator);
+        }
+
+        /**
+         * @brief 以顶点坐标均值的整数舍入值近似论文中的浮点重心猜测。
+         */
+        inline bool buildRoundedCentroidPoint(const Polygon256 &polygon, PlanePoint3i &outPoint)
+        {
+            const std::size_t n = polygon.edgePlanes.size();
+            if (n < 3)
+            {
+                return false;
+            }
+
+            Integer xSum = 0;
+            Integer ySum = 0;
+            Integer zSum = 0;
+            for (std::size_t i = 0; i < n; ++i)
+            {
+                const PlanePoint3i vertex = getPolygonVertex(polygon, i);
+                if (!vertex.hasUniqueIntersection() || isZero(vertex.x.w))
+                {
+                    return false;
+                }
+
+                xSum += roundDivNearest(vertex.x.x, vertex.x.w);
+                ySum += roundDivNearest(vertex.x.y, vertex.x.w);
+                zSum += roundDivNearest(vertex.x.z, vertex.x.w);
+            }
+
+            const Integer count = Integer(static_cast<int>(n));
+            outPoint = makeIntegerPoint(
+                roundDivNearest(xSum, count),
+                roundDivNearest(ySum, count),
+                roundDivNearest(zSum, count));
+            return outPoint.hasUniqueIntersection();
+        }
+
+        /**
+         * @brief 按论文第一启发式追加“重心舍入点 + 最不平行轴探测线”的内部点。
+         */
+        inline void appendCentroidProbeCandidates(const Polygon256 &polygon, std::vector<PlanePoint3i> &candidates)
+        {
+            PlanePoint3i centroid;
+            if (!buildRoundedCentroidPoint(polygon, centroid))
+            {
+                return;
+            }
+
+            const Plane3i centroidXPlane = makeCoordinatePlaneFromPoint(centroid, SplitAxis3i::X);
+            const Plane3i centroidYPlane = makeCoordinatePlaneFromPoint(centroid, SplitAxis3i::Y);
+            const Plane3i centroidZPlane = makeCoordinatePlaneFromPoint(centroid, SplitAxis3i::Z);
+
+            const Integer absNx = polygon.plane.a < 0 ? -polygon.plane.a : polygon.plane.a;
+            const Integer absNy = polygon.plane.b < 0 ? -polygon.plane.b : polygon.plane.b;
+            const Integer absNz = polygon.plane.c < 0 ? -polygon.plane.c : polygon.plane.c;
+
+            std::vector<std::pair<Integer, SplitAxis3i>> axisPriority = {
+                {absNx, SplitAxis3i::X},
+                {absNy, SplitAxis3i::Y},
+                {absNz, SplitAxis3i::Z}};
+            std::stable_sort(
+                axisPriority.begin(),
+                axisPriority.end(),
+                [](const auto &lhs, const auto &rhs)
+                {
+                    return lhs.first > rhs.first;
+                });
+
+            for (const auto &[_, axis] : axisPriority)
+            {
+                PlanePoint3i candidate;
+                switch (axis)
+                {
+                case SplitAxis3i::X:
+                    if (buildAxisProbeInteriorPoint(polygon, axis, centroidYPlane, centroidZPlane, candidate))
+                    {
+                        appendUniqueStrictInteriorPoint(candidates, polygon, candidate);
+                    }
+                    break;
+                case SplitAxis3i::Y:
+                    if (buildAxisProbeInteriorPoint(polygon, axis, centroidXPlane, centroidZPlane, candidate))
+                    {
+                        appendUniqueStrictInteriorPoint(candidates, polygon, candidate);
+                    }
+                    break;
+                case SplitAxis3i::Z:
+                    if (buildAxisProbeInteriorPoint(polygon, axis, centroidXPlane, centroidYPlane, candidate))
+                    {
+                        appendUniqueStrictInteriorPoint(candidates, polygon, candidate);
+                    }
+                    break;
+                }
+            }
+        }
+
+        /**
+         * @brief 按相邻边平面向内偏移的论文 fallback 构造内部点候选。
+         */
+        inline void appendInsetInteriorPointCandidates(const Polygon256 &polygon, std::vector<PlanePoint3i> &candidates)
+        {
+            constexpr std::size_t maxTotalCandidates = 32;
+            const std::size_t n = polygon.edgePlanes.size();
+            if (n < 3)
+            {
+                return;
+            }
+
+            std::vector<PlanePoint3i> vertices;
+            vertices.reserve(n);
+            for (std::size_t i = 0; i < n; ++i)
+            {
+                const PlanePoint3i vertex = getPolygonVertex(polygon, i);
+                if (!vertex.hasUniqueIntersection())
+                {
+                    return;
+                }
+                vertices.push_back(vertex);
+            }
+
+            auto findReferenceVertexForEdge = [n](std::size_t edgeIdx) -> std::size_t
+            {
+                const std::size_t next = (edgeIdx + 1 == n) ? 0 : (edgeIdx + 1);
+                for (std::size_t k = 0; k < n; ++k)
+                {
+                    if (k != edgeIdx && k != next)
+                    {
+                        return k;
+                    }
+                }
+                return n;
+            };
+
+            const std::array<Integer, 4> offsets = {
+                Integer(1),
+                Integer(2),
+                Integer(4),
+                Integer(8)};
+
+            Integer scale = 1;
+            for (int scaleIter = 0; scaleIter < 40 && candidates.size() < maxTotalCandidates; ++scaleIter)
+            {
+                for (std::size_t i = 0; i < n; ++i)
+                {
+                    if (candidates.size() >= maxTotalCandidates)
+                    {
+                        break;
+                    }
+
+                    const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
+                    const std::size_t refIdxA = findReferenceVertexForEdge(i);
+                    const std::size_t refIdxB = findReferenceVertexForEdge(prev);
+                    if (refIdxA == n || refIdxB == n)
+                    {
+                        continue;
+                    }
+
+                    const int interiorSideA = vertices[refIdxA].classify(polygon.edgePlanes[i]);
+                    const int interiorSideB = vertices[refIdxB].classify(polygon.edgePlanes[prev]);
+                    if (interiorSideA == 0 || interiorSideB == 0)
+                    {
+                        continue;
+                    }
+
+                    const Plane3i scaledA(
+                        polygon.edgePlanes[i].a * scale,
+                        polygon.edgePlanes[i].b * scale,
+                        polygon.edgePlanes[i].c * scale,
+                        polygon.edgePlanes[i].d * scale);
+                    const Plane3i scaledB(
+                        polygon.edgePlanes[prev].a * scale,
+                        polygon.edgePlanes[prev].b * scale,
+                        polygon.edgePlanes[prev].c * scale,
+                        polygon.edgePlanes[prev].d * scale);
+
+                    for (const Integer &offsetA : offsets)
+                    {
+                        if (candidates.size() >= maxTotalCandidates)
+                        {
+                            break;
+                        }
+
+                        Plane3i insetA = scaledA;
+                        insetA.d -= Integer(interiorSideA) * offsetA;
+                        if (vertices[refIdxA].classify(insetA) != interiorSideA)
+                        {
+                            continue;
+                        }
+
+                        for (const Integer &offsetB : offsets)
+                        {
+                            if (candidates.size() >= maxTotalCandidates)
+                            {
+                                break;
+                            }
+
+                            Plane3i insetB = scaledB;
+                            insetB.d -= Integer(interiorSideB) * offsetB;
+                            if (vertices[refIdxB].classify(insetB) != interiorSideB)
+                            {
+                                continue;
+                            }
+                            if (!hasUniqueIntersection(polygon.plane, insetA, insetB))
+                            {
+                                continue;
+                            }
+
+                            const PlanePoint3i candidate(polygon.plane, insetA, insetB);
+                            appendUniqueStrictInteriorPoint(candidates, polygon, candidate);
+                        }
+                    }
+                }
+
+                scale += scale;
+            }
+        }
+
+        /**
          * @brief 从点的定义平面中按给定索引读取某一个平面。
          */
         inline constexpr Plane3i getPointDefiningPlane(const PlanePoint3i &point, int planeIndex) noexcept
@@ -632,6 +900,213 @@ namespace ember
         }
 
         /**
+         * @brief 为 AABB 内两个点构造一条轴对齐桥接路径。
+         */
+        inline bool buildAxisAlignedBridgePath(
+            const PlanePoint3i &startPoint,
+            const PlanePoint3i &targetPoint,
+            const AABB3i &box,
+            std::vector<Segment256> &outPath)
+        {
+            outPath.clear();
+            if (areSamePlanePoint(startPoint, targetPoint))
+            {
+                return true;
+            }
+            if (!isPointInsideOrOnAABB(startPoint, box) || !isPointInsideOrOnAABB(targetPoint, box))
+            {
+                return false;
+            }
+
+            std::vector<SplitAxis3i> changedAxes;
+            if (startPoint.x.x * targetPoint.x.w != targetPoint.x.x * startPoint.x.w)
+            {
+                changedAxes.push_back(SplitAxis3i::X);
+            }
+            if (startPoint.x.y * targetPoint.x.w != targetPoint.x.y * startPoint.x.w)
+            {
+                changedAxes.push_back(SplitAxis3i::Y);
+            }
+            if (startPoint.x.z * targetPoint.x.w != targetPoint.x.z * startPoint.x.w)
+            {
+                changedAxes.push_back(SplitAxis3i::Z);
+            }
+
+            std::sort(
+                changedAxes.begin(),
+                changedAxes.end(),
+                [](SplitAxis3i lhs, SplitAxis3i rhs)
+                {
+                    return axisOrderKey(lhs) < axisOrderKey(rhs);
+                });
+
+            do
+            {
+                std::vector<Segment256> bridge;
+                if (buildAxisAlignedCoordinatePath(startPoint, targetPoint, box, changedAxes, bridge))
+                {
+                    outPath = std::move(bridge);
+                    return true;
+                }
+            } while (std::next_permutation(
+                changedAxes.begin(),
+                changedAxes.end(),
+                [](SplitAxis3i lhs, SplitAxis3i rhs)
+                {
+                    return axisOrderKey(lhs) < axisOrderKey(rhs);
+                }));
+
+            return false;
+        }
+
+        /**
+         * @brief 追加一条桥接路径，保持输出路径连续。
+         */
+        inline bool appendBridgePath(
+            std::vector<Segment256> &outPath,
+            const PlanePoint3i &startPoint,
+            const PlanePoint3i &targetPoint,
+            const AABB3i &box)
+        {
+            std::vector<Segment256> bridge;
+            if (!buildAxisAlignedBridgePath(startPoint, targetPoint, box, bridge))
+            {
+                return false;
+            }
+
+            outPath.insert(outPath.end(), std::make_move_iterator(bridge.begin()), std::make_move_iterator(bridge.end()));
+            return true;
+        }
+
+        /**
+         * @brief 将单条线段裁剪到 AABB 内部。
+         */
+        inline bool clipSegmentToAABB(const Segment256 &segment, const AABB3i &box, Segment256 &outSegment)
+        {
+            if (!segment.isValid() || !isValidAABB(box))
+            {
+                return false;
+            }
+
+            Segment256 current = segment;
+            const auto planes = makeAABBPlanes(box);
+            for (const Plane3i &clipPlane : planes)
+            {
+                const PlanePoint3i startPoint = current.getStartPoint();
+                const PlanePoint3i endPoint = current.getEndPoint();
+                const int startSide = startPoint.classify(clipPlane);
+                const int endSide = endPoint.classify(clipPlane);
+
+                if (startSide > 0 && endSide > 0)
+                {
+                    return false;
+                }
+                if (startSide <= 0 && endSide <= 0)
+                {
+                    continue;
+                }
+
+                const PlanePoint3i hitPoint = intersect(current.direction, clipPlane);
+                if (!hitPoint.hasUniqueIntersection() || !isPointOnSegment(hitPoint, current))
+                {
+                    return false;
+                }
+
+                if (startSide > 0)
+                {
+                    current = Segment256(clipPlane, current.end, current.direction);
+                }
+                else
+                {
+                    current = Segment256(current.start, clipPlane, current.direction);
+                }
+
+                if (!current.isValid())
+                {
+                    return false;
+                }
+            }
+
+            if (!isPointInsideOrOnAABB(current.getStartPoint(), box) ||
+                !isPointInsideOrOnAABB(current.getEndPoint(), box))
+            {
+                return false;
+            }
+
+            outSegment = current;
+            return true;
+        }
+
+        /**
+         * @brief 裁剪换平面路径，并在 AABB 内用轴对齐桥接段重接断点。
+         */
+        inline bool clipAndBridgePathToAABB(
+            const PlanePoint3i &startPoint,
+            const PlanePoint3i &targetPoint,
+            const AABB3i &box,
+            const std::vector<Segment256> &rawPath,
+            std::vector<Segment256> &outPath)
+        {
+            outPath.clear();
+            if (!isPointInsideOrOnAABB(startPoint, box) || !isPointInsideOrOnAABB(targetPoint, box))
+            {
+                return false;
+            }
+
+            PlanePoint3i currentPoint = startPoint;
+            for (const Segment256 &segment : rawPath)
+            {
+                Segment256 clipped;
+                if (!clipSegmentToAABB(segment, box, clipped))
+                {
+                    continue;
+                }
+
+                const PlanePoint3i clippedStart = clipped.getStartPoint();
+                const PlanePoint3i clippedEnd = clipped.getEndPoint();
+                if (!appendBridgePath(outPath, currentPoint, clippedStart, box))
+                {
+                    outPath.clear();
+                    return false;
+                }
+
+                if (!areSamePlanePoint(clippedStart, clippedEnd))
+                {
+                    outPath.push_back(clipped);
+                }
+                currentPoint = clippedEnd;
+            }
+
+            if (!appendBridgePath(outPath, currentPoint, targetPoint, box))
+            {
+                outPath.clear();
+                return false;
+            }
+
+            if (outPath.empty())
+            {
+                return false;
+            }
+
+            if (!areSamePlanePoint(outPath.front().getStartPoint(), startPoint) ||
+                !areSamePlanePoint(outPath.back().getEndPoint(), targetPoint))
+            {
+                outPath.clear();
+                return false;
+            }
+            for (std::size_t i = 1; i < outPath.size(); ++i)
+            {
+                if (!areSamePlanePoint(outPath[i - 1].getEndPoint(), outPath[i].getStartPoint()))
+                {
+                    outPath.clear();
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /**
          * @brief 构造两个共享两张平面的点之间的一段路径线段。
          *
          * @param[in] startPoint 路径起点。
@@ -698,30 +1173,34 @@ namespace ember
             std::array<Plane3i, 3> currentPlanes = {refPoint.p, refPoint.q, refPoint.r};
             const Plane3i targetPlanes[3] = {targetPoint.p, targetPoint.q, targetPoint.r};
             PlanePoint3i currentPoint = refPoint;
+            std::vector<Segment256> rawPath;
 
-            outPath.clear();
+            rawPath.clear();
             for (const int replacedIndex : planeReplacementOrder)
             {
                 currentPlanes[replacedIndex] = targetPlanes[replacedIndex];
                 const PlanePoint3i nextPoint = makePointFromPlanes(currentPlanes);
-                if (!nextPoint.hasUniqueIntersection() || !isPointInsideOrOnAABB(nextPoint, box))
+                if (!nextPoint.hasUniqueIntersection())
                 {
-                    outPath.clear();
                     return false;
                 }
 
                 Segment256 segment;
                 if (!buildPlaneReplacementSegment(currentPoint, nextPoint, replacedIndex, segment))
                 {
-                    outPath.clear();
                     return false;
                 }
 
-                outPath.push_back(std::move(segment));
+                rawPath.push_back(std::move(segment));
                 currentPoint = nextPoint;
             }
 
-            return areSamePlanePoint(currentPoint, targetPoint);
+            if (!areSamePlanePoint(currentPoint, targetPoint))
+            {
+                return false;
+            }
+
+            return clipAndBridgePathToAABB(refPoint, targetPoint, box, rawPath, outPath);
         }
 
         /**
@@ -1376,7 +1855,7 @@ namespace ember
      * @brief 为 leaf polygon 生成严格内部分类点候选。
      *
      * @param[in] polygon 待分类的 leaf polygon。
-     * @return 先返回论文中“中心附近轴对齐探测线”的命中点，再返回更保守的 fallback 内部点。
+     * @return 先返回论文中的重心舍入探测线命中点，再返回确定性向内偏移 fallback 点。
      */
     inline std::vector<PlanePoint3i> enumerateLeafClassificationPointCandidates(const Polygon256 &polygon)
     {
@@ -1386,75 +1865,14 @@ namespace ember
             return candidates;
         }
 
-        const std::vector<Polygon256> singleton = {polygon};
-        const AABB3i polygonBox = computeAABB(singleton, 0);
-        if (isValidAABB(polygonBox))
-        {
-            const Plane3i centerXPlane = detail::makeMidpointAxisPlane(SplitAxis3i::X, polygonBox.xMin, polygonBox.xMax);
-            const Plane3i centerYPlane = detail::makeMidpointAxisPlane(SplitAxis3i::Y, polygonBox.yMin, polygonBox.yMax);
-            const Plane3i centerZPlane = detail::makeMidpointAxisPlane(SplitAxis3i::Z, polygonBox.zMin, polygonBox.zMax);
-
-            const Integer absNx = polygon.plane.a < 0 ? -polygon.plane.a : polygon.plane.a;
-            const Integer absNy = polygon.plane.b < 0 ? -polygon.plane.b : polygon.plane.b;
-            const Integer absNz = polygon.plane.c < 0 ? -polygon.plane.c : polygon.plane.c;
-
-            std::vector<std::pair<Integer, SplitAxis3i>> axisPriority = {
-                {absNx, SplitAxis3i::X},
-                {absNy, SplitAxis3i::Y},
-                {absNz, SplitAxis3i::Z}};
-            std::stable_sort(
-                axisPriority.begin(),
-                axisPriority.end(),
-                [](const auto &lhs, const auto &rhs)
-                {
-                    return lhs.first > rhs.first;
-                });
-
-            for (const auto &[_, axis] : axisPriority)
-            {
-                PlanePoint3i candidate;
-                switch (axis)
-                {
-                case SplitAxis3i::X:
-                    if (detail::buildAxisProbeInteriorPoint(polygon, axis, centerYPlane, centerZPlane, candidate))
-                    {
-                        candidates.push_back(candidate);
-                    }
-                    break;
-                case SplitAxis3i::Y:
-                    if (detail::buildAxisProbeInteriorPoint(polygon, axis, centerXPlane, centerZPlane, candidate))
-                    {
-                        candidates.push_back(candidate);
-                    }
-                    break;
-                case SplitAxis3i::Z:
-                    if (detail::buildAxisProbeInteriorPoint(polygon, axis, centerXPlane, centerYPlane, candidate))
-                    {
-                        candidates.push_back(candidate);
-                    }
-                    break;
-                }
-            }
-        }
+        detail::appendCentroidProbeCandidates(polygon, candidates);
 
         PlanePoint3i fallbackPoint;
         if (polygon.findStrictInteriorPoint(fallbackPoint))
         {
-            bool duplicated = false;
-            for (const PlanePoint3i &existing : candidates)
-            {
-                if (areSamePlanePoint(existing, fallbackPoint))
-                {
-                    duplicated = true;
-                    break;
-                }
-            }
-
-            if (!duplicated)
-            {
-                candidates.push_back(fallbackPoint);
-            }
+            detail::appendUniqueStrictInteriorPoint(candidates, polygon, fallbackPoint);
         }
+        detail::appendInsetInteriorPointCandidates(polygon, candidates);
 
         return candidates;
     }
