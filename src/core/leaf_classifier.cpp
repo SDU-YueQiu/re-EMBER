@@ -130,9 +130,7 @@ namespace ember
             Polygon256 &fragment = leafFragments_[fragmentIndex];
             const std::vector<PlanePoint3i> pointCandidates =
                 detail::enumerateLeafClassificationPointCandidatesUnchecked(fragment);
-            const std::vector<LeafClassificationPathCandidate> fastCandidates =
-                enumerateLeafClassificationFastPathCandidatesFromPoints(reference_.point, pointCandidates, aabb_);
-            const std::size_t fastCandidateCount = fastCandidates.size();
+            std::size_t fastCandidateCount = 0;
             std::size_t fallbackCandidateCount = 0;
 
             bool classified = false;
@@ -142,7 +140,7 @@ namespace ember
                 {
                     WNV frontWNV;
                     WNV backWNV;
-                    const traceStatus status = tracePathWNVToSurfacePoint(
+                    const traceStatus status = detail::tracePathWNVToSurfacePointTrusted(
                         localReference,
                         candidate.path,
                         polygons_,
@@ -174,23 +172,31 @@ namespace ember
                     return status;
                 };
 
-            bool allowFallback = fastCandidates.empty();
-            for (std::size_t candidateIndex = 0; candidateIndex < fastCandidates.size(); ++candidateIndex)
-            {
-                const traceStatus status = traceCandidate(fastCandidates[candidateIndex], "fast", candidateIndex);
-                if (status == SUCCESS)
+            bool allowFallback = true;
+            enumerateLeafClassificationFastPathCandidatesFromPoints(
+                reference_.point,
+                pointCandidates,
+                aabb_,
+                [&](LeafClassificationPathCandidate candidate)
                 {
-                    break;
-                }
+                    const std::size_t candidateIndex = fastCandidateCount;
+                    ++fastCandidateCount;
+                    const traceStatus status = traceCandidate(candidate, "fast", candidateIndex);
+                    if (status == SUCCESS)
+                    {
+                        return false;
+                    }
 
-                lastStatus = status;
-                if (status != PATH_INVALID)
-                {
-                    allowFallback = false;
-                    break;
-                }
-                allowFallback = true;
-            }
+                    lastStatus = status;
+                    if (status != PATH_INVALID)
+                    {
+                        allowFallback = false;
+                        return false;
+                    }
+
+                    allowFallback = true;
+                    return true;
+                });
 
             if (!classified && allowFallback)
             {

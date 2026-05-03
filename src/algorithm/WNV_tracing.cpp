@@ -12,6 +12,125 @@ namespace ember
                 accumulator[i] += scale * delta[i];
             }
         }
+
+        traceStatus tracePathWNVToSurfacePointImpl(
+            const refPoint &refpoint,
+            const Path &path,
+            const std::vector<Polygon256> &polygons,
+            const Plane3i &referencePlane,
+            WNV &frontWNV,
+            WNV &backWNV,
+            bool validatePolygons)
+        {
+            if (path.empty())
+            {
+                return INPUT_INVALID;
+            }
+
+            for (const auto &seg : path)
+            {
+                if (!seg.isValid())
+                {
+                    return INPUT_INVALID;
+                }
+            }
+
+            if (validatePolygons)
+            {
+                for (const auto &poly : polygons)
+                {
+                    if (!poly.isValid() || poly.WNTV.size() != refpoint.wnv.size())
+                    {
+                        return INPUT_INVALID;
+                    }
+                }
+            }
+
+            if (!areSamePlanePoint(path[0].getStartPoint(), refpoint.point))
+            {
+                return INPUT_INVALID;
+            }
+
+            for (std::size_t i = 1; i < path.size(); ++i)
+            {
+                if (!areSamePlanePoint(path[i - 1].getEndPoint(), path[i].getStartPoint()))
+                {
+                    return INPUT_INVALID;
+                }
+            }
+
+            const PlanePoint3i targetPoint = path.back().getEndPoint();
+            if (!targetPoint.hasUniqueIntersection() || targetPoint.classify(referencePlane) != 0)
+            {
+                return INPUT_INVALID;
+            }
+
+            WNV surfaceWNV = refpoint.wnv;
+            WNV surfaceDelta(refpoint.wnv.size(), 0);
+
+            for (const Polygon256 &poly : polygons)
+            {
+                PlanePoint3i startPoint = path[0].getStartPoint();
+                int pcs = poly.classify(startPoint);
+                if (pcs == 0)
+                {
+                    return PATH_INVALID;
+                }
+
+                for (std::size_t segmentIndex = 0; segmentIndex < path.size(); ++segmentIndex)
+                {
+                    const Segment256 &seg = path[segmentIndex];
+                    const PlanePoint3i endPoint = seg.getEndPoint();
+                    const int pce = poly.classify(endPoint);
+                    const bool isLastSegment = (segmentIndex + 1 == path.size());
+
+                    if (!isLastSegment && pce == 0)
+                    {
+                        return PATH_INVALID;
+                    }
+                    if (detail::isSegmentTouchPolygonEdgeUnchecked(seg, poly))
+                    {
+                        return PATH_INVALID;
+                    }
+
+                    PlanePoint3i intersectPoint;
+                    if (intersectionSegmentPolygon(seg, poly, intersectPoint))
+                    {
+                        if (isLastSegment && pce == 0)
+                        {
+                            addScaledWNTV(surfaceDelta, poly.WNTV, pcs);
+                        }
+                        else
+                        {
+                            const int sigma = (pcs - pce) / 2;
+                            addScaledWNTV(surfaceWNV, poly.WNTV, sigma);
+                        }
+                    }
+
+                    pcs = pce;
+                }
+            }
+
+            const PlanePoint3i lastStartPoint = path.back().getStartPoint();
+            const int referenceHitSide = lastStartPoint.classify(referencePlane);
+            if (referenceHitSide == 0)
+            {
+                return PATH_INVALID;
+            }
+
+            if (referenceHitSide > 0)
+            {
+                frontWNV = surfaceWNV;
+                backWNV = surfaceWNV;
+                addScaledWNTV(backWNV, surfaceDelta, 1);
+                return SUCCESS;
+            }
+
+            frontWNV = surfaceWNV;
+            addScaledWNTV(frontWNV, surfaceDelta, 1);
+            backWNV = surfaceWNV;
+            return SUCCESS;
+        }
     }
 
     traceStatus tracePathWNV(const refPoint &refpoint, const Path &path, const std::vector<Polygon256> &polygons, WNV &targetWNV)
@@ -74,7 +193,7 @@ namespace ember
 
                 if (pce == 0)
                     return PATH_INVALID;
-                if (isSegmentTouchPolygonEdge(seg, poly))
+                if (detail::isSegmentTouchPolygonEdgeUnchecked(seg, poly))
                     return PATH_INVALID;
 
                 PlanePoint3i intersectPoint;
@@ -108,111 +227,18 @@ namespace ember
         WNV &frontWNV,
         WNV &backWNV)
     {
-        if (path.empty())
-        {
-            return INPUT_INVALID;
-        }
+        return tracePathWNVToSurfacePointImpl(refpoint, path, polygons, referencePlane, frontWNV, backWNV, true);
+    }
 
-        for (const auto &seg : path)
-        {
-            if (!seg.isValid())
-            {
-                return INPUT_INVALID;
-            }
-        }
-
-        for (const auto &poly : polygons)
-        {
-            if (!poly.isValid() || poly.WNTV.size() != refpoint.wnv.size())
-            {
-                return INPUT_INVALID;
-            }
-        }
-
-        if (!areSamePlanePoint(path[0].getStartPoint(), refpoint.point))
-        {
-            return INPUT_INVALID;
-        }
-
-        for (std::size_t i = 1; i < path.size(); ++i)
-        {
-            if (!areSamePlanePoint(path[i - 1].getEndPoint(), path[i].getStartPoint()))
-            {
-                return INPUT_INVALID;
-            }
-        }
-
-        const PlanePoint3i targetPoint = path.back().getEndPoint();
-        if (!targetPoint.hasUniqueIntersection() || targetPoint.classify(referencePlane) != 0)
-        {
-            return INPUT_INVALID;
-        }
-
-        WNV surfaceWNV = refpoint.wnv;
-        WNV surfaceDelta(refpoint.wnv.size(), 0);
-
-        for (const Polygon256 &poly : polygons)
-        {
-            PlanePoint3i startPoint = path[0].getStartPoint();
-            int pcs = poly.classify(startPoint);
-            if (pcs == 0)
-            {
-                return PATH_INVALID;
-            }
-
-            for (std::size_t segmentIndex = 0; segmentIndex < path.size(); ++segmentIndex)
-            {
-                const Segment256 &seg = path[segmentIndex];
-                const PlanePoint3i endPoint = seg.getEndPoint();
-                const int pce = poly.classify(endPoint);
-                const bool isLastSegment = (segmentIndex + 1 == path.size());
-
-                if (!isLastSegment && pce == 0)
-                {
-                    return PATH_INVALID;
-                }
-                if (isSegmentTouchPolygonEdge(seg, poly))
-                {
-                    return PATH_INVALID;
-                }
-
-                PlanePoint3i intersectPoint;
-                if (intersectionSegmentPolygon(seg, poly, intersectPoint))
-                {
-                    if (isLastSegment && pce == 0)
-                    {
-                        addScaledWNTV(surfaceDelta, poly.WNTV, pcs);
-                    }
-                    else
-                    {
-                        const int sigma = (pcs - pce) / 2;
-                        addScaledWNTV(surfaceWNV, poly.WNTV, sigma);
-                    }
-                }
-
-                pcs = pce;
-            }
-        }
-
-        const PlanePoint3i lastStartPoint = path.back().getStartPoint();
-        const int referenceHitSide = lastStartPoint.classify(referencePlane);
-        if (referenceHitSide == 0)
-        {
-            return PATH_INVALID;
-        }
-
-        if (referenceHitSide > 0)
-        {
-            frontWNV = surfaceWNV;
-            backWNV = surfaceWNV;
-            addScaledWNTV(backWNV, surfaceDelta, 1);
-            return SUCCESS;
-        }
-
-        frontWNV = surfaceWNV;
-        addScaledWNTV(frontWNV, surfaceDelta, 1);
-        backWNV = surfaceWNV;
-        return SUCCESS;
+    traceStatus detail::tracePathWNVToSurfacePointTrusted(
+        const refPoint &refpoint,
+        const Path &path,
+        const std::vector<Polygon256> &polygons,
+        const Plane3i &referencePlane,
+        WNV &frontWNV,
+        WNV &backWNV)
+    {
+        return tracePathWNVToSurfacePointImpl(refpoint, path, polygons, referencePlane, frontWNV, backWNV, false);
     }
 }
 

@@ -49,6 +49,87 @@ namespace ember
         return false;
     }
 
+    namespace detail
+    {
+        /**
+         * @brief 在调用方已验证 polygon 的前提下判断点是否落在指定边段上。
+         */
+        inline bool isPointOnPolygonEdgeUnchecked(
+            const PlanePoint3i &point,
+            const Polygon256 &poly,
+            std::size_t edgeIndex) noexcept
+        {
+            if (!point.hasUniqueIntersection())
+            {
+                return false;
+            }
+
+            const std::size_t edgeCount = poly.edgePlanes.size();
+            if (edgeCount == 0 || edgeIndex >= edgeCount)
+            {
+                return false;
+            }
+
+            const std::size_t nextIndex = (edgeIndex + 1 == edgeCount) ? 0 : (edgeIndex + 1);
+            const std::size_t prevIndex = (edgeIndex == 0) ? (edgeCount - 1) : (edgeIndex - 1);
+            return point.classify(poly.plane) == 0 &&
+                   point.classify(poly.edgePlanes[edgeIndex]) == 0 &&
+                   point.classify(poly.edgePlanes[prevIndex]) != 1 &&
+                   point.classify(poly.edgePlanes[nextIndex]) != 1;
+        }
+
+        /**
+         * @brief 在调用方已验证 segment 与 polygon 的前提下判断线段是否接触 polygon 边界。
+         */
+        inline bool isSegmentTouchPolygonEdgeUnchecked(const Segment256 &seg, const Polygon256 &poly) noexcept
+        {
+            const PlanePoint3i startPoint = seg.getStartPoint();
+            const PlanePoint3i endPoint = seg.getEndPoint();
+            const std::size_t edgeCount = poly.edgePlanes.size();
+
+            for (std::size_t edgeIndex = 0; edgeIndex < edgeCount; ++edgeIndex)
+            {
+                const std::size_t nextIndex = (edgeIndex + 1 == edgeCount) ? 0 : (edgeIndex + 1);
+                const std::size_t prevIndex = (edgeIndex == 0) ? (edgeCount - 1) : (edgeIndex - 1);
+
+                const Plane3i &edgePlane = poly.edgePlanes[edgeIndex];
+
+                const PlanePoint3i edgeHit = intersect(seg.direction, edgePlane);
+                if (edgeHit.hasUniqueIntersection())
+                {
+                    if (isPointOnSegment(edgeHit, seg) &&
+                        isPointOnPolygonEdgeUnchecked(edgeHit, poly, edgeIndex))
+                    {
+                        return true;
+                    }
+                    continue;
+                }
+
+                if (startPoint.classify(poly.plane) != 0 || endPoint.classify(poly.plane) != 0)
+                {
+                    continue;
+                }
+                if (startPoint.classify(edgePlane) != 0 || endPoint.classify(edgePlane) != 0)
+                {
+                    continue;
+                }
+
+                const PlanePoint3i edgeVertex0(poly.plane, edgePlane, poly.edgePlanes[prevIndex]);
+                const PlanePoint3i edgeVertex1(poly.plane, poly.edgePlanes[nextIndex], edgePlane);
+                if (isPointOnSegment(edgeVertex0, seg) || isPointOnSegment(edgeVertex1, seg))
+                {
+                    return true;
+                }
+                if (isPointOnPolygonEdgeUnchecked(startPoint, poly, edgeIndex) ||
+                    isPointOnPolygonEdgeUnchecked(endPoint, poly, edgeIndex))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
     inline bool isSegmentTouchPolygonEdge(const Segment256 &seg, const Polygon256 &poly) noexcept
     {
         if (!seg.isValid() || !poly.isValid())
@@ -56,52 +137,6 @@ namespace ember
             return false;
         }
 
-        const PlanePoint3i startPoint = seg.getStartPoint();
-        const PlanePoint3i endPoint = seg.getEndPoint();
-        const std::size_t edgeCount = poly.edgePlanes.size();
-
-        for (std::size_t edgeIndex = 0; edgeIndex < edgeCount; ++edgeIndex)
-        {
-            const std::size_t nextIndex = (edgeIndex + 1 == edgeCount) ? 0 : (edgeIndex + 1);
-            const std::size_t prevIndex = (edgeIndex == 0) ? (edgeCount - 1) : (edgeIndex - 1);
-
-            const Plane3i &edgePlane = poly.edgePlanes[edgeIndex];
-            const Plane3i &nextEdgePlane = poly.edgePlanes[nextIndex];
-            const Plane3i &prevEdgePlane = poly.edgePlanes[prevIndex];
-
-            const Line256 polygonEdgeLine = Line256(poly.plane, edgePlane);
-            const Segment256 polygonEdge = Segment256(prevEdgePlane, nextEdgePlane, polygonEdgeLine);
-            const PlanePoint3i edgeVertex0 = polygonEdge.getStartPoint();
-            const PlanePoint3i edgeVertex1 = polygonEdge.getEndPoint();
-
-            const PlanePoint3i edgeHit = intersect(seg.direction, edgePlane);
-            if (edgeHit.hasUniqueIntersection())
-            {
-                if (isPointOnSegment(edgeHit, seg) && isPointOnSegment(edgeHit, polygonEdge))
-                {
-                    return true;
-                }
-                continue;
-            }
-
-            if (startPoint.classify(poly.plane) != 0 || endPoint.classify(poly.plane) != 0)
-            {
-                continue;
-            }
-            if (startPoint.classify(edgePlane) != 0 || endPoint.classify(edgePlane) != 0)
-            {
-                continue;
-            }
-
-            if (isPointOnSegment(edgeVertex0, seg) || isPointOnSegment(edgeVertex1, seg))
-            {
-                return true;
-            }
-            if (isPointOnSegment(startPoint, polygonEdge) || isPointOnSegment(endPoint, polygonEdge))
-            {
-                return true;
-            }
-        }
-        return false;
+        return detail::isSegmentTouchPolygonEdgeUnchecked(seg, poly);
     }
 }
