@@ -16,6 +16,7 @@ namespace
     using ember::ObjMeshData;
     using ember::ObjVertex;
     using ember::Plane3i;
+    using ember::PolygonSoupBuildOptions;
     using ember::Polygon256;
     using ember::Vec3i;
 
@@ -289,6 +290,52 @@ void runIoTests()
         assert(polygons.size() == 1u);
         assert(polygons.front().edgeCount() == 4u);
         assert(polygons.front().isValid());
+    }
+
+    {
+        ObjMeshData quad;
+        quad.vertices = {
+            ObjVertex{0.0, 0.0, 0.0},
+            ObjVertex{2.0, 0.0, 0.0},
+            ObjVertex{2.0, 1.0, 0.0},
+            ObjVertex{0.0, 1.0, 0.0}};
+        quad.faces = {{0, 1, 2, 3}};
+
+        PolygonSoupBuildOptions options;
+        options.triangulateNonCoplanarFaces = true;
+
+        std::string error;
+        std::vector<Polygon256> polygons;
+        assert(ember::buildPolygonSoup(quad, 1u, options, polygons, error));
+        assert(polygons.size() == 1u);
+        assert(polygons.front().edgeCount() == 4u);
+        assert(polygons.front().isValid());
+    }
+
+    {
+        ObjMeshData roundedNonCoplanarQuad;
+        roundedNonCoplanarQuad.vertices = {
+            ObjVertex{0.0, 0.0, 0.0},
+            ObjVertex{1.0, 0.0, 0.04},
+            ObjVertex{1.0, 1.0, 0.08},
+            ObjVertex{0.0, 1.0, 0.04}};
+        roundedNonCoplanarQuad.faces = {{0, 1, 2, 3}};
+
+        std::string error;
+        std::vector<Polygon256> polygons;
+        assert(!ember::buildPolygonSoup(roundedNonCoplanarQuad, 10u, polygons, error));
+        assert(!error.empty());
+
+        PolygonSoupBuildOptions options;
+        options.triangulateNonCoplanarFaces = true;
+
+        error.clear();
+        assert(ember::buildPolygonSoup(roundedNonCoplanarQuad, 10u, options, polygons, error));
+        assert(polygons.size() == 2u);
+        assert(polygons[0].edgeCount() == 3u);
+        assert(polygons[1].edgeCount() == 3u);
+        assert(polygons[0].isValid());
+        assert(polygons[1].isValid());
     }
 
     {

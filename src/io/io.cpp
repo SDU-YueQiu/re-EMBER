@@ -124,6 +124,123 @@ namespace ember
             return isZero(dot(vertex, plane.normal()) + plane.d);
         }
 
+        enum class PolygonFaceBuildFailure
+        {
+            None,
+            DuplicateVertices,
+            DegenerateSupport,
+            NonCoplanarAfterQuantization,
+            ZeroLengthEdge,
+            InvalidEdgePlane,
+            InvalidPolygon
+        };
+
+        bool buildPolygonFromQuantizedFace(
+            const std::vector<Vec3i> &faceVertices,
+            std::size_t faceIndex,
+            Polygon256 &outPolygon,
+            PolygonFaceBuildFailure &outFailure,
+            std::string &outError)
+        {
+            outFailure = PolygonFaceBuildFailure::None;
+            outError.clear();
+
+            if (hasDuplicateFaceVertex(faceVertices))
+            {
+                outFailure = PolygonFaceBuildFailure::DuplicateVertices;
+                outError = "OBJ face " + std::to_string(faceIndex) + " contains duplicate vertices after quantization.";
+                return false;
+            }
+
+            Plane3i supportPlane;
+            if (!findSupportPlane(faceVertices, supportPlane))
+            {
+                outFailure = PolygonFaceBuildFailure::DegenerateSupport;
+                outError = "OBJ face " + std::to_string(faceIndex) +
+                           " degenerates to a collinear or point set after quantization.";
+                return false;
+            }
+
+            for (const Vec3i &vertex : faceVertices)
+            {
+                if (!isVertexOnPlane(vertex, supportPlane))
+                {
+                    outFailure = PolygonFaceBuildFailure::NonCoplanarAfterQuantization;
+                    outError = "OBJ face " + std::to_string(faceIndex) + " is not coplanar after quantization.";
+                    return false;
+                }
+            }
+
+            std::vector<Plane3i> edgePlanes;
+            edgePlanes.reserve(faceVertices.size());
+            for (std::size_t i = 0; i < faceVertices.size(); ++i)
+            {
+                // 每条边平面由“边向量 x 支撑平面法向”给出，实际朝向交给 Polygon256 自动外翻校正。
+                const Vec3i &start = faceVertices[i];
+                const Vec3i &end = faceVertices[(i + 1) % faceVertices.size()];
+                const Vec3i edgeVector = end - start;
+                if (isZero(edgeVector.x) && isZero(edgeVector.y) && isZero(edgeVector.z))
+                {
+                    outFailure = PolygonFaceBuildFailure::ZeroLengthEdge;
+                    outError = "OBJ face " + std::to_string(faceIndex) + " contains a zero-length edge after quantization.";
+                    return false;
+                }
+
+                const Vec3i edgeNormal = cross(edgeVector, supportPlane.normal());
+                if (isZero(edgeNormal.x) && isZero(edgeNormal.y) && isZero(edgeNormal.z))
+                {
+                    outFailure = PolygonFaceBuildFailure::InvalidEdgePlane;
+                    outError = "OBJ face " + std::to_string(faceIndex) + " produced an invalid edge plane.";
+                    return false;
+                }
+
+                edgePlanes.push_back(Plane3i::fromPointNormal(start, edgeNormal));
+            }
+
+            Polygon256 polygon(supportPlane, std::move(edgePlanes));
+            if (!polygon.isValid())
+            {
+                outFailure = PolygonFaceBuildFailure::InvalidPolygon;
+                outError = "OBJ face " + std::to_string(faceIndex) +
+                           " is not a valid strictly convex polygon under the current exact geometry contract.";
+                return false;
+            }
+
+            outPolygon = std::move(polygon);
+            return true;
+        }
+
+        bool appendTriangulatedNonCoplanarFace(
+            const std::vector<Vec3i> &faceVertices,
+            std::size_t faceIndex,
+            std::vector<Polygon256> &outPolygons,
+            std::string &outError)
+        {
+            for (std::size_t i = 1; i + 1 < faceVertices.size(); ++i)
+            {
+                std::vector<Vec3i> triangle;
+                triangle.reserve(3);
+                triangle.push_back(faceVertices[0]);
+                triangle.push_back(faceVertices[i]);
+                triangle.push_back(faceVertices[i + 1]);
+
+                Polygon256 polygon;
+                PolygonFaceBuildFailure failure = PolygonFaceBuildFailure::None;
+                std::string triangleError;
+                if (!buildPolygonFromQuantizedFace(triangle, faceIndex, polygon, failure, triangleError))
+                {
+                    outError = "OBJ face " + std::to_string(faceIndex) +
+                               " is not coplanar after quantization, and its triangulated fallback failed: " +
+                               triangleError;
+                    return false;
+                }
+
+                outPolygons.push_back(std::move(polygon));
+            }
+
+            return true;
+        }
+
         // 导出阶段需要把 int256_t 转为文本，再由 long double 近似输出十进制坐标。
         std::string integerToString(const Integer &value)
         {
@@ -477,6 +594,16 @@ namespace ember
         std::vector<Polygon256> &outPolygons,
         std::string &outError)
     {
+        return buildPolygonSoup(mesh, sharedScale, PolygonSoupBuildOptions(), outPolygons, outError);
+    }
+
+    bool buildPolygonSoup(
+        const ObjMeshData &mesh,
+        std::uint64_t sharedScale,
+        const PolygonSoupBuildOptions &options,
+        std::vector<Polygon256> &outPolygons,
+        std::string &outError)
+    {
         outPolygons.clear();
         outError.clear();
 
@@ -502,6 +629,7 @@ namespace ember
         }
 
         outPolygons.reserve(mesh.faces.size());
+        std::size_t triangulatedNonCoplanarFaceCount = 0;
         for (std::size_t faceIndex = 0; faceIndex < mesh.faces.size(); ++faceIndex)
         {
             // 每个 OBJ face 都必须在量化后独立满足：无重复点、可定支撑平面、全体共面、严格凸。
@@ -523,87 +651,42 @@ namespace ember
                 faceVertices.push_back(quantizedVertices[vertexIndex]);
             }
 
-            if (hasDuplicateFaceVertex(faceVertices))
+            Polygon256 polygon;
+            PolygonFaceBuildFailure failure = PolygonFaceBuildFailure::None;
+            std::string faceError;
+            if (buildPolygonFromQuantizedFace(faceVertices, faceIndex, polygon, failure, faceError))
             {
-                return failIo(
-                    kBuildPolygonSoupScope,
-                    outError,
-                    "OBJ face " + std::to_string(faceIndex) + " contains duplicate vertices after quantization.");
+                outPolygons.push_back(std::move(polygon));
+                continue;
             }
 
-            Plane3i supportPlane;
-            if (!findSupportPlane(faceVertices, supportPlane))
+            if (options.triangulateNonCoplanarFaces &&
+                failure == PolygonFaceBuildFailure::NonCoplanarAfterQuantization &&
+                faceVertices.size() > 3u)
             {
-                return failIo(
-                    kBuildPolygonSoupScope,
-                    outError,
-                    "OBJ face " + std::to_string(faceIndex) +
-                        " degenerates to a collinear or point set after quantization.");
-            }
-
-            for (const Vec3i &vertex : faceVertices)
-            {
-                if (!isVertexOnPlane(vertex, supportPlane))
+                if (!appendTriangulatedNonCoplanarFace(faceVertices, faceIndex, outPolygons, faceError))
                 {
-                    return failIo(
-                        kBuildPolygonSoupScope,
-                        outError,
-                        "OBJ face " + std::to_string(faceIndex) + " is not coplanar after quantization.");
+                    return failIo(kBuildPolygonSoupScope, outError, faceError);
                 }
+                ++triangulatedNonCoplanarFaceCount;
+                continue;
             }
 
-            std::vector<Plane3i> edgePlanes;
-            edgePlanes.reserve(faceVertices.size());
-            for (std::size_t i = 0; i < faceVertices.size(); ++i)
-            {
-                // 每条边平面由“边向量 x 支撑平面法向”给出，实际朝向交给 Polygon256 自动外翻校正。
-                const Vec3i &start = faceVertices[i];
-                const Vec3i &end = faceVertices[(i + 1) % faceVertices.size()];
-                const Vec3i edgeVector = end - start;
-                if (isZero(edgeVector.x) && isZero(edgeVector.y) && isZero(edgeVector.z))
-                {
-                    return failIo(
-                        kBuildPolygonSoupScope,
-                        outError,
-                        "OBJ face " + std::to_string(faceIndex) + " contains a zero-length edge after quantization.");
-                }
-
-                const Vec3i edgeNormal = cross(edgeVector, supportPlane.normal());
-                if (isZero(edgeNormal.x) && isZero(edgeNormal.y) && isZero(edgeNormal.z))
-                {
-                    return failIo(
-                        kBuildPolygonSoupScope,
-                        outError,
-                        "OBJ face " + std::to_string(faceIndex) + " produced an invalid edge plane.");
-                }
-
-                edgePlanes.push_back(Plane3i::fromPointNormal(start, edgeNormal));
-            }
-
-            Polygon256 polygon(supportPlane, std::move(edgePlanes));
-            if (!polygon.isValid())
-            {
-                return failIo(
-                    kBuildPolygonSoupScope,
-                    outError,
-                    "OBJ face " + std::to_string(faceIndex) +
-                        " is not a valid strictly convex polygon under the current exact geometry contract.");
-            }
-
-            outPolygons.push_back(std::move(polygon));
+            return failIo(kBuildPolygonSoupScope, outError, faceError);
         }
 
         emitLogLazy(
             LogLevel::Info,
             LogCategory::Io,
             kBuildPolygonSoupScope,
-            [&mesh, sharedScale, &outPolygons]()
+            [&mesh, sharedScale, &outPolygons, triangulatedNonCoplanarFaceCount]()
             {
                 std::ostringstream message;
                 message << "Built polygon soup shared_scale=" << sharedScale
                         << " input_vertices=" << mesh.vertices.size()
                         << " input_faces=" << mesh.faces.size()
                         << " output_polygons=" << outPolygons.size()
+                        << " triangulated_non_coplanar_faces=" << triangulatedNonCoplanarFaceCount
                         << ".";
                 return message.str();
             });

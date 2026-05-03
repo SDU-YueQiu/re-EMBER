@@ -45,6 +45,22 @@ namespace ember
     };
 
     /**
+     * @brief OBJ polygon soup 构建策略。
+     *
+     * 默认保持严格导入：每个 OBJ face 必须在量化后直接构造成一个合法 `Polygon256`。
+     */
+    struct PolygonSoupBuildOptions
+    {
+        /**
+         * @brief 将量化后非共面的 n-gon face 按 OBJ 顶点顺序扇形三角化。
+         *
+         * 该选项只处理“量化后非共面”这一类失败；重复点、退化、非严格凸等错误仍会失败。
+         * 已经共面的 n-gon 会原样保留为单个 `Polygon256`，不会被三角化。
+         */
+        bool triangulateNonCoplanarFaces = false;
+    };
+
+    /**
      * @brief 读取几何-only OBJ 数据。
      *
      * @param[in] path OBJ 文件路径。
@@ -86,6 +102,25 @@ namespace ember
     bool buildPolygonSoup(
         const ObjMeshData &mesh,
         std::uint64_t sharedScale,
+        std::vector<Polygon256> &outPolygons,
+        std::string &outError);
+
+    /**
+     * @brief 按指定策略将一个 OBJ 网格转换为 `Polygon256` polygon soup。
+     *
+     * @param[in] mesh 输入 OBJ 数据。
+     * @param[in] sharedScale 调用方为全部输入统一选定的量化尺度。
+     * @param[in] options polygon soup 构建策略。
+     * @param[out] outPolygons 成功时写入转换后的凸多边形集合。
+     * @param[out] outError 失败时写入可读错误信息。
+     * @retval true 所有面都成功量化并构造成合法 `Polygon256`。
+     * @retval false 任一面在量化后不满足当前几何约束，且不能被所选策略处理。
+     * @pre `sharedScale > 0`。
+     */
+    bool buildPolygonSoup(
+        const ObjMeshData &mesh,
+        std::uint64_t sharedScale,
+        const PolygonSoupBuildOptions &options,
         std::vector<Polygon256> &outPolygons,
         std::string &outError);
 
