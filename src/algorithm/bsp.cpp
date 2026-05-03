@@ -59,10 +59,15 @@ namespace ember
             throw std::runtime_error("BSPTree::insert cannot run because the base polygon is invalid.");
         }
 
+        insertTrusted(polygon, incomingOrder);
+    }
+
+    void BSPTree::insertTrusted(const Polygon256 &polygon, std::size_t incomingOrder)
+    {
         Plane3i segmentPlane;
         Plane3i v0;
         Plane3i v1;
-        if (computePolygonIntersectionCarrier(basePolygon, polygon, segmentPlane, v0, v1))
+        if (detail::computePolygonIntersectionCarrierTrusted(basePolygon, polygon, segmentPlane, v0, v1))
         {
             addSegmentRecursive(*root, v0, v1, segmentPlane);
             return;

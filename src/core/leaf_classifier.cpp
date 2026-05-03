@@ -128,8 +128,7 @@ namespace ember
         for (std::size_t fragmentIndex = 0; fragmentIndex < leafFragments_.size(); ++fragmentIndex)
         {
             Polygon256 &fragment = leafFragments_[fragmentIndex];
-            const std::vector<PlanePoint3i> pointCandidates =
-                detail::enumerateLeafClassificationPointCandidatesUnchecked(fragment);
+            std::size_t pointCandidateCount = 0;
             std::size_t fastCandidateCount = 0;
             std::size_t fallbackCandidateCount = 0;
 
@@ -172,51 +171,70 @@ namespace ember
                     return status;
                 };
 
-            bool allowFallback = true;
-            enumerateLeafClassificationFastPathCandidatesFromPoints(
-                reference_.point,
-                pointCandidates,
-                aabb_,
-                [&](LeafClassificationPathCandidate candidate)
+            auto attemptPointCandidates =
+                [&](const std::vector<PlanePoint3i> &pointCandidates) -> bool
                 {
-                    const std::size_t candidateIndex = fastCandidateCount;
-                    ++fastCandidateCount;
-                    const traceStatus status = traceCandidate(candidate, "fast", candidateIndex);
-                    if (status == SUCCESS)
-                    {
-                        return false;
-                    }
+                    pointCandidateCount += pointCandidates.size();
 
-                    lastStatus = status;
-                    if (status != PATH_INVALID)
-                    {
-                        allowFallback = false;
-                        return false;
-                    }
-
-                    allowFallback = true;
-                    return true;
-                });
-
-            if (!classified && allowFallback)
-            {
-                enumerateLeafClassificationFallbackPathCandidatesFromPoints(
-                    reference_.point,
-                    pointCandidates,
-                    aabb_,
-                    [&](LeafClassificationPathCandidate candidate)
-                    {
-                        const std::size_t candidateIndex = fallbackCandidateCount;
-                        ++fallbackCandidateCount;
-                        const traceStatus status = traceCandidate(candidate, "fallback", candidateIndex);
-                        if (status == SUCCESS)
+                    bool allowFallback = true;
+                    enumerateLeafClassificationFastPathCandidatesFromPoints(
+                        reference_.point,
+                        pointCandidates,
+                        aabb_,
+                        [&](LeafClassificationPathCandidate candidate)
                         {
-                            return false;
-                        }
+                            const std::size_t candidateIndex = fastCandidateCount;
+                            ++fastCandidateCount;
+                            const traceStatus status = traceCandidate(candidate, "fast", candidateIndex);
+                            if (status == SUCCESS)
+                            {
+                                return false;
+                            }
 
-                        lastStatus = status;
-                        return status == PATH_INVALID;
-                    });
+                            lastStatus = status;
+                            if (status != PATH_INVALID)
+                            {
+                                allowFallback = false;
+                                return false;
+                            }
+
+                            allowFallback = true;
+                            return true;
+                        });
+
+                    if (!classified && allowFallback)
+                    {
+                        enumerateLeafClassificationFallbackPathCandidatesFromPoints(
+                            reference_.point,
+                            pointCandidates,
+                            aabb_,
+                            [&](LeafClassificationPathCandidate candidate)
+                            {
+                                const std::size_t candidateIndex = fallbackCandidateCount;
+                                ++fallbackCandidateCount;
+                                const traceStatus status = traceCandidate(candidate, "fallback", candidateIndex);
+                                if (status == SUCCESS)
+                                {
+                                    return false;
+                                }
+
+                                lastStatus = status;
+                                return status == PATH_INVALID;
+                            });
+                    }
+
+                    return !classified && allowFallback;
+                };
+
+            const std::vector<PlanePoint3i> primaryPointCandidates =
+                detail::enumerateLeafClassificationPrimaryPointCandidatesUnchecked(fragment);
+
+            const bool shouldTryExpandedPoints = attemptPointCandidates(primaryPointCandidates);
+            if (!classified && shouldTryExpandedPoints)
+            {
+                const std::vector<PlanePoint3i> expandedPointCandidates =
+                    detail::enumerateLeafClassificationPointCandidatesUnchecked(fragment);
+                attemptPointCandidates(expandedPointCandidates);
             }
 
             if (!classified)
@@ -231,7 +249,7 @@ namespace ember
                         << " fast path candidates and "
                         << fallbackCandidateCount
                         << " fallback path candidates from "
-                        << pointCandidates.size()
+                        << pointCandidateCount
                         << " point candidates; last trace status = "
                         << traceStatusName(lastStatus)
                         << ".";

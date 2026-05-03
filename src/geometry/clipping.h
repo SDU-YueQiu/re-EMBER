@@ -17,5 +17,20 @@ namespace ember
         Plane3i& outV0,
         Plane3i& outV1);
 
+    namespace detail
+    {
+        /**
+         * @brief 在调用方已验证两个 polygon 的前提下计算交线载体。
+         *
+         * @pre `target` 与 `incoming` 均满足 `Polygon256::isValid()`。
+         */
+        bool computePolygonIntersectionCarrierTrusted(
+            const Polygon256& target,
+            const Polygon256& incoming,
+            Plane3i& outSplitPlane,
+            Plane3i& outV0,
+            Plane3i& outV1);
+    }
+
     bool clipLeafGeometryByPlane(const Polygon256& source, const Plane3i& clipPlane, Polygon256& frontClipped, Polygon256& backClipped);
 }

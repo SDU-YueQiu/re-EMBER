@@ -496,7 +496,7 @@ namespace ember
         /**
          * @brief 用三个平面恢复一个 `PlanePoint3i`。
          */
-        inline constexpr PlanePoint3i makePointFromPlanes(const std::array<Plane3i, 3> &planes) noexcept
+        inline PlanePoint3i makePointFromPlanes(const std::array<Plane3i, 3> &planes) noexcept
         {
             return PlanePoint3i(planes[0], planes[1], planes[2]);
         }
@@ -1034,11 +1034,11 @@ namespace ember
         }
 
         /**
-         * @brief 在已验证 polygon 上生成严格内部分类点候选。
+         * @brief 生成优先尝试的低成本 leaf 分类点候选。
          *
          * @pre `polygon` 已由阶段入口完成 `isValid()` 校验。
          */
-        inline std::vector<PlanePoint3i> enumerateLeafClassificationPointCandidatesUnchecked(const Polygon256 &polygon)
+        inline std::vector<PlanePoint3i> enumerateLeafClassificationPrimaryPointCandidatesUnchecked(const Polygon256 &polygon)
         {
             std::vector<PlanePoint3i> candidates;
             appendCentroidProbeCandidates(polygon, candidates);
@@ -1048,6 +1048,18 @@ namespace ember
             {
                 appendUniqueStrictInteriorPoint(candidates, polygon, fallbackPoint);
             }
+
+            return candidates;
+        }
+
+        /**
+         * @brief 在已验证 polygon 上生成严格内部分类点候选。
+         *
+         * @pre `polygon` 已由阶段入口完成 `isValid()` 校验。
+         */
+        inline std::vector<PlanePoint3i> enumerateLeafClassificationPointCandidatesUnchecked(const Polygon256 &polygon)
+        {
+            std::vector<PlanePoint3i> candidates = enumerateLeafClassificationPrimaryPointCandidatesUnchecked(polygon);
             appendInsetInteriorPointCandidates(polygon, candidates);
 
             return candidates;

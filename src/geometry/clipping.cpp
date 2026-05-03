@@ -105,6 +105,16 @@ namespace ember
             return false;
         }
 
+        return detail::computePolygonIntersectionCarrierTrusted(target, incoming, outSplitPlane, outV0, outV1);
+    }
+
+    bool detail::computePolygonIntersectionCarrierTrusted(
+        const Polygon256& target,
+        const Polygon256& incoming,
+        Plane3i& outSplitPlane,
+        Plane3i& outV0,
+        Plane3i& outV1)
+    {
         //法向平行要么共面要么不相交
         if (arePlaneNormalsParallel(target.plane, incoming.plane))
         {

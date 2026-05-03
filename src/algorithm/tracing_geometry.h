@@ -51,6 +51,48 @@ namespace ember
 
     namespace detail
     {
+        enum class PolygonSurfaceLocation
+        {
+            Outside,
+            Boundary,
+            StrictInterior
+        };
+
+        /**
+         * @brief 在已知点落在 polygon 支撑平面上时分类其面内位置。
+         */
+        inline PolygonSurfaceLocation classifyPolygonSurfacePointUnchecked(
+            const Polygon256 &poly,
+            const PlanePoint3i &point) noexcept
+        {
+            bool hasBoundary = false;
+            int sideRef = 0;
+            for (const Plane3i &edge : poly.edgePlanes)
+            {
+                const int side = point.classify(edge);
+                if (side == 0)
+                {
+                    hasBoundary = true;
+                    continue;
+                }
+
+                if (sideRef == 0)
+                {
+                    sideRef = side;
+                }
+                else if (side != sideRef)
+                {
+                    return PolygonSurfaceLocation::Outside;
+                }
+            }
+
+            if (sideRef == 0)
+            {
+                return PolygonSurfaceLocation::Outside;
+            }
+            return hasBoundary ? PolygonSurfaceLocation::Boundary : PolygonSurfaceLocation::StrictInterior;
+        }
+
         /**
          * @brief 在调用方已验证 polygon 的前提下判断点是否落在指定边段上。
          */

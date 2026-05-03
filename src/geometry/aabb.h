@@ -157,7 +157,7 @@ namespace ember
         return box.valid && box.xMin <= box.xMax && box.yMin <= box.yMax && box.zMin <= box.zMax;
     }
 
-    inline constexpr PlanePoint3i makeIntegerPoint(const Integer &x, const Integer &y, const Integer &z) noexcept
+    inline PlanePoint3i makeIntegerPoint(const Integer &x, const Integer &y, const Integer &z) noexcept
     {
         return PlanePoint3i(
             Plane3i(1, 0, 0, -x),
@@ -165,7 +165,7 @@ namespace ember
             Plane3i(0, 0, 1, -z));
     }
 
-    inline constexpr PlanePoint3i getAABBCornerPoint(const AABB3i &box, bool useXMax, bool useYMax, bool useZMax) noexcept
+    inline PlanePoint3i getAABBCornerPoint(const AABB3i &box, bool useXMax, bool useYMax, bool useZMax) noexcept
     {
         if (!isValidAABB(box))
         {

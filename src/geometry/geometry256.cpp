@@ -113,20 +113,24 @@ namespace ember
     }
 
     Polygon256::Polygon256(const Plane3i &supportPlane, std::vector<Plane3i> edges)
-        : plane(supportPlane), edgePlanes(std::move(edges))
+        : plane(primitivePlane(supportPlane)), edgePlanes(std::move(edges))
     {
+        for (Plane3i &edge : edgePlanes)
+        {
+            edge = primitivePlane(edge);
+        }
         orientPolygonEdgesOutward(plane, edgePlanes);
     }
 
     Segment256::Segment256(const Plane3i &startPlane, const Plane3i &endPlane, const Line256 &directionLine) noexcept
-        : start(startPlane), end(endPlane), direction(directionLine)
+        : start(primitivePlane(startPlane)), end(primitivePlane(endPlane)), direction(directionLine)
     {
         orientSegmentBoundsOutward(start, end, direction);
     }
 
     void Polygon256::addEdgePlane(const Plane3i &edge)
     {
-        edgePlanes.push_back(edge);
+        edgePlanes.push_back(primitivePlane(edge));
     }
 
     std::size_t Polygon256::edgeCount() const noexcept

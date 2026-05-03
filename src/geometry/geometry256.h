@@ -49,12 +49,12 @@ namespace ember
         Segment256() noexcept = default;
         Segment256(const Plane3i &startPlane, const Plane3i &endPlane, const Line256 &directionLine) noexcept;
 
-        constexpr PlanePoint3i getStartPoint() const noexcept
+        PlanePoint3i getStartPoint() const noexcept
         {
             return PlanePoint3i(direction.p1, direction.p2, start);
         }
 
-        constexpr PlanePoint3i getEndPoint() const noexcept
+        PlanePoint3i getEndPoint() const noexcept
         {
             return PlanePoint3i(direction.p1, direction.p2, end);
         }
@@ -111,7 +111,7 @@ namespace ember
     }
 
     // 返回直线与平面的交点
-    inline constexpr PlanePoint3i intersect(const Line256 &line, const Plane3i &plane) noexcept
+    inline PlanePoint3i intersect(const Line256 &line, const Plane3i &plane) noexcept
     {
         return PlanePoint3i(line.p1, line.p2, plane);
     }

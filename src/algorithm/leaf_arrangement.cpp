@@ -42,7 +42,7 @@ namespace ember
                 {
                     continue;
                 }
-                tree.insert(polygons[j], j);
+                tree.insertTrusted(polygons[j], j);
             }
 
             std::vector<Polygon256> localFragments = tree.collectLeafGeometries();

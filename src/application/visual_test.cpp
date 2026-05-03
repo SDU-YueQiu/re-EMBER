@@ -44,7 +44,7 @@ namespace ember::visual_test
     inline constexpr double kDefaultTx = 0.5;
     inline constexpr double kDefaultTy = 0.5;
     inline constexpr double kDefaultTz = 0.35;
-    inline constexpr std::uint64_t kVisualTestSharedScale = 1000;
+    inline constexpr std::uint64_t kVisualTestManualScale = 1000;
 
     enum class EngineKind
     {
@@ -76,7 +76,8 @@ namespace ember::visual_test
         EngineKind engine = EngineKind::Ember;
         BoolOp operation = BoolOp::Difference;
         ToolPose pose;
-        std::uint64_t emberSharedScale = kVisualTestSharedScale;
+        bool emberAutoScale = true;
+        std::uint64_t emberManualScale = kVisualTestManualScale;
         std::size_t leafThreshold = kLeafThreshold;
         bool dirty = false;
         std::string lastError;
@@ -358,25 +359,29 @@ namespace ember::visual_test
         outStats.sharedScale = sharedScale;
     }
 
-    bool prepareEmberInput(SceneData &scene, std::uint64_t requestedScale, std::string &outError)
+    bool prepareEmberInput(SceneData &scene, const UiState &ui, std::string &outError)
     {
         outError.clear();
-        if (requestedScale == 0)
+        if (!ui.emberAutoScale && ui.emberManualScale == 0)
         {
             outError = "EMBER shared scale must be a positive integer.";
             return false;
         }
-        if (scene.emberSharedScale == requestedScale && !scene.workpiecePolygons.empty())
-        {
-            return true;
-        }
 
         QuantizeOptions options;
-        options.explicitScale = requestedScale;
+        if (!ui.emberAutoScale)
+        {
+            options.explicitScale = ui.emberManualScale;
+        }
+
         std::uint64_t sharedScale = 0;
-        if (!ember::chooseSharedScale({scene.workpieceMesh, scene.toolOriginalMesh}, options, sharedScale, outError))
+        if (!ember::chooseSharedScale({scene.workpieceMesh, scene.toolCurrentMesh}, options, sharedScale, outError))
         {
             return false;
+        }
+        if (scene.emberSharedScale == sharedScale && !scene.workpiecePolygons.empty())
+        {
+            return true;
         }
 
         std::vector<Polygon256> workpiecePolygons;
@@ -394,12 +399,11 @@ namespace ember::visual_test
     bool computeEmberResult(SceneData &scene, const UiState &ui, ResultStats &outStats, std::string &outError)
     {
         outStats = ResultStats();
-        outStats.sharedScale = ui.emberSharedScale;
         outError.clear();
 
         try
         {
-            if (!prepareEmberInput(scene, ui.emberSharedScale, outError))
+            if (!prepareEmberInput(scene, ui, outError))
             {
                 outError = "Failed to prepare the EMBER workpiece input: " + outError;
                 return false;
@@ -407,11 +411,17 @@ namespace ember::visual_test
             outStats.sharedScale = scene.emberSharedScale;
 
             std::vector<Polygon256> toolPolygons;
-            const ObjMeshData toolInputMesh = triangulateMeshFaces(scene.toolCurrentMesh);
-            if (!ember::buildPolygonSoup(toolInputMesh, scene.emberSharedScale, toolPolygons, outError))
+            std::string nGonToolError;
+            if (!ember::buildPolygonSoup(scene.toolCurrentMesh, scene.emberSharedScale, toolPolygons, nGonToolError))
             {
-                outError = "Failed to build the EMBER tool polygon soup: " + outError;
-                return false;
+                const ObjMeshData triangulatedToolMesh = triangulateMeshFaces(scene.toolCurrentMesh);
+                toolPolygons.clear();
+                if (!ember::buildPolygonSoup(triangulatedToolMesh, scene.emberSharedScale, toolPolygons, outError))
+                {
+                    outError = "Failed to build the EMBER tool polygon soup: " + nGonToolError +
+                               " Triangulated fallback also failed: " + outError;
+                    return false;
+                }
             }
 
             ember::BoolProblem problem(ui.leafThreshold);
@@ -799,11 +809,18 @@ int main()
         }
 
         ImGui::Separator();
-        std::uint64_t proposedScale = proposed.emberSharedScale;
-        if (ImGui::InputScalar("scale", ImGuiDataType_U64, &proposedScale))
+        if (ImGui::Checkbox("auto scale", &proposed.emberAutoScale))
         {
-            proposed.emberSharedScale = proposedScale == 0 ? 1 : proposedScale;
             changed = true;
+        }
+        if (!proposed.emberAutoScale)
+        {
+            std::uint64_t proposedScale = proposed.emberManualScale;
+            if (ImGui::InputScalar("scale", ImGuiDataType_U64, &proposedScale))
+            {
+                proposed.emberManualScale = proposedScale == 0 ? 1 : proposedScale;
+                changed = true;
+            }
         }
 
         int proposedLeafThreshold = static_cast<int>(proposed.leafThreshold);
