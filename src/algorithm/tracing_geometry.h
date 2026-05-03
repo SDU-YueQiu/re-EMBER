@@ -66,30 +66,19 @@ namespace ember
             const PlanePoint3i &point) noexcept
         {
             bool hasBoundary = false;
-            int sideRef = 0;
             for (const Plane3i &edge : poly.edgePlanes)
             {
                 const int side = point.classify(edge);
-                if (side == 0)
-                {
-                    hasBoundary = true;
-                    continue;
-                }
-
-                if (sideRef == 0)
-                {
-                    sideRef = side;
-                }
-                else if (side != sideRef)
+                if (side > 0)
                 {
                     return PolygonSurfaceLocation::Outside;
                 }
+                if (side == 0)
+                {
+                    hasBoundary = true;
+                }
             }
 
-            if (sideRef == 0)
-            {
-                return PolygonSurfaceLocation::Outside;
-            }
             return hasBoundary ? PolygonSurfaceLocation::Boundary : PolygonSurfaceLocation::StrictInterior;
         }
 

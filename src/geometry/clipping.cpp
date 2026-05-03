@@ -209,16 +209,31 @@ namespace ember
         return true;
     }
 
-    //按顶点分类裁剪
     bool clipLeafGeometryByPlane(const Polygon256& source, const Plane3i& clipPlane, Polygon256& frontClipped, Polygon256& backClipped)
     {
-        if (!source.isValid() || arePlaneNormalsParallel(source.plane, clipPlane))
+        if (!source.isValid())
         {
             emitLog(
                 LogLevel::Debug,
                 LogCategory::Geometry,
                 "clipLeafGeometryByPlane",
-                "Rejected leaf clipping because the source polygon is invalid or the clip plane is parallel.");
+                "Rejected leaf clipping because the source polygon is invalid.");
+            return false;
+        }
+
+        return detail::clipLeafGeometryByPlaneTrusted(source, clipPlane, frontClipped, backClipped);
+    }
+
+    //按顶点分类裁剪
+    bool detail::clipLeafGeometryByPlaneTrusted(const Polygon256& source, const Plane3i& clipPlane, Polygon256& frontClipped, Polygon256& backClipped)
+    {
+        if (arePlaneNormalsParallel(source.plane, clipPlane))
+        {
+            emitLog(
+                LogLevel::Debug,
+                LogCategory::Geometry,
+                "clipLeafGeometryByPlane",
+                "Rejected leaf clipping because the clip plane is parallel to the source polygon.");
             return false;
         }
 

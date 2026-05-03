@@ -79,6 +79,18 @@ namespace ember
     namespace detail
     {
         /**
+         * @brief 在调用方已验证 polygon soup 和 path 的前提下传播 WNV。
+         *
+         * @pre `polygons` 均为有效 polygon，且其 `WNTV` 维度与 `refpoint.wnv` 一致。
+         * @pre `path` 为空，或由有效线段组成并从 `refpoint.point` 连续连接到目标点。
+         */
+        traceStatus tracePathWNVTrusted(
+            const refPoint &refpoint,
+            const Path &path,
+            const std::vector<Polygon256> &polygons,
+            WNV &targetWNV);
+
+        /**
          * @brief 在调用方已验证 polygon soup 和 path 的前提下传播到曲面目标点。
          *
          * @pre `polygons` 均为有效 polygon，且其 `WNTV` 维度与 `refpoint.wnv` 一致。

@@ -28,14 +28,11 @@ namespace ember
     {
         /**
          * @brief 将凸多边形裁剪到指定平面的一侧。
+         *
+         * @pre `source` 已满足 `Polygon256::isValid()`。
          */
         inline bool clipPolygonToHalfSpace(const Polygon256 &source, const Plane3i &clipPlane, bool keepNonPositive, Polygon256 &outPolygon)
         {
-            if (!source.isValid())
-            {
-                return false;
-            }
-
             const std::size_t n = source.edgeCount();
             bool hasPositive = false;
             bool hasNegative = false;
@@ -90,13 +87,13 @@ namespace ember
 
             Polygon256 frontClipped;
             Polygon256 backClipped;
-            if (!clipLeafGeometryByPlane(source, clipPlane, frontClipped, backClipped))
+            if (!clipLeafGeometryByPlaneTrusted(source, clipPlane, frontClipped, backClipped))
             {
                 return false;
             }
 
             outPolygon = keepNonPositive ? backClipped : frontClipped;
-            return outPolygon.isValid();
+            return true;
         }
     }
 
@@ -120,7 +117,7 @@ namespace ember
         }
 
         outPolygon = current;
-        return outPolygon.isValid();
+        return true;
     }
 
     inline Polygon256 reversePolygonOrientation(const Polygon256 &polygon)

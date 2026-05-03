@@ -372,7 +372,7 @@ namespace ember
             }
 
             WNV propagatedWNV;
-            const traceStatus status = tracePathWNV(sourceRef, candidate.path, polygons_, propagatedWNV);
+            const traceStatus status = detail::tracePathWNVTrusted(sourceRef, candidate.path, polygons_, propagatedWNV);
             logTracingDebug(
                 kBoolProblemChildReferenceScope,
                 [this, candidateIndex, &candidate, status]()

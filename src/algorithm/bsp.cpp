@@ -117,7 +117,7 @@ namespace ember
             Polygon256 backGeometry;
 
             // 分割时用平面，对线段端点v0 v1(p0 p1)的分类讨论在进入叶节点之前就进行
-            if (!clipLeafGeometryByPlane(node.leafGeometry, insertPlane, frontGeometry, backGeometry))
+            if (!detail::clipLeafGeometryByPlaneTrusted(node.leafGeometry, insertPlane, frontGeometry, backGeometry))
             {
                 return;
             }
