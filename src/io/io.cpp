@@ -1,8 +1,8 @@
 #include "io.h"
 
 #include "core/logging.h"
-#include "algorithm/shit_wrapper.h"
 #include "geometry/plane_geometry256.h"
+#include "geometry/polygon_ops.h"
 #include "math/math256.h"
 
 #include <tiny_obj_loader.h>
@@ -327,8 +327,8 @@ namespace ember
                         "OBJ face has fewer than three vertices in shape " + std::to_string(shapeIndex) + ".");
                 }
 
-                // tinyobjloader handles standard OBJ index forms, including relative indices;
-                // this layer keeps only geometry position indices for the project boundary.
+                // tinyobjloader 已处理标准 OBJ 索引形式，包括相对索引；
+                // 本层只保留项目边界需要的几何位置索引。
                 std::vector<std::size_t> face;
                 face.reserve(faceVertexCount);
                 for (std::size_t i = 0; i < faceVertexCount; ++i)

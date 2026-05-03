@@ -1,5 +1,5 @@
 ﻿#include "WNV_tracing.h"
-#include "shit_wrapper.h"
+#include "algorithm/tracing_geometry.h"
 
 namespace ember
 {
@@ -60,7 +60,7 @@ namespace ember
             PlanePoint3i startPoint = path[0].getStartPoint();
             PlanePoint3i endPoint;
 
-            int pcs = poly.classify(startPoint); // start point classify polygon
+            int pcs = poly.classify(startPoint); // 起点相对当前多边形的分类
             int pce;
 
             if (pcs == 0)
@@ -79,7 +79,7 @@ namespace ember
 
                 PlanePoint3i intersectPoint;
 
-                // clean case
+                // 严格内部穿越的正常情况
                 if (intersectionSegmentPolygon(seg, poly, intersectPoint))
                 {
                     // 点对面分类时已经包含了面的法向量

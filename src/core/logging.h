@@ -21,8 +21,8 @@ namespace ember
      */
     enum class LogCategory
     {
-        Io,          ///< OBJ 读写与 polygon soup 转换。
-        BoolProblem, ///< subdivision 与布尔结果汇总。
+        Io,          ///< OBJ 读写与多边形集合转换。
+        BoolProblem, ///< 细分与布尔结果汇总。
         Bsp,         ///< 局部 BSP 构建。
         Geometry,    ///< 底层裁剪和几何诊断。
         Tracing      ///< WNV/WNTV 路径追踪相关诊断。

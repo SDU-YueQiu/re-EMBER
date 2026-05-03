@@ -1,9 +1,12 @@
 ﻿#include "bool_problem_tests.h"
 
 #include "core/bool_problem.h"
+#include "algorithm/path_candidates.h"
 
 #include <cassert>
+#include <functional>
 #include <stdexcept>
+#include <string>
 
 namespace
 {
@@ -66,6 +69,33 @@ namespace
                 Plane3i(1, 100, 0, -100),
                 Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(-1, 0, 0))});
     }
+
+    Polygon256 makeInvalidInwardSquareXY()
+    {
+        Polygon256 polygon;
+        polygon.plane = Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, 0, 1));
+        polygon.addEdgePlane(Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, 1, 0)));
+        polygon.addEdgePlane(Plane3i::fromPointNormal(Vec3i(2, 0, 0), Vec3i(-1, 0, 0)));
+        polygon.addEdgePlane(Plane3i::fromPointNormal(Vec3i(0, 2, 0), Vec3i(0, -1, 0)));
+        polygon.addEdgePlane(Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(1, 0, 0)));
+        polygon.WNTV = {1, 0};
+        return polygon;
+    }
+
+    bool throwsRuntimeError(const std::function<void()> &fn, const std::string &needle = std::string())
+    {
+        try
+        {
+            fn();
+        }
+        catch (const std::runtime_error &ex)
+        {
+            return needle.empty() || std::string(ex.what()).find(needle) != std::string::npos;
+        }
+
+        return false;
+    }
+
 }
 
 #undef assert
@@ -77,6 +107,14 @@ namespace
             throw std::runtime_error("bool_problem_tests assertion failed: " #expr);   \
         }                                                                              \
     } while (false)
+
+namespace
+{
+    void assertResultFragmentIsGeometryOnly(const Polygon256 &fragment)
+    {
+        assert(fragment.isValid());
+    }
+}
 
 void runBoolProblemTests()
 {
@@ -123,7 +161,8 @@ void runBoolProblemTests()
             Plane3i(0, 0, 1, -9));
 
         std::vector<ember::Segment256> path;
-        assert(ember::detail::buildPlaneReplacementPath(reference, target, box, {0, 1, 2}, path));
+        assert(!ember::detail::buildPlaneReplacementPath(reference, target, box, {0, 1, 2}, path));
+        assert(ember::detail::buildPlaneReplacementPath(reference, target, box, {1, 2, 0}, path));
         assert(!path.empty());
         assert(ember::areSamePlanePoint(path.front().getStartPoint(), reference));
         assert(ember::areSamePlanePoint(path.back().getEndPoint(), target));
@@ -143,6 +182,7 @@ void runBoolProblemTests()
         ember::BoolProblem problem(2);
         problem.setOperation(BoolOp::Union);
         problem.setOperands(lhs, rhs);
+
         problem.solve();
 
         std::vector<const ember::BoolProblem *> leaves;
@@ -158,9 +198,46 @@ void runBoolProblemTests()
         }
         for (const Polygon256 &fragment : problem.resultFragments())
         {
-            assert(fragment.WNVF.size() == 2u);
-            assert(fragment.WNVB.size() == 2u);
+            assertResultFragmentIsGeometryOnly(fragment);
         }
+    }
+
+    {
+        const Polygon256 invalidPolygon = makeInvalidInwardSquareXY();
+        assert(!invalidPolygon.isValid());
+
+        ember::BoolProblem problem(2);
+        problem.setOperation(BoolOp::Union);
+        problem.setPolygons({invalidPolygon});
+
+        assert(throwsRuntimeError(
+            [&problem]()
+            {
+                problem.solve();
+            },
+            "invalid"));
+        assert(!problem.isSolved());
+        assert(problem.resultFragments().empty());
+    }
+
+    {
+        ember::BoolProblem problem(2);
+        problem.setOperation(BoolOp::Union);
+        problem.setOperands(lhs, rhs);
+        problem.solve();
+        assert(problem.isSolved());
+        assert(!problem.resultFragments().empty());
+
+        const Polygon256 invalidPolygon = makeInvalidInwardSquareXY();
+        problem.setPolygons({invalidPolygon});
+        assert(throwsRuntimeError(
+            [&problem]()
+            {
+                problem.solve();
+            },
+            "invalid"));
+        assert(!problem.isSolved());
+        assert(problem.resultFragments().empty());
     }
 
     {

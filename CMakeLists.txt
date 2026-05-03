@@ -43,23 +43,6 @@ if(NOT tinyobjloader_FOUND OR NOT TARGET tinyobjloader::tinyobjloader_double)
   )
 endif()
 
-file(GLOB_RECURSE KEMBER_ALL_SOURCES CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
-)
-
-file(GLOB_RECURSE KEMBER_HEADERS CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
-  "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
-)
-
-file(GLOB_RECURSE KEMBER_TEST_SOURCES CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/tests/*.cpp"
-)
-
-file(GLOB_RECURSE KEMBER_APPLICATION_SOURCES CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/application/*.cpp"
-)
-
 set(KEMBER_APP_SOURCE
   "${CMAKE_CURRENT_SOURCE_DIR}/src/application/main.cpp"
 )
@@ -68,11 +51,104 @@ set(KEMBER_VISUAL_TEST_SOURCE
   "${CMAKE_CURRENT_SOURCE_DIR}/src/application/visual_test.cpp"
 )
 
-set(KEMBER_LIBRARY_SOURCES ${KEMBER_ALL_SOURCES})
-list(REMOVE_ITEM KEMBER_LIBRARY_SOURCES ${KEMBER_APPLICATION_SOURCES})
-list(REMOVE_ITEM KEMBER_LIBRARY_SOURCES ${KEMBER_TEST_SOURCES})
+set(KEMBER_MATH_HEADERS
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/math/math256.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/math/winding_number_f.h"
+)
 
-add_library(kember_lib ${KEMBER_LIBRARY_SOURCES} ${KEMBER_HEADERS})
+set(KEMBER_GEOMETRY_SOURCES
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/aabb.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/clipping.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/geometry256.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/polygon_ops.cpp"
+)
+
+set(KEMBER_GEOMETRY_HEADERS
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/aabb.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/clipping.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/geometry256.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/plane_geometry256.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/polygon_ops.h"
+)
+
+set(KEMBER_ALGORITHM_SOURCES
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/WNV_tracing.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/bsp.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/leaf_arrangement.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/path_candidates.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/tracing_geometry.cpp"
+)
+
+set(KEMBER_ALGORITHM_HEADERS
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/WNV_tracing.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/bsp.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/leaf_arrangement.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/path_candidates.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/tracing_geometry.h"
+)
+
+set(KEMBER_CORE_SOURCES
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/core/bool_problem.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/core/leaf_classifier.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/core/logging.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/core/subdivision_solver.cpp"
+)
+
+set(KEMBER_CORE_HEADERS
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/core/bool_problem.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/core/logging.h"
+)
+
+set(KEMBER_IO_SOURCES
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/io/io.cpp"
+)
+
+set(KEMBER_IO_HEADERS
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/io/io.h"
+)
+
+set(KEMBER_EXTERNAL_HEADERS
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_fixdiv.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_int.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_io.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_math.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_math_gcc.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_math_long.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_math_msvc.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_uint.h"
+)
+
+set(KEMBER_LIBRARY_SOURCES
+  ${KEMBER_GEOMETRY_SOURCES}
+  ${KEMBER_ALGORITHM_SOURCES}
+  ${KEMBER_CORE_SOURCES}
+  ${KEMBER_IO_SOURCES}
+)
+
+set(KEMBER_LIBRARY_HEADERS
+  ${KEMBER_EXTERNAL_HEADERS}
+  ${KEMBER_MATH_HEADERS}
+  ${KEMBER_GEOMETRY_HEADERS}
+  ${KEMBER_ALGORITHM_HEADERS}
+  ${KEMBER_CORE_HEADERS}
+  ${KEMBER_IO_HEADERS}
+)
+
+set(KEMBER_TEST_SOURCES
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/tests/bool_problem_tests.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/tests/io_tests.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/tests/math256_tests.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/tests/test_main.cpp"
+)
+
+set(KEMBER_TEST_HEADERS
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/tests/bool_problem_tests.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/tests/io_tests.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/tests/math256_tests.h"
+)
+
+add_library(kember_lib ${KEMBER_LIBRARY_SOURCES} ${KEMBER_LIBRARY_HEADERS})
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${KEMBER_LIBRARY_SOURCES} ${KEMBER_LIBRARY_HEADERS})
 
 target_include_directories(kember_lib
   PUBLIC
@@ -113,7 +189,7 @@ if(MSVC)
   )
 endif()
 
-add_executable(kEmber_tests ${KEMBER_TEST_SOURCES})
+add_executable(kEmber_tests ${KEMBER_TEST_SOURCES} ${KEMBER_TEST_HEADERS})
 target_link_libraries(kEmber_tests PRIVATE kember_lib)
 
 if(KEMBER_ENABLE_VISUAL_TEST)
