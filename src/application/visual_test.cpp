@@ -76,6 +76,8 @@ namespace ember::visual_test
         EngineKind engine = EngineKind::Ember;
         BoolOp operation = BoolOp::Difference;
         ToolPose pose;
+        std::uint64_t emberSharedScale = kVisualTestSharedScale;
+        std::size_t leafThreshold = kLeafThreshold;
         bool dirty = false;
         std::string lastError;
         ResultStats stats;
@@ -99,6 +101,7 @@ namespace ember::visual_test
     struct MeshLayerStyle
     {
         Eigen::RowVector3d color;
+        Eigen::RowVector3d lineColor;
         bool showFaces = true;
         bool showLines = false;
         bool doubleSided = true;
@@ -355,65 +358,97 @@ namespace ember::visual_test
         outStats.sharedScale = sharedScale;
     }
 
-    bool initializeEmberSharedScale(SceneData &scene, std::string &outError)
+    bool prepareEmberInput(SceneData &scene, std::uint64_t requestedScale, std::string &outError)
     {
         outError.clear();
+        if (requestedScale == 0)
+        {
+            outError = "EMBER shared scale must be a positive integer.";
+            return false;
+        }
+        if (scene.emberSharedScale == requestedScale && !scene.workpiecePolygons.empty())
+        {
+            return true;
+        }
 
         QuantizeOptions options;
-        options.explicitScale = kVisualTestSharedScale;
+        options.explicitScale = requestedScale;
         std::uint64_t sharedScale = 0;
         if (!ember::chooseSharedScale({scene.workpieceMesh, scene.toolOriginalMesh}, options, sharedScale, outError))
         {
             return false;
         }
 
+        std::vector<Polygon256> workpiecePolygons;
+        if (!ember::buildPolygonSoup(scene.workpieceMesh, sharedScale, workpiecePolygons, outError))
+        {
+            outError = "Failed to build the EMBER workpiece polygon soup: " + outError;
+            return false;
+        }
+
         scene.emberSharedScale = sharedScale;
+        scene.workpiecePolygons = std::move(workpiecePolygons);
         return true;
     }
 
     bool computeEmberResult(SceneData &scene, const UiState &ui, ResultStats &outStats, std::string &outError)
     {
         outStats = ResultStats();
-        outStats.sharedScale = scene.emberSharedScale;
+        outStats.sharedScale = ui.emberSharedScale;
         outError.clear();
 
-        std::vector<Polygon256> toolPolygons;
-        const ObjMeshData toolInputMesh = triangulateMeshFaces(scene.toolCurrentMesh);
-        if (!ember::buildPolygonSoup(toolInputMesh, scene.emberSharedScale, toolPolygons, outError))
+        try
         {
-            outError = "Failed to build the EMBER tool polygon soup: " + outError;
-            return false;
-        }
+            if (!prepareEmberInput(scene, ui.emberSharedScale, outError))
+            {
+                outError = "Failed to prepare the EMBER workpiece input: " + outError;
+                return false;
+            }
+            outStats.sharedScale = scene.emberSharedScale;
 
-        ember::BoolProblem problem(kLeafThreshold);
-        problem.setOperation(ui.operation);
-        problem.setOperands(scene.workpiecePolygons, toolPolygons);
+            std::vector<Polygon256> toolPolygons;
+            const ObjMeshData toolInputMesh = triangulateMeshFaces(scene.toolCurrentMesh);
+            if (!ember::buildPolygonSoup(toolInputMesh, scene.emberSharedScale, toolPolygons, outError))
+            {
+                outError = "Failed to build the EMBER tool polygon soup: " + outError;
+                return false;
+            }
 
-        const Clock::time_point solveStart = Clock::now();
-        problem.solve();
-        const Clock::time_point solveEnd = Clock::now();
+            ember::BoolProblem problem(ui.leafThreshold);
+            problem.setOperation(ui.operation);
+            problem.setOperands(scene.workpiecePolygons, toolPolygons);
 
-        const Clock::time_point convertStart = Clock::now();
-        if (!ember::buildObjMeshFromPolygonSoup(
-                problem.resultFragments(),
+            const Clock::time_point solveStart = Clock::now();
+            problem.solve();
+            const Clock::time_point solveEnd = Clock::now();
+
+            const Clock::time_point convertStart = Clock::now();
+            if (!ember::buildObjMeshFromPolygonSoup(
+                    problem.resultFragments(),
+                    scene.resultDisplayMesh,
+                    outError,
+                    scene.emberSharedScale))
+            {
+                outError = "Failed to convert the EMBER result polygon soup to an OBJ mesh: " + outError;
+                return false;
+            }
+            const Clock::time_point convertEnd = Clock::now();
+
+            storeResultStats(
+                outStats,
                 scene.resultDisplayMesh,
-                outError,
-                scene.emberSharedScale))
+                solveStart,
+                solveEnd,
+                convertStart,
+                convertEnd,
+                scene.emberSharedScale);
+            return true;
+        }
+        catch (const std::exception &ex)
         {
-            outError = "Failed to convert the EMBER result polygon soup to an OBJ mesh: " + outError;
+            outError = std::string("EMBER solve failed: ") + ex.what();
             return false;
         }
-        const Clock::time_point convertEnd = Clock::now();
-
-        storeResultStats(
-            outStats,
-            scene.resultDisplayMesh,
-            solveStart,
-            solveEnd,
-            convertStart,
-            convertEnd,
-            scene.emberSharedScale);
-        return true;
     }
 
     bool computeCgalResult(SceneData &scene, const UiState &ui, ResultStats &outStats, std::string &outError)
@@ -476,20 +511,27 @@ namespace ember::visual_test
 
     MeshLayerStyle workpieceLayerStyle()
     {
-        return MeshLayerStyle{Eigen::RowVector3d(0.25, 0.45, 0.95), false, true, true};
+        const Eigen::RowVector3d blue(0.25, 0.45, 0.95);
+        return MeshLayerStyle{blue, blue, false, true, true};
     }
 
     MeshLayerStyle resultLayerStyle()
     {
-        return MeshLayerStyle{Eigen::RowVector3d(0.95, 0.55, 0.20), true, false, true};
+        return MeshLayerStyle{
+            Eigen::RowVector3d(0.95, 0.55, 0.20),
+            Eigen::RowVector3d(0.20, 0.08, 0.02),
+            true,
+            true,
+            true};
     }
 
-    MeshLayerStyle toolLayerStyle(BoolOp operation)
+    MeshLayerStyle toolLayerStyle()
     {
         return MeshLayerStyle{
             Eigen::RowVector3d(0.15, 0.80, 0.25),
-            operation != BoolOp::Difference,
+            Eigen::RowVector3d(0.05, 0.55, 0.12),
             false,
+            true,
             true};
     }
 
@@ -587,7 +629,7 @@ namespace ember::visual_test
             edgeEnds.conservativeResize(static_cast<Eigen::Index>(edgeIndex), 3);
             if (edgeStarts.rows() > 0)
             {
-                viewer.data(meshId).add_edges(edgeStarts, edgeEnds, style.color);
+                viewer.data(meshId).add_edges(edgeStarts, edgeEnds, style.lineColor);
             }
         }
     }
@@ -619,16 +661,6 @@ int main()
         return 1;
     }
     scene.workpieceDisplayMesh = scene.workpieceMesh;
-    if (!initializeEmberSharedScale(scene, error))
-    {
-        std::cerr << "Failed to choose a fixed EMBER shared scale: " << error << std::endl;
-        return 1;
-    }
-    if (!ember::buildPolygonSoup(scene.workpieceMesh, scene.emberSharedScale, scene.workpiecePolygons, error))
-    {
-        std::cerr << "Failed to build the EMBER workpiece polygon soup: " << error << std::endl;
-        return 1;
-    }
     try
     {
         scene.workpieceNef = makeNef(scene.workpieceMesh);
@@ -643,7 +675,6 @@ int main()
     if (!recomputeScene(scene, ui))
     {
         std::cerr << ui.lastError << std::endl;
-        return 1;
     }
 
     igl::opengl::glfw::Viewer viewer;
@@ -661,12 +692,12 @@ int main()
 
     viewer.append_mesh();
     const int toolMeshId = viewer.data().id;
-    setViewerMesh(viewer, toolMeshId, scene.toolDisplayMesh, toolLayerStyle(ui.operation));
+    setViewerMesh(viewer, toolMeshId, scene.toolDisplayMesh, toolLayerStyle());
 
     auto updateViewerMeshes = [&]()
     {
         setViewerMesh(viewer, resultMeshId, scene.resultDisplayMesh, resultLayerStyle());
-        setViewerMesh(viewer, toolMeshId, scene.toolDisplayMesh, toolLayerStyle(ui.operation));
+        setViewerMesh(viewer, toolMeshId, scene.toolDisplayMesh, toolLayerStyle());
     };
 
     menu.callback_draw_viewer_menu = [&]()
@@ -710,6 +741,20 @@ int main()
         }
 
         ImGui::Separator();
+        std::uint64_t proposedScale = proposed.emberSharedScale;
+        if (ImGui::InputScalar("scale", ImGuiDataType_U64, &proposedScale))
+        {
+            proposed.emberSharedScale = proposedScale == 0 ? 1 : proposedScale;
+            changed = true;
+        }
+
+        int proposedLeafThreshold = static_cast<int>(proposed.leafThreshold);
+        if (ImGui::InputInt("leaf threshold", &proposedLeafThreshold))
+        {
+            proposed.leafThreshold = static_cast<std::size_t>(std::max(1, proposedLeafThreshold));
+            changed = true;
+        }
+
         changed = drawDoubleSlider("tx", proposed.pose.tx, kTranslationMin, kTranslationMax) || changed;
         changed = drawDoubleSlider("ty", proposed.pose.ty, kTranslationMin, kTranslationMax) || changed;
         changed = drawDoubleSlider("tz", proposed.pose.tz, kTranslationMin, kTranslationMax) || changed;
@@ -738,6 +783,7 @@ int main()
         if (ui.engine == EngineKind::Ember)
         {
             ImGui::Text("shared_scale=%llu", static_cast<unsigned long long>(ui.stats.sharedScale));
+            ImGui::Text("leaf_threshold=%zu", ui.leafThreshold);
         }
         ImGui::Text("workpiece=%s", scene.workpiecePath.c_str());
         ImGui::Text("tool=%s", scene.toolPath.c_str());
