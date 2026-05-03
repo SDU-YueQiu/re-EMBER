@@ -1,5 +1,7 @@
 ﻿#include "clipping.h"
 
+#include "core/logging.h"
+
 namespace ember
 {
 
@@ -45,10 +47,14 @@ namespace ember
                 else if (intersectionCount == 2)
                 {
                     p1 = segmentEdge;
-				}
+                }
                 else
                 {
-					std::cout << "[computePolygonPlaneIntersection] intersectionCount > 2" << std::endl;
+                    emitLog(
+                        LogLevel::Debug,
+                        LogCategory::Geometry,
+                        "computePolygonPlaneIntersection",
+                        "Rejected polygon-plane intersection because more than two intersections were detected.");
 					return false;
                 }
             }
@@ -65,7 +71,11 @@ namespace ember
                 }
                 else
                 {
-                    std::cout << "[computePolygonPlaneIntersection] intersectionCount > 2" << std::endl;
+                    emitLog(
+                        LogLevel::Debug,
+                        LogCategory::Geometry,
+                        "computePolygonPlaneIntersection",
+                        "Rejected polygon-plane intersection because more than two intersections were detected.");
                     return false;
                 }
             }
@@ -84,7 +94,11 @@ namespace ember
     {
         if (!target.isValid() || !incoming.isValid())
         {
-			std::cout << "[computePolygonIntersectionCarrier] !target.isValid() || !incoming.isValid()" << std::endl;
+            emitLog(
+                LogLevel::Debug,
+                LogCategory::Geometry,
+                "computePolygonIntersectionCarrier",
+                "Rejected polygon intersection carrier because one polygon is invalid.");
             return false;
         }
 
@@ -106,10 +120,14 @@ namespace ember
         }
 
 		PlanePoint3i vq0(target.plane, incoming.plane, q0);
-		PlanePoint3i vq1(target.plane, incoming.plane, q1);
+        PlanePoint3i vq1(target.plane, incoming.plane, q1);
         if (!vq0.hasUniqueIntersection() || !vq1.hasUniqueIntersection())
         {
-			std::cout << "[computePolygonIntersectionCarrier] !vq0.hasUniqueIntersection() || !vq1.hasUniqueIntersection()" << std::endl;
+            emitLog(
+                LogLevel::Debug,
+                LogCategory::Geometry,
+                "computePolygonIntersectionCarrier",
+                "Rejected polygon intersection carrier because the recovered line endpoints are not unique.");
             return false;
         }
 
@@ -155,14 +173,22 @@ namespace ember
             }
             else
             {
-				std::cout << "[computePolygonIntersectionCarrier] side00 < 0 && side10 < 0 && side01 <= 0 && side11 <= 0 不可能到这啊" << std::endl;
+                emitLog(
+                    LogLevel::Debug,
+                    LogCategory::Geometry,
+                    "computePolygonIntersectionCarrier",
+                    "Reached the unexpected side-assignment branch while trimming the overlap segment.");
 			}
         }
         else {
 
             if (!((side00 < 0) == (side11 < 0) && (side10 < 0) == (side01 < 0)))
             {
-                std::cout << "[computePolygonIntersectionCarrier] side consistency check failed" << std::endl;
+                emitLog(
+                    LogLevel::Debug,
+                    LogCategory::Geometry,
+                    "computePolygonIntersectionCarrier",
+                    "Rejected polygon intersection carrier because the side-consistency check failed.");
                 return false;
             }
         }
@@ -175,7 +201,11 @@ namespace ember
     {
         if (!source.isValid() || arePlaneNormalsParallel(source.plane, clipPlane))
         {
-			std::cout << "[clipLeafGeometryByPlane] !source.isValid() || arePlaneNormalsParallel(source.plane, clipPlane)" << std::endl;
+            emitLog(
+                LogLevel::Debug,
+                LogCategory::Geometry,
+                "clipLeafGeometryByPlane",
+                "Rejected leaf clipping because the source polygon is invalid or the clip plane is parallel.");
             return false;
         }
 
@@ -212,7 +242,11 @@ namespace ember
 
 			if (sSide == 0 && eSide == 0)
             {
-				std::cout << "[clipLeafGeometryByPlane] sSide == 0 && eSide == 0" << std::endl;
+                emitLog(
+                    LogLevel::Debug,
+                    LogCategory::Geometry,
+                    "clipLeafGeometryByPlane",
+                    "Rejected leaf clipping because an entire edge lies on the clip plane.");
                 frontClipped = Polygon256();
 				backClipped = Polygon256();
                 return false;
@@ -255,7 +289,11 @@ namespace ember
 
 		bool ret = backClipped.isValid() && frontClipped.isValid();
         if (!ret) {
-			std::cout << "[clipLeafGeometryByPlane] !backClipped.isValid() || !frontClipped.isValid()" << std::endl;
+            emitLog(
+                LogLevel::Debug,
+                LogCategory::Geometry,
+                "clipLeafGeometryByPlane",
+                "Rejected leaf clipping because one clipped polygon is invalid.");
         }
         return ret;
     }
