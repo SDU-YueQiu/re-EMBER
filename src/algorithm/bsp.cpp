@@ -1,7 +1,15 @@
 ﻿#include "bsp.h"
 
+#include "core/logging.h"
+
 namespace ember
 {
+    namespace
+    {
+        constexpr const char *kBspInsertScope = "BSPTree::insert";
+        constexpr const char *kBspAddSegmentScope = "BSPTree::addSegmentRecursive";
+    }
+
     bool areCoplanarPolygons(const Polygon256 &lhs, const Polygon256 &rhs) noexcept
     {
         // 因为直接公式判断的精度未测试，所以先用这种查顶点在不在两面上的别扭实现
@@ -41,13 +49,13 @@ namespace ember
     {
         if (!polygon.isValid())
         {
-            std::cout << "BSPTree::insert !polygon.isValid()" << std::endl;
+            emitLog(LogLevel::Debug, LogCategory::Bsp, kBspInsertScope, "Ignored invalid incoming polygon.");
             return;
         }
 
         if (!basePolygon.isValid())
         {
-            std::cout << "BSPTree::insert !basePolygon.isValid()" << std::endl;
+            emitLog(LogLevel::Debug, LogCategory::Bsp, kBspInsertScope, "Ignored insert because base polygon is invalid.");
             return;
         }
 
@@ -121,7 +129,7 @@ namespace ember
 
         if (!node.front || !node.back)
         {
-            std::cout << "[BSPTree::addSegmentRecursive] !node.front || !node.back" << std::endl;
+            emitLog(LogLevel::Debug, LogCategory::Bsp, kBspAddSegmentScope, "Encountered non-leaf BSP node without both children.");
             return;
         }
 
