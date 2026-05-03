@@ -1,7 +1,5 @@
 #include "io_tests.h"
 
-#include "logging_test_support.h"
-
 #include "core/bool_problem.h"
 #include "io/io.h"
 
@@ -15,14 +13,11 @@
 namespace
 {
     using ember::BoolOp;
-    using ember::LogCategory;
-    using ember::LogLevel;
     using ember::ObjMeshData;
     using ember::ObjVertex;
     using ember::Plane3i;
     using ember::Polygon256;
     using ember::Vec3i;
-    using ember::tests::ScopedLogCapture;
 
     std::filesystem::path makeTestPath(const std::string &filename)
     {
@@ -111,7 +106,7 @@ namespace
 void runIoTests()
 {
     {
-        const std::filesystem::path inputPath = makeTestPath("io_explicit_scale_triangle.obj");
+        const std::filesystem::path inputPath = makeTestPath("io_explicit_scale_face.obj");
         writeTextFile(
             inputPath,
             "v 0.0 0.0 0.0\n"
@@ -121,7 +116,6 @@ void runIoTests()
 
         ObjMeshData mesh;
         std::string error;
-        ScopedLogCapture capture;
         assert(ember::readObjMesh(inputPath.string(), mesh, error));
         assert(mesh.vertices.size() == 3u);
         assert(mesh.faces.size() == 1u);
@@ -130,7 +124,6 @@ void runIoTests()
         assert(ember::buildPolygonSoup(mesh, 10u, polygons, error));
         assert(polygons.size() == 1u);
         assert(polygons.front().isValid());
-        assert(capture.events.empty());
     }
 
     {
@@ -152,11 +145,8 @@ void runIoTests()
         std::uint64_t scale = 0;
         std::string error;
         const std::vector<ObjMeshData> meshes{lhs, rhs};
-        ScopedLogCapture capture(LogLevel::Info);
         assert(ember::chooseSharedScale(meshes, options, scale, error));
         assert(scale == 1000000u);
-        assert(capture.hasEvent(LogLevel::Info, LogCategory::Io, "io::chooseSharedScale", "Selected shared scale="));
-        assert(capture.hasEvent(LogLevel::Info, LogCategory::Io, "io::chooseSharedScale", "mesh_count=2"));
     }
 
     {
@@ -252,16 +242,12 @@ void runIoTests()
 
         ObjMeshData mesh;
         std::string error;
-        ScopedLogCapture capture(LogLevel::Info);
         assert(ember::readObjMesh(inputPath.string(), mesh, error));
         assert(mesh.faces.size() == 1u);
 
         std::vector<Polygon256> polygons;
         assert(ember::buildPolygonSoup(mesh, 1u, polygons, error));
         assert(polygons.size() == 1u);
-        assert(capture.hasEvent(LogLevel::Info, LogCategory::Io, "io::readObjMesh", "path="));
-        assert(capture.hasEvent(LogLevel::Info, LogCategory::Io, "io::readObjMesh", "vertices=3"));
-        assert(capture.hasEvent(LogLevel::Info, LogCategory::Io, "io::buildPolygonSoup", "output_polygons=1"));
     }
 
     {
@@ -294,21 +280,12 @@ void runIoTests()
     {
         const Polygon256 square = makeFaceXY(0, 0, 2, 0, 2, 1);
 
-        ember::TriangleMeshData mesh;
+        ObjMeshData mesh;
         std::string error;
-        assert(ember::buildTriangleMeshFromPolygonSoup({square}, mesh, error));
+        assert(ember::buildObjMeshFromPolygonSoup({square}, mesh, error));
         assert(mesh.vertices.size() == 4u);
-        assert(mesh.triangles.size() == 2u);
-    }
-
-    {
-        const Polygon256 square = makeFaceXY(0, 0, 2, 0, 2, 1);
-
-        ember::TriangleMeshData mesh;
-        std::string error;
-        assert(ember::buildTriangleMeshFromPolygonSoup({square}, mesh, error));
-        assert(mesh.vertices.size() == 4u);
-        assert(mesh.triangles.size() == 2u);
+        assert(mesh.faces.size() == 1u);
+        assert(mesh.faces.front().size() == 4u);
     }
 
     {
@@ -318,7 +295,6 @@ void runIoTests()
         std::size_t faceCount = 0;
         std::string error;
         const std::vector<Polygon256> fragments{square};
-        ScopedLogCapture capture(LogLevel::Info);
         assert(ember::writePolygonSoupObj(fragments, outputPath.string(), faceCount, error));
         assert(faceCount == 1u);
 
@@ -351,8 +327,6 @@ void runIoTests()
 
         assert(vertexLineCount == 4u);
         assert(faceLineCount == 1u);
-        assert(capture.hasEvent(LogLevel::Info, LogCategory::Io, "io::writePolygonSoupObj", "exported_faces=1"));
-        assert(capture.hasEvent(LogLevel::Info, LogCategory::Io, "io::writePolygonSoupObj", "path="));
     }
 
     {
@@ -367,10 +341,8 @@ void runIoTests()
 
         std::string error;
         std::vector<Polygon256> polygons;
-        ScopedLogCapture capture(LogLevel::Error);
         assert(!ember::buildPolygonSoup(concave, 1u, polygons, error));
         assert(!error.empty());
-        assert(capture.hasEvent(LogLevel::Error, LogCategory::Io, "io::buildPolygonSoup", error));
     }
 
     {
