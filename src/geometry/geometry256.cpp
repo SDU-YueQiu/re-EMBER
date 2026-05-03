@@ -4,6 +4,28 @@
 
 namespace ember
 {
+    namespace
+    {
+        Integer absInteger(const Integer &value) noexcept
+        {
+            return value < 0 ? -value : value;
+        }
+
+        bool canScalePlaneWithinInsetHeadroom(const Plane3i &plane, const Integer &scale) noexcept
+        {
+            if (scale <= 0)
+            {
+                return false;
+            }
+
+            const Integer coefficientLimit = Integer(1) << 70;
+            return absInteger(plane.a) <= coefficientLimit / scale &&
+                   absInteger(plane.b) <= coefficientLimit / scale &&
+                   absInteger(plane.c) <= coefficientLimit / scale &&
+                   absInteger(plane.d) <= coefficientLimit / scale;
+        }
+    }
+
     // 返回使用平面方程反转后的平面
     Plane3i flippedPlane(const Plane3i &plane) noexcept
     {
@@ -327,6 +349,11 @@ namespace ember
             Integer scale = 1;
             for (int iter = 0; iter < 40; ++iter)
             {
+                if (!canScalePlaneWithinInsetHeadroom(edge, scale))
+                {
+                    return false;
+                }
+
                 const Plane3i scaledEdge(edge.a * scale,
                                          edge.b * scale,
                                          edge.c * scale,
@@ -360,7 +387,7 @@ namespace ember
                 continue;
             }
 
-            // TODO:现在多边形边平面的约束是法向必须向外，这里现在是多余的
+            // TODO：现在多边形边平面的约束是法向必须向外，这里现在是多余的
             const int interiorSideA = vertices[refIdxA].classify(edgePlanes[i]);
             const int interiorSideB = vertices[refIdxB].classify(edgePlanes[prev]);
             if (interiorSideA == 0 || interiorSideB == 0)

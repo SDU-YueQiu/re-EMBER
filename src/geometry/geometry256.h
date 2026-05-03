@@ -84,9 +84,6 @@ namespace ember
         // 环绕数转换向量
         std::vector<int> WNTV;
 
-        // 结果面状态，用于布尔指示函数，注意以数组下标确定网格
-        WNV WNVF, WNVB;
-
         Polygon256() = default;
         Polygon256(const Plane3i &supportPlane, std::vector<Plane3i> edges);
 

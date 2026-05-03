@@ -2,6 +2,8 @@
 
 #include "core/logging.h"
 
+#include <stdexcept>
+
 namespace ember
 {
     namespace
@@ -49,14 +51,12 @@ namespace ember
     {
         if (!polygon.isValid())
         {
-            emitLog(LogLevel::Debug, LogCategory::Bsp, kBspInsertScope, "Ignored invalid incoming polygon.");
-            return;
+            throw std::runtime_error("BSPTree::insert received an invalid incoming polygon.");
         }
 
         if (!basePolygon.isValid())
         {
-            emitLog(LogLevel::Debug, LogCategory::Bsp, kBspInsertScope, "Ignored insert because base polygon is invalid.");
-            return;
+            throw std::runtime_error("BSPTree::insert cannot run because the base polygon is invalid.");
         }
 
         Plane3i segmentPlane;
@@ -85,7 +85,7 @@ namespace ember
     {
         if (!root)
         {
-            return;
+            throw std::runtime_error("BSPTree::addSegment called before a base polygon was set.");
         }
 
         addSegmentRecursive(*root, v0, v1, splitPlane);
@@ -129,8 +129,7 @@ namespace ember
 
         if (!node.front || !node.back)
         {
-            emitLog(LogLevel::Debug, LogCategory::Bsp, kBspAddSegmentScope, "Encountered non-leaf BSP node without both children.");
-            return;
+            throw std::runtime_error("BSPTree invariant violation: non-leaf node is missing a child.");
         }
 
         PlanePoint3i p0(basePolygon.plane, v0, insertPlane);
@@ -206,7 +205,7 @@ namespace ember
             PlanePoint3i interiorPoint(node->leafGeometry.plane, node->leafGeometry.plane, node->leafGeometry.plane);
             if (!node->leafGeometry.findStrictInteriorPoint(interiorPoint))
             {
-                return;
+                throw std::runtime_error("BSPTree failed to find a strict interior point while disabling overlap leaves.");
             }
 
             if (polygon.containsOrOnBoundary(interiorPoint))

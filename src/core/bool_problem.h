@@ -1,6 +1,7 @@
 ﻿#pragma once
 
-#include "algorithm/shit_wrapper.h"
+#include "geometry/aabb.h"
+#include "geometry/geometry256.h"
 
 #include <cstddef>
 #include <memory>
@@ -19,7 +20,7 @@ namespace ember
     };
 
     /**
-     * @brief subdivision 阶段保存的局部参考点状态。
+     * @brief 细分阶段保存的局部参考点状态。
      *
      * `point` 始终表示当前子问题中选取的几何参考位置，
      * `wnv` 表示该点的精确已知 WNV。
@@ -29,6 +30,16 @@ namespace ember
     {
         PlanePoint3i point;
         WNV wnv;
+    };
+
+    /**
+     * @brief 叶片片段及用于决定是否输出的前后侧 WNV。
+     */
+    struct ClassifiedFragment
+    {
+        Polygon256 polygon;
+        WNV frontWNV;
+        WNV backWNV;
     };
 
     /**
@@ -102,8 +113,8 @@ namespace ember
          * @brief 执行当前阶段的 subdivision。
          *
          * 该过程会初始化根 AABB、根参考点，并递归细分到叶子子问题。
-         * 如果某次切分无法为子问题建立精确的参考点 WNV，
-         * 当前节点会停止继续细分并保留为叶子节点。
+         * 如果输入、细分、leaf arrangement 或 WNV 分类无法保证正确，
+         * 当前实现会抛出 `std::runtime_error`，避免输出不可信结果。
          */
         void solve();
 
@@ -258,7 +269,7 @@ namespace ember
         /**
          * @brief 分类 leaf fragments 并收集通过当前布尔指示函数的结果面。
          *
-         * @throws std::runtime_error 当任一 leaf fragment 无法成功计算前后侧 WNV 时抛出。
+         * @throws std::runtime_error 当任一叶片片段无法成功计算前后侧 WNV 时抛出。
          */
         void classifyLeafFragmentsAndCollectResults();
 
@@ -308,13 +319,6 @@ namespace ember
         static void assignOperandWNTV(std::vector<Polygon256> &polygons, std::size_t dimension, std::size_t hotIndex);
 
         /**
-         * @brief 清空 polygon 集合中缓存的前后侧 WNV 分类结果。
-         *
-         * @param[in,out] polygons 待清理的 polygon 集合。
-         */
-        static void clearClassificationState(std::vector<Polygon256> &polygons);
-
-        /**
          * @brief 递归收集未丢弃的只读叶子子问题。
          *
          * @param[in] node 当前遍历节点。
@@ -362,6 +366,9 @@ namespace ember
 
         /// 叶子阶段局部 BSP 生成的全部 leaf fragments。
         std::vector<Polygon256> leafFragments_;
+
+        /// 叶子阶段成功分类出的 fragment 及其前后侧 WNV。
+        std::vector<ClassifiedFragment> classifiedFragments_;
 
         /// 当前节点或其子树筛选出的布尔结果面。
         std::vector<Polygon256> resultFragments_;

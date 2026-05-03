@@ -66,9 +66,15 @@ namespace ember
         }
     };
 
+    /**
+     * @brief 使用当前固定宽度整数运算比较齐次点。
+     *
+     * @warning This is not a general-purpose safe equality predicate for arbitrary
+     * homogeneous points. Cross multiplication can exceed the 256-bit budget; use it
+     * only when callers already know the operands are within a bounded construction.
+     */
     inline constexpr bool areSameHomPoint(const HomPoint4i &lhs, const HomPoint4i &rhs) noexcept
     {
-        //TODO：检查该函数的精度是否会溢出
         if (lhs.hasSameComponents(rhs))
         {
             return true;
