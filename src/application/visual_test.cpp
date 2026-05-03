@@ -18,7 +18,6 @@
 #include <Eigen/Geometry>
 
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -27,6 +26,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace ember::visual_test
@@ -56,7 +56,7 @@ namespace ember::visual_test
         double solveMs = 0.0;
         double convertMs = 0.0;
         std::size_t resultVertexCount = 0;
-        std::size_t resultTriangleCount = 0;
+        std::size_t resultFaceCount = 0;
         std::uint64_t sharedScale = 0;
     };
 
@@ -87,9 +87,9 @@ namespace ember::visual_test
         ObjMeshData workpieceMesh;
         ObjMeshData toolOriginalMesh;
         ObjMeshData toolCurrentMesh;
-        TriangleMeshData workpieceDisplayMesh;
-        TriangleMeshData toolDisplayMesh;
-        TriangleMeshData resultDisplayMesh;
+        ObjMeshData workpieceDisplayMesh;
+        ObjMeshData toolDisplayMesh;
+        ObjMeshData resultDisplayMesh;
         std::vector<Polygon256> workpiecePolygons;
         std::uint64_t emberSharedScale = 0;
         NefPolyhedron workpieceNef;
@@ -159,44 +159,6 @@ namespace ember::visual_test
         return std::chrono::duration<double, std::milli>(end - start).count();
     }
 
-    TriangleMeshData triangulateObjMesh(const ObjMeshData &mesh)
-    {
-        TriangleMeshData triangleMesh;
-        triangleMesh.vertices = mesh.vertices;
-
-        for (const std::vector<std::size_t> &face : mesh.faces)
-        {
-            for (std::size_t i = 1; i + 1 < face.size(); ++i)
-            {
-                triangleMesh.triangles.push_back({face[0], face[i], face[i + 1]});
-            }
-        }
-
-        return triangleMesh;
-    }
-
-    void triangleMeshToEigen(
-        const TriangleMeshData &mesh,
-        Eigen::MatrixXd &outVertices,
-        Eigen::MatrixXi &outTriangles)
-    {
-        outVertices.resize(static_cast<Eigen::Index>(mesh.vertices.size()), 3);
-        for (std::size_t i = 0; i < mesh.vertices.size(); ++i)
-        {
-            outVertices(static_cast<Eigen::Index>(i), 0) = mesh.vertices[i].x;
-            outVertices(static_cast<Eigen::Index>(i), 1) = mesh.vertices[i].y;
-            outVertices(static_cast<Eigen::Index>(i), 2) = mesh.vertices[i].z;
-        }
-
-        outTriangles.resize(static_cast<Eigen::Index>(mesh.triangles.size()), 3);
-        for (std::size_t i = 0; i < mesh.triangles.size(); ++i)
-        {
-            outTriangles(static_cast<Eigen::Index>(i), 0) = static_cast<int>(mesh.triangles[i][0]);
-            outTriangles(static_cast<Eigen::Index>(i), 1) = static_cast<int>(mesh.triangles[i][1]);
-            outTriangles(static_cast<Eigen::Index>(i), 2) = static_cast<int>(mesh.triangles[i][2]);
-        }
-    }
-
     ObjMeshData transformToolMesh(const ObjMeshData &mesh, const UiState &ui)
     {
         ObjMeshData transformed = mesh;
@@ -224,35 +186,47 @@ namespace ember::visual_test
 
     SurfaceMesh makeSurfaceMesh(const ObjMeshData &mesh)
     {
-        const TriangleMeshData triangleMesh = triangulateObjMesh(mesh);
-
         SurfaceMesh surfaceMesh;
         std::vector<SurfaceMesh::Vertex_index> vertexHandles;
-        vertexHandles.reserve(triangleMesh.vertices.size());
-        for (const ObjVertex &vertex : triangleMesh.vertices)
+        vertexHandles.reserve(mesh.vertices.size());
+        for (const ObjVertex &vertex : mesh.vertices)
         {
             vertexHandles.push_back(surfaceMesh.add_vertex(Kernel::Point_3(vertex.x, vertex.y, vertex.z)));
         }
 
-        for (std::size_t faceIndex = 0; faceIndex < triangleMesh.triangles.size(); ++faceIndex)
+        for (std::size_t faceIndex = 0; faceIndex < mesh.faces.size(); ++faceIndex)
         {
-            const std::array<std::size_t, 3> &face = triangleMesh.triangles[faceIndex];
-            const auto newFace = surfaceMesh.add_face(
-                vertexHandles[face[0]],
-                vertexHandles[face[1]],
-                vertexHandles[face[2]]);
+            const std::vector<std::size_t> &face = mesh.faces[faceIndex];
+            if (face.size() < 3)
+            {
+                throw std::runtime_error("OBJ face " + std::to_string(faceIndex) + " has fewer than three vertices.");
+            }
+
+            std::vector<SurfaceMesh::Vertex_index> faceVertices;
+            faceVertices.reserve(face.size());
+            for (const std::size_t vertexIndex : face)
+            {
+                if (vertexIndex >= vertexHandles.size())
+                {
+                    throw std::runtime_error("OBJ face " + std::to_string(faceIndex) + " references an out-of-range vertex.");
+                }
+
+                faceVertices.push_back(vertexHandles[vertexIndex]);
+            }
+
+            const auto newFace = surfaceMesh.add_face(faceVertices);
             if (newFace == SurfaceMesh::null_face())
             {
-                throw std::runtime_error("Failed to add OBJ triangle " + std::to_string(faceIndex) + " as a valid CGAL face.");
+                throw std::runtime_error("Failed to add OBJ face " + std::to_string(faceIndex) + " as a valid CGAL face.");
             }
         }
 
         return surfaceMesh;
     }
 
-    TriangleMeshData makeTriangleMesh(const SurfaceMesh &surfaceMesh)
+    ObjMeshData makeObjMeshData(const SurfaceMesh &surfaceMesh)
     {
-        TriangleMeshData mesh;
+        ObjMeshData mesh;
 
         if (surfaceMesh.number_of_vertices() == 0 || surfaceMesh.number_of_faces() == 0)
         {
@@ -271,27 +245,21 @@ namespace ember::visual_test
                 CGAL::to_double(point.z())});
         }
 
-        mesh.triangles.reserve(surfaceMesh.number_of_faces());
+        mesh.faces.reserve(surfaceMesh.number_of_faces());
         for (const auto face : surfaceMesh.faces())
         {
-            std::array<std::size_t, 3> triangle{};
-            std::size_t count = 0;
+            std::vector<std::size_t> meshFace;
             for (const auto vertex : CGAL::vertices_around_face(surfaceMesh.halfedge(face), surfaceMesh))
             {
-                if (count >= triangle.size())
-                {
-                    throw std::runtime_error("CGAL surface mesh face is not triangular after conversion.");
-                }
-
-                triangle[count++] = vertexMap.at(static_cast<std::size_t>(vertex.idx()));
+                meshFace.push_back(vertexMap.at(static_cast<std::size_t>(vertex.idx())));
             }
 
-            if (count != 3)
+            if (meshFace.size() < 3)
             {
                 throw std::runtime_error("CGAL surface mesh face is degenerate after conversion.");
             }
 
-            mesh.triangles.push_back(triangle);
+            mesh.faces.push_back(std::move(meshFace));
         }
 
         return mesh;
@@ -302,20 +270,20 @@ namespace ember::visual_test
         return NefPolyhedron(makeSurfaceMesh(mesh));
     }
 
-    TriangleMeshData makeTriangleMesh(const NefPolyhedron &nef)
+    ObjMeshData makeObjMeshData(const NefPolyhedron &nef)
     {
         if (nef.is_empty())
         {
-            return TriangleMeshData();
+            return ObjMeshData();
         }
         if (!nef.is_simple())
         {
-            throw std::runtime_error("CGAL Nef result is not simple and cannot be converted to a polygon mesh.");
+            throw std::runtime_error("CGAL Nef result is not simple and cannot be converted to a mesh.");
         }
 
         SurfaceMesh surfaceMesh;
-        CGAL::convert_nef_polyhedron_to_polygon_mesh(nef, surfaceMesh, true);
-        return makeTriangleMesh(surfaceMesh);
+        CGAL::convert_nef_polyhedron_to_polygon_mesh(nef, surfaceMesh, false);
+        return makeObjMeshData(surfaceMesh);
     }
 
     NefPolyhedron applyBoolean(const NefPolyhedron &lhs, const NefPolyhedron &rhs, BoolOp op)
@@ -335,7 +303,7 @@ namespace ember::visual_test
 
     void storeResultStats(
         ResultStats &outStats,
-        const TriangleMeshData &mesh,
+        const ObjMeshData &mesh,
         const Clock::time_point &solveStart,
         const Clock::time_point &solveEnd,
         const Clock::time_point &convertStart,
@@ -345,7 +313,7 @@ namespace ember::visual_test
         outStats.solveMs = elapsedMilliseconds(solveStart, solveEnd);
         outStats.convertMs = elapsedMilliseconds(convertStart, convertEnd);
         outStats.resultVertexCount = mesh.vertices.size();
-        outStats.resultTriangleCount = mesh.triangles.size();
+        outStats.resultFaceCount = mesh.faces.size();
         outStats.sharedScale = sharedScale;
     }
 
@@ -404,9 +372,9 @@ namespace ember::visual_test
         const Clock::time_point solveEnd = Clock::now();
 
         const Clock::time_point convertStart = Clock::now();
-        if (!ember::buildTriangleMeshFromPolygonSoup(problem.resultFragments(), scene.resultDisplayMesh, outError))
+        if (!ember::buildObjMeshFromPolygonSoup(problem.resultFragments(), scene.resultDisplayMesh, outError))
         {
-            outError = "Failed to convert the EMBER result polygon soup to triangles: " + outError;
+            outError = "Failed to convert the EMBER result polygon soup to an OBJ mesh: " + outError;
             return false;
         }
         const Clock::time_point convertEnd = Clock::now();
@@ -436,7 +404,7 @@ namespace ember::visual_test
             const Clock::time_point solveEnd = Clock::now();
 
             const Clock::time_point convertStart = Clock::now();
-            scene.resultDisplayMesh = makeTriangleMesh(result);
+            scene.resultDisplayMesh = makeObjMeshData(result);
             const Clock::time_point convertEnd = Clock::now();
 
             storeResultStats(outStats, scene.resultDisplayMesh, solveStart, solveEnd, convertStart, convertEnd);
@@ -454,7 +422,7 @@ namespace ember::visual_test
         ui.lastError.clear();
 
         scene.toolCurrentMesh = transformToolMesh(scene.toolOriginalMesh, ui);
-        scene.toolDisplayMesh = triangulateObjMesh(scene.toolCurrentMesh);
+        scene.toolDisplayMesh = scene.toolCurrentMesh;
 
         switch (ui.engine)
         {
@@ -502,23 +470,100 @@ namespace ember::visual_test
     void setViewerMesh(
         igl::opengl::glfw::Viewer &viewer,
         int meshId,
-        const TriangleMeshData &mesh,
+        const ObjMeshData &mesh,
         const MeshLayerStyle &style)
     {
         Eigen::MatrixXd vertices;
-        Eigen::MatrixXi triangles;
-        triangleMeshToEigen(mesh, vertices, triangles);
+        vertices.resize(static_cast<Eigen::Index>(mesh.vertices.size()), 3);
+        for (std::size_t i = 0; i < mesh.vertices.size(); ++i)
+        {
+            vertices(static_cast<Eigen::Index>(i), 0) = mesh.vertices[i].x;
+            vertices(static_cast<Eigen::Index>(i), 1) = mesh.vertices[i].y;
+            vertices(static_cast<Eigen::Index>(i), 2) = mesh.vertices[i].z;
+        }
+
+        std::size_t viewerFaceCount = 0;
+        for (const std::vector<std::size_t> &face : mesh.faces)
+        {
+            if (face.size() >= 3)
+            {
+                viewerFaceCount += face.size() - 2;
+            }
+        }
+
+        Eigen::MatrixXi viewerFaces(static_cast<Eigen::Index>(viewerFaceCount), 3);
+        std::size_t viewerFaceIndex = 0;
+        for (const std::vector<std::size_t> &face : mesh.faces)
+        {
+            for (std::size_t i = 1; i + 1 < face.size(); ++i)
+            {
+                if (face[0] >= mesh.vertices.size() ||
+                    face[i] >= mesh.vertices.size() ||
+                    face[i + 1] >= mesh.vertices.size())
+                {
+                    continue;
+                }
+
+                viewerFaces(static_cast<Eigen::Index>(viewerFaceIndex), 0) = static_cast<int>(face[0]);
+                viewerFaces(static_cast<Eigen::Index>(viewerFaceIndex), 1) = static_cast<int>(face[i]);
+                viewerFaces(static_cast<Eigen::Index>(viewerFaceIndex), 2) = static_cast<int>(face[i + 1]);
+                ++viewerFaceIndex;
+            }
+        }
+        viewerFaces.conservativeResize(static_cast<Eigen::Index>(viewerFaceIndex), 3);
 
         viewer.data(meshId).clear();
-        if (vertices.rows() > 0 && triangles.rows() > 0)
+        if (vertices.rows() > 0 && viewerFaces.rows() > 0)
         {
-            viewer.data(meshId).set_mesh(vertices, triangles);
+            viewer.data(meshId).set_mesh(vertices, viewerFaces);
         }
         viewer.data(meshId).set_face_based(true);
         viewer.data(meshId).set_colors(style.color);
         viewer.data(meshId).double_sided = style.doubleSided;
         viewer.data(meshId).show_faces = style.showFaces;
-        viewer.data(meshId).show_lines = style.showLines;
+        viewer.data(meshId).show_lines = false;
+
+        if (style.showLines)
+        {
+            std::size_t edgeCount = 0;
+            for (const std::vector<std::size_t> &face : mesh.faces)
+            {
+                edgeCount += face.size();
+            }
+
+            Eigen::MatrixXd edgeStarts(static_cast<Eigen::Index>(edgeCount), 3);
+            Eigen::MatrixXd edgeEnds(static_cast<Eigen::Index>(edgeCount), 3);
+            std::size_t edgeIndex = 0;
+            for (const std::vector<std::size_t> &face : mesh.faces)
+            {
+                for (std::size_t i = 0; i < face.size(); ++i)
+                {
+                    const std::size_t start = face[i];
+                    const std::size_t end = face[(i + 1) % face.size()];
+                    if (start >= mesh.vertices.size() || end >= mesh.vertices.size())
+                    {
+                        continue;
+                    }
+
+                    const ObjVertex &startVertex = mesh.vertices[start];
+                    const ObjVertex &endVertex = mesh.vertices[end];
+                    edgeStarts(static_cast<Eigen::Index>(edgeIndex), 0) = startVertex.x;
+                    edgeStarts(static_cast<Eigen::Index>(edgeIndex), 1) = startVertex.y;
+                    edgeStarts(static_cast<Eigen::Index>(edgeIndex), 2) = startVertex.z;
+                    edgeEnds(static_cast<Eigen::Index>(edgeIndex), 0) = endVertex.x;
+                    edgeEnds(static_cast<Eigen::Index>(edgeIndex), 1) = endVertex.y;
+                    edgeEnds(static_cast<Eigen::Index>(edgeIndex), 2) = endVertex.z;
+                    ++edgeIndex;
+                }
+            }
+
+            edgeStarts.conservativeResize(static_cast<Eigen::Index>(edgeIndex), 3);
+            edgeEnds.conservativeResize(static_cast<Eigen::Index>(edgeIndex), 3);
+            if (edgeStarts.rows() > 0)
+            {
+                viewer.data(meshId).add_edges(edgeStarts, edgeEnds, style.color);
+            }
+        }
     }
 }
 
@@ -547,7 +592,7 @@ int main()
         std::cerr << "Failed to read the tool OBJ: " << error << std::endl;
         return 1;
     }
-    scene.workpieceDisplayMesh = triangulateObjMesh(scene.workpieceMesh);
+    scene.workpieceDisplayMesh = scene.workpieceMesh;
     if (!initializeEmberSharedScale(scene, error))
     {
         std::cerr << "Failed to choose a fixed EMBER shared scale: " << error << std::endl;
@@ -661,9 +706,9 @@ int main()
         ImGui::Separator();
         ImGui::Text("solve_ms=%.3f convert_ms=%.3f", ui.stats.solveMs, ui.stats.convertMs);
         ImGui::Text(
-            "result_vertices=%zu result_triangles=%zu",
+            "result_vertices=%zu result_faces=%zu",
             ui.stats.resultVertexCount,
-            ui.stats.resultTriangleCount);
+            ui.stats.resultFaceCount);
         if (ui.engine == EngineKind::Ember)
         {
             ImGui::Text("shared_scale=%llu", static_cast<unsigned long long>(ui.stats.sharedScale));

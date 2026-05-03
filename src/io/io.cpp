@@ -15,6 +15,7 @@
 #include <limits>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
 namespace ember
@@ -25,7 +26,7 @@ namespace ember
         constexpr const char *kChooseSharedScaleScope = "io::chooseSharedScale";
         constexpr const char *kBuildPolygonSoupScope = "io::buildPolygonSoup";
         constexpr const char *kWritePolygonSoupObjScope = "io::writePolygonSoupObj";
-        constexpr const char *kBuildTriangleMeshScope = "io::buildTriangleMeshFromPolygonSoup";
+        constexpr const char *kBuildObjMeshScope = "io::buildObjMeshFromPolygonSoup";
 
         bool failIo(const char *scope, std::string &outError, const std::string &message)
         {
@@ -202,9 +203,9 @@ namespace ember
             outData.faces.clear();
             outError.clear();
 
-            std::vector<std::pair<std::string, std::size_t>> vertexIndexTable;
+            std::unordered_map<std::string, std::size_t> vertexIndexByKey;
             outData.faces.reserve(fragments.size());
-            vertexIndexTable.reserve(fragments.size() * 4);
+            vertexIndexByKey.reserve(fragments.size() * 4);
 
             for (std::size_t polygonIndex = 0; polygonIndex < fragments.size(); ++polygonIndex)
             {
@@ -220,26 +221,13 @@ namespace ember
                 for (const PlanePoint3i &vertex : orderedVertices)
                 {
                     const std::string key = makeHomogeneousPointKey(vertex.x);
-                    std::size_t slot = 0;
-                    bool found = false;
-                    for (const auto &entry : vertexIndexTable)
+                    const auto [entry, inserted] = vertexIndexByKey.emplace(key, outData.uniqueVertices.size());
+                    if (inserted)
                     {
-                        if (entry.first == key)
-                        {
-                            slot = entry.second;
-                            found = true;
-                            break;
-                        }
-                    }
-
-                    if (!found)
-                    {
-                        slot = outData.uniqueVertices.size();
                         outData.uniqueVertices.push_back(vertex);
-                        vertexIndexTable.push_back(std::make_pair(key, slot));
                     }
 
-                    face.push_back(slot);
+                    face.push_back(entry->second);
                 }
 
                 outData.faces.push_back(std::move(face));
@@ -697,19 +685,19 @@ namespace ember
         return true;
     }
 
-    bool buildTriangleMeshFromPolygonSoup(
+    bool buildObjMeshFromPolygonSoup(
         const std::vector<Polygon256> &fragments,
-        TriangleMeshData &outMesh,
+        ObjMeshData &outMesh,
         std::string &outError)
     {
-        outMesh = TriangleMeshData();
+        outMesh = ObjMeshData();
         outError.clear();
 
         RecoveredPolygonSoupData recovered;
         if (!recoverPolygonSoupData(fragments, recovered, outError))
         {
-            outError = "Failed to prepare triangle mesh from polygon soup: " + outError;
-            emitLog(LogLevel::Error, LogCategory::Io, kBuildTriangleMeshScope, outError);
+            outError = "Failed to prepare OBJ mesh from polygon soup: " + outError;
+            emitLog(LogLevel::Error, LogCategory::Io, kBuildObjMeshScope, outError);
             return false;
         }
 
@@ -719,32 +707,18 @@ namespace ember
             outMesh.vertices.push_back(homogeneousPointToObjVertex(vertex));
         }
 
-        for (std::size_t faceIndex = 0; faceIndex < recovered.faces.size(); ++faceIndex)
-        {
-            const std::vector<std::size_t> &face = recovered.faces[faceIndex];
-            if (face.size() < 3)
-            {
-                outError = "Recovered polygon face " + std::to_string(faceIndex) + " has fewer than three vertices.";
-                emitLog(LogLevel::Error, LogCategory::Io, kBuildTriangleMeshScope, outError);
-                return false;
-            }
-
-            for (std::size_t i = 1; i + 1 < face.size(); ++i)
-            {
-                outMesh.triangles.push_back({face[0], face[i], face[i + 1]});
-            }
-        }
+        outMesh.faces = std::move(recovered.faces);
 
         emitLogLazy(
             LogLevel::Info,
             LogCategory::Io,
-            kBuildTriangleMeshScope,
+            kBuildObjMeshScope,
             [&fragments, &outMesh]()
             {
                 std::ostringstream message;
-                message << "Built triangle mesh from polygon soup input_fragments=" << fragments.size()
+                message << "Built OBJ mesh from polygon soup input_fragments=" << fragments.size()
                         << " output_vertices=" << outMesh.vertices.size()
-                        << " output_triangles=" << outMesh.triangles.size()
+                        << " output_faces=" << outMesh.faces.size()
                         << ".";
                 return message.str();
             });

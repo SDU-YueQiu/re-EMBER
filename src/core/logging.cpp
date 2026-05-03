@@ -3,10 +3,7 @@
 #include <spdlog/logger.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
-#include <atomic>
 #include <memory>
-#include <mutex>
-#include <sstream>
 #include <utility>
 
 namespace ember
@@ -49,119 +46,74 @@ namespace ember
             return "Unknown";
         }
 
-        void defaultLogSink(const LogEvent &event)
+        spdlog::level::level_enum toSpdlogLevel(LogLevel level) noexcept
+        {
+            switch (level)
+            {
+            case LogLevel::Info:
+                return spdlog::level::info;
+            case LogLevel::Debug:
+                return spdlog::level::debug;
+            case LogLevel::Error:
+                return spdlog::level::err;
+            case LogLevel::Off:
+                return spdlog::level::off;
+            }
+
+            return spdlog::level::off;
+        }
+
+        std::shared_ptr<spdlog::logger> emberLogger()
         {
             static const std::shared_ptr<spdlog::logger> logger = []()
             {
                 auto sink = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
                 auto result = std::make_shared<spdlog::logger>("ember", std::move(sink));
                 result->set_pattern("%v");
-                result->set_level(spdlog::level::trace);
+                result->set_level(spdlog::level::off);
                 return result;
             }();
 
-            std::ostringstream stream;
-            stream << "["
-                   << logLevelName(event.level)
-                   << "]["
-                   << logCategoryName(event.category)
-                   << "]["
-                   << event.scope
-                   << "] "
-                   << event.message;
-
-            spdlog::level::level_enum spdlogLevel = spdlog::level::debug;
-            switch (event.level)
-            {
-            case LogLevel::Error:
-                spdlogLevel = spdlog::level::err;
-                break;
-            case LogLevel::Info:
-                spdlogLevel = spdlog::level::info;
-                break;
-            case LogLevel::Debug:
-                spdlogLevel = spdlog::level::debug;
-                break;
-            case LogLevel::Off:
-                return;
-            }
-
-            logger->log(spdlogLevel, "{}", stream.str());
-        }
-
-        std::atomic<LogLevel> g_logLevel(LogLevel::Off);
-        std::mutex g_sinkMutex;
-
-        LogSink &sinkStorage()
-        {
-            static LogSink sink = defaultLogSink;
-            return sink;
+            return logger;
         }
     }
 
     void setLogLevel(LogLevel level)
     {
-        g_logLevel.store(level, std::memory_order_release);
-    }
-
-    LogLevel getLogLevel()
-    {
-        return g_logLevel.load(std::memory_order_acquire);
-    }
-
-    void setLogSink(LogSink sink)
-    {
-        std::lock_guard<std::mutex> lock(g_sinkMutex);
-        sinkStorage() = sink ? std::move(sink) : LogSink(defaultLogSink);
+        emberLogger()->set_level(toSpdlogLevel(level));
     }
 
     void resetLogging()
     {
-        {
-            std::lock_guard<std::mutex> lock(g_sinkMutex);
-            sinkStorage() = defaultLogSink;
-        }
-
-        g_logLevel.store(LogLevel::Off, std::memory_order_release);
+        setLogLevel(LogLevel::Off);
     }
 
-    bool shouldLog(LogLevel level)
+    bool detail::isLogEnabled(LogLevel level)
     {
         if (level == LogLevel::Off)
         {
             return false;
         }
 
-        return static_cast<int>(level) <= static_cast<int>(g_logLevel.load(std::memory_order_acquire));
+        return emberLogger()->should_log(toSpdlogLevel(level));
     }
 
     void emitLog(LogLevel level, LogCategory category, const char *scope, const std::string &message)
     {
-        if (!shouldLog(level))
+        if (!detail::isLogEnabled(level))
         {
             return;
         }
-
-        LogSink sink;
-        {
-            std::lock_guard<std::mutex> lock(g_sinkMutex);
-            sink = sinkStorage();
-        }
-
-        if (!sink)
-        {
-            return;
-        }
-
-        LogEvent event;
-        event.level = level;
-        event.category = category;
-        event.scope = (scope != nullptr) ? scope : "";
-        event.message = message;
 
         try
         {
-            sink(event);
+            emberLogger()->log(
+                toSpdlogLevel(level),
+                "[{}][{}][{}] {}",
+                logLevelName(level),
+                logCategoryName(category),
+                (scope != nullptr) ? scope : "",
+                message);
         }
         catch (...)
         {
