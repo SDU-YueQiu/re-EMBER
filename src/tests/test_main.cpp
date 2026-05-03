@@ -10,30 +10,42 @@
 namespace
 {
     template <typename Fn>
-    void runNamedTest(const std::string &name, Fn &&fn)
+    bool runNamedTest(const std::string &name, Fn &&fn)
     {
         const auto start = std::chrono::steady_clock::now();
         std::cout << "[Test] begin " << name << std::endl;
-        fn();
-        const auto end = std::chrono::steady_clock::now();
-        const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "[Test] pass " << name << " elapsed_ms=" << elapsedMs << std::endl;
+        try
+        {
+            fn();
+            const auto end = std::chrono::steady_clock::now();
+            const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+            std::cout << "[Test] pass " << name << " elapsed_ms=" << elapsedMs << std::endl;
+            return true;
+        }
+        catch (const std::exception &ex)
+        {
+            const auto end = std::chrono::steady_clock::now();
+            const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+            std::cerr << "[Test] fail " << name << " elapsed_ms=" << elapsedMs
+                      << " error=" << ex.what() << std::endl;
+            return false;
+        }
     }
 }
 
 int main()
 {
-    try
+    int failed = 0;
+    failed += runNamedTest("math256", runMath256Tests) ? 0 : 1;
+    failed += runNamedTest("bool_problem", runBoolProblemTests) ? 0 : 1;
+    failed += runNamedTest("io", runIoTests) ? 0 : 1;
+
+    if (failed != 0)
     {
-        runNamedTest("math256", runMath256Tests);
-        runNamedTest("bool_problem", runBoolProblemTests);
-        runNamedTest("io", runIoTests);
-        std::cout << "[Test] all passed" << std::endl;
-        return 0;
-    }
-    catch (const std::exception &ex)
-    {
-        std::cerr << "[Test] failure " << ex.what() << std::endl;
+        std::cerr << "[Test] failed_groups=" << failed << std::endl;
         return 1;
     }
+
+    std::cout << "[Test] all passed" << std::endl;
+    return 0;
 }

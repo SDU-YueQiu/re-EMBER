@@ -1,10 +1,12 @@
 ﻿#include "bool_problem_tests.h"
 
 #include "core/bool_problem.h"
+#include "algorithm/WNV_tracing.h"
 #include "algorithm/path_candidates.h"
 
 #include <cassert>
 #include <functional>
+#include <initializer_list>
 #include <stdexcept>
 #include <string>
 
@@ -80,6 +82,38 @@ namespace
         polygon.addEdgePlane(Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(1, 0, 0)));
         polygon.WNTV = {1, 0};
         return polygon;
+    }
+
+    ember::Segment256 makeAxisSegment(const PlanePoint3i &start, const PlanePoint3i &end)
+    {
+        ember::Segment256 segment;
+        if (!ember::detail::buildAxisAlignedSegment(start, end, segment))
+        {
+            throw std::runtime_error("bool_problem_tests failed to build an axis-aligned segment.");
+        }
+        if (!ember::areSamePlanePoint(segment.getStartPoint(), start) ||
+            !ember::areSamePlanePoint(segment.getEndPoint(), end))
+        {
+            throw std::runtime_error("bool_problem_tests built a segment with unexpected endpoints.");
+        }
+        return segment;
+    }
+
+    ember::Path makeAxisPath(std::initializer_list<PlanePoint3i> points)
+    {
+        if (points.size() < 2u)
+        {
+            return {};
+        }
+
+        std::vector<PlanePoint3i> pointList(points);
+        ember::Path path;
+        path.reserve(pointList.size() - 1u);
+        for (std::size_t i = 1; i < pointList.size(); ++i)
+        {
+            path.push_back(makeAxisSegment(pointList[i - 1], pointList[i]));
+        }
+        return path;
     }
 
     bool throwsRuntimeError(const std::function<void()> &fn, const std::string &needle = std::string())
@@ -216,6 +250,136 @@ void runBoolProblemTests()
 
         assert(emittedFallbackCandidates == 1u);
         assert(visitedFallbackCandidates == 1u);
+    }
+
+    {
+        Polygon256 crossingSurface = makeFaceYZ(0, -1, 1, -1, 1, 1);
+        crossingSurface.WNTV = {1, 0};
+        const std::vector<Polygon256> polygons{crossingSurface};
+
+        const PlanePoint3i refPoint = ember::makeIntegerPoint(-1, 0, 0);
+        const ember::refPoint reference(refPoint, ember::WNV{7, 3});
+
+        ember::WNV targetWNV;
+        assert(ember::tracePathWNV(reference, ember::Path{}, polygons, targetWNV) == ember::SUCCESS);
+        assert(targetWNV == reference.wnv);
+
+        ember::WNV frontWNV;
+        ember::WNV backWNV;
+        assert(ember::tracePathWNVToSurfacePoint(
+                   reference,
+                   ember::Path{},
+                   polygons,
+                   crossingSurface.plane,
+                   frontWNV,
+                   backWNV) == ember::INPUT_INVALID);
+    }
+
+    {
+        Polygon256 crossingSurface = makeFaceYZ(0, -1, 1, -1, 1, 1);
+        crossingSurface.WNTV = {1, 0};
+        const std::vector<Polygon256> polygons{crossingSurface};
+
+        const PlanePoint3i left = ember::makeIntegerPoint(-1, 0, 0);
+        const PlanePoint3i right = ember::makeIntegerPoint(1, 0, 0);
+        const ember::Path oneCrossing = makeAxisPath({left, right});
+
+        ember::WNV targetWNV;
+        assert(ember::tracePathWNV(
+                   ember::refPoint(left, ember::WNV{0, 0}),
+                   oneCrossing,
+                   polygons,
+                   targetWNV) == ember::SUCCESS);
+        assert(targetWNV == ember::WNV({-1, 0}));
+
+        const ember::Path crossingAndReturn = makeAxisPath({left, right, left});
+        assert(ember::tracePathWNV(
+                   ember::refPoint(left, ember::WNV{0, 0}),
+                   crossingAndReturn,
+                   polygons,
+                   targetWNV) == ember::SUCCESS);
+        assert(targetWNV == ember::WNV({0, 0}));
+    }
+
+    {
+        Polygon256 crossingSurface = makeFaceYZ(0, -1, 1, -1, 1, 1);
+        crossingSurface.WNTV = {1, 0};
+        const std::vector<Polygon256> polygons{crossingSurface};
+
+        const PlanePoint3i left = ember::makeIntegerPoint(-1, 0, 0);
+        const PlanePoint3i right = ember::makeIntegerPoint(1, 0, 0);
+        const ember::Path crossingPath = makeAxisPath({left, right});
+
+        ember::WNV targetWNV;
+        Polygon256 dimensionMismatch = crossingSurface;
+        dimensionMismatch.WNTV = {1};
+        assert(ember::tracePathWNV(
+                   ember::refPoint(left, ember::WNV{0, 0}),
+                   crossingPath,
+                   {dimensionMismatch},
+                   targetWNV) == ember::INPUT_INVALID);
+
+        assert(ember::tracePathWNV(
+                   ember::refPoint(ember::makeIntegerPoint(-2, 0, 0), ember::WNV{0, 0}),
+                   crossingPath,
+                   polygons,
+                   targetWNV) == ember::INPUT_INVALID);
+
+        const ember::Path discontinuousPath = {
+            makeAxisSegment(ember::makeIntegerPoint(-2, 0, 0), ember::makeIntegerPoint(-1, 0, 0)),
+            makeAxisSegment(ember::makeIntegerPoint(0, 0, 0), ember::makeIntegerPoint(1, 0, 0))};
+        assert(ember::tracePathWNV(
+                   ember::refPoint(ember::makeIntegerPoint(-2, 0, 0), ember::WNV{0, 0}),
+                   discontinuousPath,
+                   polygons,
+                   targetWNV) == ember::INPUT_INVALID);
+    }
+
+    {
+        Polygon256 crossingSurface = makeFaceYZ(0, -1, 1, -1, 1, 1);
+        crossingSurface.WNTV = {1, 0};
+        const std::vector<Polygon256> polygons{crossingSurface};
+
+        ember::WNV targetWNV;
+        const PlanePoint3i left = ember::makeIntegerPoint(-1, 0, 0);
+        const PlanePoint3i surfaceInterior = ember::makeIntegerPoint(0, 0, 0);
+        assert(ember::tracePathWNV(
+                   ember::refPoint(left, ember::WNV{0, 0}),
+                   makeAxisPath({left, surfaceInterior}),
+                   polygons,
+                   targetWNV) == ember::PATH_INVALID);
+
+        assert(ember::tracePathWNV(
+                   ember::refPoint(ember::makeIntegerPoint(0, -2, 0), ember::WNV{0, 0}),
+                   makeAxisPath({ember::makeIntegerPoint(0, -2, 0), ember::makeIntegerPoint(0, 2, 0)}),
+                   polygons,
+                   targetWNV) == ember::PATH_INVALID);
+
+        assert(ember::tracePathWNV(
+                   ember::refPoint(ember::makeIntegerPoint(-1, 1, 0), ember::WNV{0, 0}),
+                   makeAxisPath({ember::makeIntegerPoint(-1, 1, 0), ember::makeIntegerPoint(1, 1, 0)}),
+                   polygons,
+                   targetWNV) == ember::PATH_INVALID);
+    }
+
+    {
+        Polygon256 crossingSurface = makeFaceYZ(0, -1, 1, -1, 1, 1);
+        crossingSurface.WNTV = {1, 0};
+        const std::vector<Polygon256> polygons{crossingSurface};
+
+        const PlanePoint3i left = ember::makeIntegerPoint(-1, 0, 0);
+        const PlanePoint3i surfaceInterior = ember::makeIntegerPoint(0, 0, 0);
+        ember::WNV frontWNV;
+        ember::WNV backWNV;
+        assert(ember::tracePathWNVToSurfacePoint(
+                   ember::refPoint(left, ember::WNV{0, 0}),
+                   makeAxisPath({left, surfaceInterior}),
+                   polygons,
+                   crossingSurface.plane,
+                   frontWNV,
+                   backWNV) == ember::SUCCESS);
+        assert(frontWNV == ember::WNV({-1, 0}));
+        assert(backWNV == ember::WNV({0, 0}));
     }
 
     {
