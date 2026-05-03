@@ -1,5 +1,4 @@
 #include "core/bool_problem.h"
-#include "core/logging.h"
 #include "io/io.h"
 
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>
@@ -597,9 +596,6 @@ namespace ember::visual_test
 int main()
 {
     using namespace ember::visual_test;
-
-    ember::setLogLevel(ember::LogLevel::Debug);
-    std::cerr << "[visual-test] EMBER logging enabled at Debug level." << std::endl;
 
     SceneData scene;
 #ifdef KEMBER_SOURCE_DIR
