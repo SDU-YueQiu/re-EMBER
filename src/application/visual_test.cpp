@@ -497,16 +497,74 @@ namespace ember::visual_test
         return false;
     }
 
-    bool drawDoubleSlider(const char *label, double &value, double minValue, double maxValue)
+    ToolPose makeToolPose(
+        double tx,
+        double ty,
+        double tz,
+        double rx = 0.0,
+        double ry = 0.0,
+        double rz = 0.0) noexcept
     {
-        float sliderValue = static_cast<float>(value);
-        if (!ImGui::SliderFloat(label, &sliderValue, static_cast<float>(minValue), static_cast<float>(maxValue)))
+        ToolPose pose;
+        pose.tx = tx;
+        pose.ty = ty;
+        pose.tz = tz;
+        pose.rx = rx;
+        pose.ry = ry;
+        pose.rz = rz;
+        return pose;
+    }
+
+    bool drawPosePresetButton(const char *label, ToolPose &pose, const ToolPose &preset)
+    {
+        if (!ImGui::Button(label))
         {
             return false;
         }
 
-        value = static_cast<double>(sliderValue);
+        pose = preset;
         return true;
+    }
+
+    bool drawDoubleSliderInput(
+        const char *label,
+        double &value,
+        double minValue,
+        double maxValue,
+        double inputStep)
+    {
+        bool changed = false;
+
+        ImGui::PushID(label);
+        ImGui::TextUnformatted(label);
+        ImGui::SameLine(32.0f);
+
+        ImGui::SetNextItemWidth(150.0f);
+        double sliderValue = value;
+        if (ImGui::SliderScalar(
+                "##slider",
+                ImGuiDataType_Double,
+                &sliderValue,
+                &minValue,
+                &maxValue,
+                "%.6f",
+                ImGuiSliderFlags_AlwaysClamp))
+        {
+            value = sliderValue;
+            changed = true;
+        }
+
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(110.0f);
+        double inputValue = value;
+        if (ImGui::InputDouble("##input", &inputValue, inputStep, inputStep * 10.0, "%.6f"))
+        {
+            value = inputValue;
+            changed = true;
+        }
+
+        ImGui::PopID();
+        return changed;
     }
 
     MeshLayerStyle workpieceLayerStyle()
@@ -755,18 +813,30 @@ int main()
             changed = true;
         }
 
-        changed = drawDoubleSlider("tx", proposed.pose.tx, kTranslationMin, kTranslationMax) || changed;
-        changed = drawDoubleSlider("ty", proposed.pose.ty, kTranslationMin, kTranslationMax) || changed;
-        changed = drawDoubleSlider("tz", proposed.pose.tz, kTranslationMin, kTranslationMax) || changed;
-        changed = drawDoubleSlider("rx", proposed.pose.rx, kRotationMinDegrees, kRotationMaxDegrees) || changed;
-        changed = drawDoubleSlider("ry", proposed.pose.ry, kRotationMinDegrees, kRotationMaxDegrees) || changed;
-        changed = drawDoubleSlider("rz", proposed.pose.rz, kRotationMinDegrees, kRotationMaxDegrees) || changed;
+        changed = drawDoubleSliderInput("tx", proposed.pose.tx, kTranslationMin, kTranslationMax, 0.001) || changed;
+        changed = drawDoubleSliderInput("ty", proposed.pose.ty, kTranslationMin, kTranslationMax, 0.001) || changed;
+        changed = drawDoubleSliderInput("tz", proposed.pose.tz, kTranslationMin, kTranslationMax, 0.001) || changed;
+        changed = drawDoubleSliderInput("rx", proposed.pose.rx, kRotationMinDegrees, kRotationMaxDegrees, 0.01) || changed;
+        changed = drawDoubleSliderInput("ry", proposed.pose.ry, kRotationMinDegrees, kRotationMaxDegrees, 0.01) || changed;
+        changed = drawDoubleSliderInput("rz", proposed.pose.rz, kRotationMinDegrees, kRotationMaxDegrees, 0.01) || changed;
 
         if (ImGui::Button("Reset Pose"))
         {
             proposed.pose = ToolPose();
             changed = true;
         }
+        ImGui::SameLine();
+        changed = drawPosePresetButton("Thin rx", proposed.pose, makeToolPose(-0.080, 0.681, 0.350, 43.417)) || changed;
+
+        ImGui::Text("Coplanar presets");
+        changed = drawPosePresetButton("Z 0/1", proposed.pose, makeToolPose(0.500, 0.500, 0.500)) || changed;
+        ImGui::SameLine();
+        changed = drawPosePresetButton("X min", proposed.pose, makeToolPose(0.080, 0.500, 0.500)) || changed;
+        ImGui::SameLine();
+        changed = drawPosePresetButton("X max", proposed.pose, makeToolPose(0.920, 0.500, 0.500)) || changed;
+        changed = drawPosePresetButton("Y min", proposed.pose, makeToolPose(0.500, 0.080, 0.500)) || changed;
+        ImGui::SameLine();
+        changed = drawPosePresetButton("Y max", proposed.pose, makeToolPose(0.500, 0.920, 0.500)) || changed;
 
         if (changed)
         {
