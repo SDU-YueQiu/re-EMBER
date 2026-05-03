@@ -1,5 +1,7 @@
 ﻿#include "bool_problem_tests.h"
 
+#include "logging_test_support.h"
+
 #include "core/bool_problem.h"
 
 #include <cassert>
@@ -8,10 +10,13 @@
 namespace
 {
     using ember::BoolOp;
+    using ember::LogCategory;
+    using ember::LogLevel;
     using ember::Plane3i;
     using ember::PlanePoint3i;
     using ember::Polygon256;
     using ember::Vec3i;
+    using ember::tests::ScopedLogCapture;
 
     Polygon256 makeFaceXY(int z, int xmin, int xmax, int ymin, int ymax, int normalZ)
     {
@@ -143,6 +148,7 @@ void runBoolProblemTests()
         ember::BoolProblem problem(2);
         problem.setOperation(BoolOp::Union);
         problem.setOperands(lhs, rhs);
+        ScopedLogCapture capture(LogLevel::Info);
         problem.solve();
 
         std::vector<const ember::BoolProblem *> leaves;
@@ -161,6 +167,21 @@ void runBoolProblemTests()
             assert(fragment.WNVF.size() == 2u);
             assert(fragment.WNVB.size() == 2u);
         }
+        assert(capture.hasEvent(LogLevel::Info, LogCategory::BoolProblem, "BoolProblem::solve", "operation=union"));
+        assert(capture.hasEvent(LogLevel::Info, LogCategory::BoolProblem, "BoolProblem::solve", "result_fragments=12"));
+    }
+
+    {
+        ember::BoolProblem problem(2);
+        problem.setOperation(BoolOp::Union);
+        problem.setOperands(lhs, rhs);
+        ScopedLogCapture capture(LogLevel::Debug);
+        problem.solve();
+
+        assert(problem.isSolved());
+        assert(capture.hasEvent(LogLevel::Debug, LogCategory::BoolProblem, "BoolProblem::solveRecursive", "split_plane=") ||
+               capture.hasEvent(LogLevel::Debug, LogCategory::Tracing, "BoolProblem::makeChildReference", "candidate_index=") ||
+               capture.hasEvent(LogLevel::Debug, LogCategory::Tracing, "BoolProblem::classifyLeafFragmentsAndCollectResults", "candidate_index="));
     }
 
     {
