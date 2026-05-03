@@ -209,6 +209,10 @@ if(KEMBER_ENABLE_VISUAL_TEST)
       igl::igl_glfw
       igl::igl_imgui
   )
+  target_precompile_headers(visual-test
+    PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/application/visual_test_pch.h"
+  )
 endif()
 
 enable_testing()
