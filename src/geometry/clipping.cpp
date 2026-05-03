@@ -27,65 +27,91 @@ namespace ember
             sides[i] = v.classify(target);
         }
         
-		int intersectionCount = 0;
+        std::vector<Plane3i> intersectionCarriers;
+        std::vector<PlanePoint3i> intersectionPoints;
+
+        auto appendIntersectionCarrier = [&](const Plane3i& carrier) -> bool
+        {
+            const PlanePoint3i point(source.plane, target, carrier);
+            if (!point.hasUniqueIntersection())
+            {
+                return true;
+            }
+
+            for (const PlanePoint3i& existing : intersectionPoints)
+            {
+                if (areSameHomPoint(existing.x, point.x))
+                {
+                    return true;
+                }
+            }
+
+            if (intersectionCarriers.size() == 2u)
+            {
+                emitLog(
+                    LogLevel::Debug,
+                    LogCategory::Geometry,
+                    "computePolygonPlaneIntersection",
+                    "Rejected polygon-plane intersection because more than two intersections were detected.");
+                return false;
+            }
+
+            intersectionCarriers.push_back(carrier);
+            intersectionPoints.push_back(point);
+            return true;
+        };
+
         for (std::size_t i = 0; i < n; ++i)
         {
             const std::size_t next = (i + 1 == n) ? 0 : (i + 1);
+            const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
             const Plane3i& segmentEdge = source.edgePlanes[i];
 
             const int sSide = sides[i];//startSide
             const int eSide = sides[next];//endSide
 
-            if (sSide == 0)//起点在裁剪平面上
+            if (sSide == 0 && eSide == 0)
             {
-				if (eSide == 0)
+                if (!appendIntersectionCarrier(source.edgePlanes[prev]) ||
+                    !appendIntersectionCarrier(source.edgePlanes[next]))
                 {
                     return false;
                 }
-				++intersectionCount;
-                if (intersectionCount == 1)
-                {
-                    p0 = segmentEdge;
-                }
-                else if (intersectionCount == 2)
-                {
-                    p1 = segmentEdge;
-                }
-                else
-                {
-                    emitLog(
-                        LogLevel::Debug,
-                        LogCategory::Geometry,
-                        "computePolygonPlaneIntersection",
-                        "Rejected polygon-plane intersection because more than two intersections were detected.");
-					return false;
-                }
+                continue;
             }
-            else if (sSide + eSide == 0)//边两端点在裁剪平面两侧->裁剪平面与边相交
+
+            if (sSide == 0)//起点在裁剪平面上
             {
-                ++intersectionCount;
-                if (intersectionCount == 1)
+                const int prevSide = sides[prev];
+                if ((prevSide < 0 && eSide > 0) || (prevSide > 0 && eSide < 0))
                 {
-                    p0 = segmentEdge;
+                    if (!appendIntersectionCarrier(segmentEdge))
+                    {
+                        return false;
+                    }
                 }
-                else if (intersectionCount == 2)
+                continue;
+            }
+
+            if (sSide + eSide == 0)//边两端点在裁剪平面两侧->裁剪平面与边相交
+            {
+                if (!appendIntersectionCarrier(segmentEdge))
                 {
-                    p1 = segmentEdge;
-                }
-                else
-                {
-                    emitLog(
-                        LogLevel::Debug,
-                        LogCategory::Geometry,
-                        "computePolygonPlaneIntersection",
-                        "Rejected polygon-plane intersection because more than two intersections were detected.");
                     return false;
                 }
             }
 
         }
 
-		return intersectionCount == 2;
+        if (intersectionCarriers.size() != 2u ||
+            areSameHomPoint(intersectionPoints[0].x, intersectionPoints[1].x))
+        {
+            return false;
+        }
+
+        p0 = intersectionCarriers[0];
+        p1 = intersectionCarriers[1];
+		return true;
     }
 
     bool computePolygonIntersectionCarrier(

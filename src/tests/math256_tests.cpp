@@ -115,6 +115,11 @@ void runMath256Tests()
 			axisSegmentLine);
 		assert(segment.isValid());
 
+		const ember::Plane3i sameEndpointPlane =
+			ember::Plane3i::fromPointNormal(Vec3i(0, 0, 3), Vec3i(0, 0, 1));
+		const ember::Segment256 zeroLengthSegment(sameEndpointPlane, sameEndpointPlane, axisSegmentLine);
+		assert(!zeroLengthSegment.isValid());
+
 		ember::Polygon256 poly(
 			pz,
 			std::vector<ember::Plane3i>{
@@ -128,6 +133,30 @@ void runMath256Tests()
 		assert(poly.edgeCount() == 4u);
 		assert(poly.classify(lineHit) == 0);
 		assert(poly.containsOrOnBoundary(lineHit));
+
+		{
+			const ember::Plane3i leftEdgeCarrier =
+				ember::Plane3i::fromPointNormal(Vec3i(0, 0, 3), Vec3i(1, 0, 0));
+			ember::Plane3i p0;
+			ember::Plane3i p1;
+			assert(ember::computePolygonPlaneIntersection(poly, leftEdgeCarrier, p0, p1));
+
+			const ember::PlanePoint3i hit0(poly.plane, leftEdgeCarrier, p0);
+			const ember::PlanePoint3i hit1(poly.plane, leftEdgeCarrier, p1);
+			assert(hit0.hasUniqueIntersection());
+			assert(hit1.hasUniqueIntersection());
+			assert(!ember::areSameHomPoint(hit0.x, hit1.x));
+			assert(poly.containsOrOnBoundary(hit0));
+			assert(poly.containsOrOnBoundary(hit1));
+
+			const ember::Plane3i diagonalThroughVertices =
+				ember::Plane3i::fromPointNormal(Vec3i(0, 0, 3), Vec3i(1, -1, 0));
+			assert(ember::computePolygonPlaneIntersection(poly, diagonalThroughVertices, p0, p1));
+
+			const ember::Plane3i vertexOnlyTouch =
+				ember::Plane3i::fromPointNormal(Vec3i(0, 0, 3), Vec3i(1, 1, 0));
+			assert(!ember::computePolygonPlaneIntersection(poly, vertexOnlyTouch, p0, p1));
+		}
 
 		{
 			ember::Polygon256 incoming(

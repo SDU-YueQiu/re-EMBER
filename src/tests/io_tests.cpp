@@ -61,6 +61,82 @@ namespace
         return buffer.str();
     }
 
+    std::filesystem::path findRepoPath(const std::filesystem::path &relativePath)
+    {
+        std::filesystem::path current = std::filesystem::current_path();
+        for (int depth = 0; depth < 8; ++depth)
+        {
+            const std::filesystem::path candidate = current / relativePath;
+            if (std::filesystem::exists(candidate))
+            {
+                return candidate;
+            }
+
+            const std::filesystem::path parent = current.parent_path();
+            if (parent == current || parent.empty())
+            {
+                break;
+            }
+            current = parent;
+        }
+
+        throw std::runtime_error("io_tests could not locate repo path: " + relativePath.string());
+    }
+
+    ObjMeshData readRepoObjMesh(const std::filesystem::path &relativePath)
+    {
+        ObjMeshData mesh;
+        std::string error;
+        const std::filesystem::path path = findRepoPath(relativePath);
+        if (!ember::readObjMesh(path.string(), mesh, error))
+        {
+            throw std::runtime_error("io_tests failed to read OBJ asset: " + error);
+        }
+        return mesh;
+    }
+
+    void assertWellFormedObjMesh(const ObjMeshData &mesh)
+    {
+        if (mesh.vertices.empty() || mesh.faces.empty())
+        {
+            throw std::runtime_error("io_tests produced an empty OBJ mesh.");
+        }
+        for (const ObjVertex &vertex : mesh.vertices)
+        {
+            if (!std::isfinite(vertex.x) || !std::isfinite(vertex.y) || !std::isfinite(vertex.z))
+            {
+                throw std::runtime_error("io_tests produced a non-finite OBJ vertex.");
+            }
+        }
+        for (const std::vector<std::size_t> &face : mesh.faces)
+        {
+            if (face.size() < 3u)
+            {
+                throw std::runtime_error("io_tests produced an OBJ face with fewer than three vertices.");
+            }
+            for (const std::size_t vertexIndex : face)
+            {
+                if (vertexIndex >= mesh.vertices.size())
+                {
+                    throw std::runtime_error("io_tests produced an OBJ face with an out-of-range vertex index.");
+                }
+            }
+        }
+    }
+
+    void assertFaceCountAtLeast(const ObjMeshData &mesh, std::size_t minimum, const std::string &label)
+    {
+        if (mesh.faces.size() >= minimum)
+        {
+            return;
+        }
+
+        std::ostringstream message;
+        message << "io_tests " << label << " produced " << mesh.faces.size()
+                << " faces, expected at least " << minimum << ".";
+        throw std::runtime_error(message.str());
+    }
+
     Polygon256 makeFaceXY(int z, int xmin, int xmax, int ymin, int ymax, int normalZ)
     {
         return Polygon256(
@@ -301,7 +377,11 @@ namespace
         return transformed;
     }
 
-    ObjMeshData solveObjDifferenceMesh(const ObjMeshData &lhs, const ObjMeshData &rhs, std::size_t leafThreshold)
+    ObjMeshData solveObjBooleanMesh(
+        const ObjMeshData &lhs,
+        const ObjMeshData &rhs,
+        BoolOp operation,
+        std::size_t leafThreshold)
     {
         ember::QuantizeOptions options;
         std::uint64_t scale = 0;
@@ -323,7 +403,7 @@ namespace
         }
 
         ember::BoolProblem problem(leafThreshold);
-        problem.setOperation(BoolOp::Difference);
+        problem.setOperation(operation);
         problem.setOperands(lhsPolygons, rhsPolygons);
         problem.solve();
         if (!problem.isSolved())
@@ -337,6 +417,11 @@ namespace
             throw std::runtime_error("io_tests failed to build result mesh: " + error);
         }
         return result;
+    }
+
+    ObjMeshData solveObjDifferenceMesh(const ObjMeshData &lhs, const ObjMeshData &rhs, std::size_t leafThreshold)
+    {
+        return solveObjBooleanMesh(lhs, rhs, BoolOp::Difference, leafThreshold);
     }
 
     std::size_t solveObjDifferenceFragmentCount(const ObjMeshData &lhs, const ObjMeshData &rhs, std::size_t leafThreshold)
@@ -467,6 +552,10 @@ void runIoTests()
             solveObjDifferenceFragmentCount(makeIcosphere80(), tool, 85u);
         assert(icosphereFirstSplitFragments > 0u);
 
+        const std::size_t icosphereLargeLeafFragments =
+            solveObjDifferenceFragmentCount(makeIcosphere80(), tool, 100u);
+        assert(icosphereLargeLeafFragments > 0u);
+
         const std::size_t torusFragments =
             solveObjDifferenceFragmentCount(makeTorus256(), tool, 25u);
         assert(torusFragments > 0u);
@@ -488,6 +577,42 @@ void runIoTests()
                 std::sqrt(vertex.x * vertex.x + vertex.y * vertex.y + vertex.z * vertex.z);
             assert(radius <= 1.000001);
         }
+    }
+
+    {
+        const ObjMeshData workpiece = readRepoObjMesh("assets/visual_test/workpiece_block.obj");
+        const ObjMeshData tool = readRepoObjMesh("assets/visual_test/tool_box.obj");
+
+        const ObjMeshData screenshotPoseTool = transformObjMesh(
+            tool,
+            0.920000,
+            0.231343,
+            0.500000,
+            0.0,
+            0.0,
+            0.0);
+        const ObjMeshData screenshotIntersectionT25 =
+            solveObjBooleanMesh(workpiece, screenshotPoseTool, BoolOp::Intersection, 25u);
+        assertWellFormedObjMesh(screenshotIntersectionT25);
+        assertFaceCountAtLeast(screenshotIntersectionT25, 41u, "visual screenshot intersection threshold 25");
+
+        const ObjMeshData screenshotIntersectionT100 =
+            solveObjBooleanMesh(workpiece, screenshotPoseTool, BoolOp::Intersection, 100u);
+        assertWellFormedObjMesh(screenshotIntersectionT100);
+        assertFaceCountAtLeast(screenshotIntersectionT100, 41u, "visual screenshot intersection threshold 100");
+
+        const ObjMeshData coplanarPresetTool = transformObjMesh(
+            tool,
+            0.920000,
+            0.500000,
+            0.500000,
+            0.0,
+            0.0,
+            0.0);
+        const ObjMeshData coplanarIntersection =
+            solveObjBooleanMesh(workpiece, coplanarPresetTool, BoolOp::Intersection, 25u);
+        assertWellFormedObjMesh(coplanarIntersection);
+        assertFaceCountAtLeast(coplanarIntersection, 6u, "visual coplanar x-max intersection");
     }
 
     {
