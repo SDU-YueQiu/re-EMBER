@@ -137,12 +137,13 @@ namespace ember
             return std::stold(integerToString(value));
         }
 
-        ObjVertex homogeneousPointToObjVertex(const PlanePoint3i &vertex)
+        ObjVertex homogeneousPointToObjVertex(const PlanePoint3i &vertex, std::uint64_t coordinateScale)
         {
             const long double w = integerToLongDouble(vertex.x.w);
-            const long double x = integerToLongDouble(vertex.x.x) / w;
-            const long double y = integerToLongDouble(vertex.x.y) / w;
-            const long double z = integerToLongDouble(vertex.x.z) / w;
+            const long double scale = static_cast<long double>(coordinateScale);
+            const long double x = integerToLongDouble(vertex.x.x) / w / scale;
+            const long double y = integerToLongDouble(vertex.x.y) / w / scale;
+            const long double z = integerToLongDouble(vertex.x.z) / w / scale;
 
             ObjVertex point;
             point.x = static_cast<double>(x);
@@ -237,9 +238,9 @@ namespace ember
         }
 
         // 导出 OBJ 时只写几何坐标；这里把齐次点按 x/w, y/w, z/w 近似恢复为十进制。
-        void writeObjVertexLine(std::ostream &stream, const PlanePoint3i &vertex)
+        void writeObjVertexLine(std::ostream &stream, const PlanePoint3i &vertex, std::uint64_t coordinateScale)
         {
-            const ObjVertex point = homogeneousPointToObjVertex(vertex);
+            const ObjVertex point = homogeneousPointToObjVertex(vertex, coordinateScale);
 
             stream << "v "
                    << std::setprecision(std::numeric_limits<long double>::digits10 + 1)
@@ -614,10 +615,16 @@ namespace ember
         const std::vector<Polygon256> &fragments,
         const std::string &path,
         std::size_t &outFaceCount,
-        std::string &outError)
+        std::string &outError,
+        std::uint64_t coordinateScale)
     {
         outFaceCount = 0;
         outError.clear();
+
+        if (coordinateScale == 0)
+        {
+            return failIo(kWritePolygonSoupObjScope, outError, "Coordinate scale must be a positive integer.");
+        }
 
         const std::filesystem::path outputPath(path);
         if (outputPath.has_parent_path())
@@ -654,7 +661,7 @@ namespace ember
         output << "# Ember exact polygon soup export\n";
         for (const PlanePoint3i &vertex : recovered.uniqueVertices)
         {
-            writeObjVertexLine(output, vertex);
+            writeObjVertexLine(output, vertex, coordinateScale);
         }
 
         for (const std::vector<std::size_t> &face : recovered.faces)
@@ -672,13 +679,14 @@ namespace ember
             LogLevel::Info,
             LogCategory::Io,
             kWritePolygonSoupObjScope,
-            [&path, &fragments, &recovered, outFaceCount]()
+            [&path, &fragments, &recovered, outFaceCount, coordinateScale]()
             {
                 std::ostringstream message;
                 message << "Wrote OBJ path=" << path
                         << " input_fragments=" << fragments.size()
                         << " unique_vertices=" << recovered.uniqueVertices.size()
                         << " exported_faces=" << outFaceCount
+                        << " coordinate_scale=" << coordinateScale
                         << ".";
                 return message.str();
             });
@@ -688,10 +696,16 @@ namespace ember
     bool buildObjMeshFromPolygonSoup(
         const std::vector<Polygon256> &fragments,
         ObjMeshData &outMesh,
-        std::string &outError)
+        std::string &outError,
+        std::uint64_t coordinateScale)
     {
         outMesh = ObjMeshData();
         outError.clear();
+
+        if (coordinateScale == 0)
+        {
+            return failIo(kBuildObjMeshScope, outError, "Coordinate scale must be a positive integer.");
+        }
 
         RecoveredPolygonSoupData recovered;
         if (!recoverPolygonSoupData(fragments, recovered, outError))
@@ -704,7 +718,7 @@ namespace ember
         outMesh.vertices.reserve(recovered.uniqueVertices.size());
         for (const PlanePoint3i &vertex : recovered.uniqueVertices)
         {
-            outMesh.vertices.push_back(homogeneousPointToObjVertex(vertex));
+            outMesh.vertices.push_back(homogeneousPointToObjVertex(vertex, coordinateScale));
         }
 
         outMesh.faces = std::move(recovered.faces);
@@ -713,12 +727,13 @@ namespace ember
             LogLevel::Info,
             LogCategory::Io,
             kBuildObjMeshScope,
-            [&fragments, &outMesh]()
+            [&fragments, &outMesh, coordinateScale]()
             {
                 std::ostringstream message;
                 message << "Built OBJ mesh from polygon soup input_fragments=" << fragments.size()
                         << " output_vertices=" << outMesh.vertices.size()
                         << " output_faces=" << outMesh.faces.size()
+                        << " coordinate_scale=" << coordinateScale
                         << ".";
                 return message.str();
             });

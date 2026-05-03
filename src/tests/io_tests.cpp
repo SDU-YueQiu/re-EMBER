@@ -289,6 +289,19 @@ void runIoTests()
     }
 
     {
+        const Polygon256 scaledSquare = makeFaceXY(0, 0, 20, 0, 20, 1);
+
+        ObjMeshData mesh;
+        std::string error;
+        assert(ember::buildObjMeshFromPolygonSoup({scaledSquare}, mesh, error, 10u));
+        assert(mesh.vertices.size() == 4u);
+        assert(mesh.vertices[0].x == 0.0);
+        assert(mesh.vertices[0].y == 0.0);
+        assert(mesh.vertices[1].x == 2.0);
+        assert(mesh.vertices[2].y == 2.0);
+    }
+
+    {
         const Polygon256 square = makeFaceXY(0, 0, 2, 0, 2, 1);
         const std::filesystem::path outputPath = makeTestPath("io_single_square_export.obj");
 
@@ -375,5 +388,48 @@ void runIoTests()
         }
 
         assert(exportedFaceLines == problem.resultFragments().size());
+    }
+
+    {
+        auto makeObjBox = [](double xmin, double ymin, double zmin, double xmax, double ymax, double zmax)
+        {
+            ObjMeshData box;
+            box.vertices = {
+                ObjVertex{xmin, ymin, zmin},
+                ObjVertex{xmax, ymin, zmin},
+                ObjVertex{xmax, ymax, zmin},
+                ObjVertex{xmin, ymax, zmin},
+                ObjVertex{xmin, ymin, zmax},
+                ObjVertex{xmax, ymin, zmax},
+                ObjVertex{xmax, ymax, zmax},
+                ObjVertex{xmin, ymax, zmax}};
+            box.faces = {
+                {3, 2, 1, 0},
+                {4, 5, 6, 7},
+                {0, 1, 5, 4},
+                {1, 2, 6, 5},
+                {2, 3, 7, 6},
+                {3, 0, 4, 7}};
+            return box;
+        };
+
+        const ObjMeshData workpiece = makeObjBox(0.0, 0.0, 0.0, 1.0, 1.0, 1.0);
+        const ObjMeshData tool = makeObjBox(0.42, 0.42, -0.15, 0.58, 0.58, 0.85);
+
+        std::string error;
+        std::vector<Polygon256> lhsPolygons;
+        std::vector<Polygon256> rhsPolygons;
+        assert(ember::buildPolygonSoup(workpiece, 1000u, lhsPolygons, error));
+        assert(ember::buildPolygonSoup(tool, 1000u, rhsPolygons, error));
+
+        ember::BoolProblem problem(25);
+        problem.setOperation(BoolOp::Union);
+        problem.setOperands(lhsPolygons, rhsPolygons);
+        problem.solve();
+        assert(problem.resultFragments().size() == 14u);
+
+        ObjMeshData result;
+        assert(ember::buildObjMeshFromPolygonSoup(problem.resultFragments(), result, error, 1000u));
+        assert(result.faces.size() == 14u);
     }
 }
