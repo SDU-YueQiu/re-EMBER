@@ -62,7 +62,7 @@ namespace ember
     /**
      * @brief 设置全库日志输出回调。
      *
-     * 传入空回调时会恢复为默认 `std::clog` sink。
+     * 传入空回调时会恢复为默认日志 sink。
      *
      * @param[in] sink 新的日志输出回调。
      */
@@ -71,7 +71,7 @@ namespace ember
     /**
      * @brief 恢复默认日志配置。
      *
-     * 该操作会将日志级别重置为 `LogLevel::Off`，并将 sink 恢复为默认 `std::clog` 输出。
+     * 该操作会将日志级别重置为 `LogLevel::Off`，并将 sink 恢复为默认日志输出。
      */
     void resetLogging();
 

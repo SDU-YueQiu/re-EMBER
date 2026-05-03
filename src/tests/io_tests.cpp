@@ -265,6 +265,33 @@ void runIoTests()
     }
 
     {
+        const std::filesystem::path inputPath = makeTestPath("io_relative_index_quad.obj");
+        writeTextFile(
+            inputPath,
+            "v 0.0 0.0 0.0\n"
+            "v 2.0 0.0 0.0\n"
+            "v 2.0 1.0 0.0\n"
+            "v 0.0 1.0 0.0\n"
+            "f -4 -3 -2 -1\n");
+
+        ObjMeshData mesh;
+        std::string error;
+        assert(ember::readObjMesh(inputPath.string(), mesh, error));
+        assert(mesh.vertices.size() == 4u);
+        assert(mesh.faces.size() == 1u);
+        assert(mesh.faces.front().size() == 4u);
+        assert(mesh.faces.front()[0] == 0u);
+        assert(mesh.faces.front()[1] == 1u);
+        assert(mesh.faces.front()[2] == 2u);
+        assert(mesh.faces.front()[3] == 3u);
+
+        std::vector<Polygon256> polygons;
+        assert(ember::buildPolygonSoup(mesh, 1u, polygons, error));
+        assert(polygons.size() == 1u);
+        assert(polygons.front().edgeCount() == 4u);
+    }
+
+    {
         const Polygon256 square = makeFaceXY(0, 0, 2, 0, 2, 1);
 
         ember::TriangleMeshData mesh;

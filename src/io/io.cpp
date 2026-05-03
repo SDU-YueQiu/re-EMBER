@@ -5,6 +5,8 @@
 #include "geometry/plane_geometry256.h"
 #include "math/math256.h"
 
+#include <tiny_obj_loader.h>
+
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
@@ -34,49 +36,6 @@ namespace ember
 
         // 论文中给出的输入整数坐标安全范围：每个笛卡尔坐标使用 26-bit 有符号整数。
         constexpr long long kInputCoordinateLimit = (1LL << 25) - 1;
-
-        // 严格解析一个完整浮点 token，避免默默接受尾随垃圾字符。
-        bool parseDoubleToken(const std::string &token, double &outValue)
-        {
-            try
-            {
-                std::size_t consumed = 0;
-                outValue = std::stod(token, &consumed);
-                return consumed == token.size();
-            }
-            catch (...)
-            {
-                return false;
-            }
-        }
-
-        // 仅提取 OBJ face token 中的位置索引部分，并要求使用正向 1-based 索引。
-        bool parsePositiveIndexToken(const std::string &token, std::size_t &outIndex)
-        {
-            const std::size_t slash = token.find('/');
-            const std::string indexToken = token.substr(0, slash);
-            if (indexToken.empty())
-            {
-                return false;
-            }
-
-            try
-            {
-                std::size_t consumed = 0;
-                const unsigned long long parsed = std::stoull(indexToken, &consumed, 10);
-                if (consumed != indexToken.size() || parsed == 0)
-                {
-                    return false;
-                }
-
-                outIndex = static_cast<std::size_t>(parsed - 1ULL);
-                return true;
-            }
-            catch (...)
-            {
-                return false;
-            }
-        }
 
         // 按调用方给定的共享 scale 执行四舍五入量化，并同时检查 26-bit 输入界限。
         bool quantizeCoordinate(double value, std::uint64_t scale, Integer &outValue, std::string &outError)
@@ -316,102 +275,99 @@ namespace ember
                 return "Reading OBJ path=" + path + ".";
             });
 
-        std::ifstream input(path);
-        if (!input)
+        tinyobj::ObjReaderConfig config;
+        config.triangulate = false;
+
+        tinyobj::ObjReader reader;
+        if (!reader.ParseFromFile(path, config))
         {
-            return failIo(kReadObjMeshScope, outError, "Failed to open OBJ file: " + path);
+            std::string message = "Failed to parse OBJ file: " + path;
+            if (!reader.Error().empty())
+            {
+                message += ": " + reader.Error();
+            }
+            else
+            {
+                message += ".";
+            }
+            return failIo(kReadObjMeshScope, outError, message);
         }
 
-        std::string line;
-        std::size_t lineNumber = 0;
-        while (std::getline(input, line))
+        if (!reader.Warning().empty())
         {
-            ++lineNumber;
+            emitLog(LogLevel::Debug, LogCategory::Io, kReadObjMeshScope, reader.Warning());
+        }
 
-            std::istringstream lineStream(line);
-            std::string keyword;
-            if (!(lineStream >> keyword))
-            {
-                continue;
-            }
+        const tinyobj::attrib_t &attrib = reader.GetAttrib();
+        if ((attrib.vertices.size() % 3u) != 0u)
+        {
+            return failIo(kReadObjMeshScope, outError, "OBJ vertex attribute array is not divisible by three.");
+        }
 
-            if (keyword == "#")
-            {
-                continue;
-            }
+        outMesh.vertices.reserve(attrib.vertices.size() / 3u);
+        for (std::size_t i = 0; i < attrib.vertices.size(); i += 3u)
+        {
+            ObjVertex vertex;
+            vertex.x = static_cast<double>(attrib.vertices[i]);
+            vertex.y = static_cast<double>(attrib.vertices[i + 1u]);
+            vertex.z = static_cast<double>(attrib.vertices[i + 2u]);
+            outMesh.vertices.push_back(vertex);
+        }
 
-            if (keyword == "v")
+        const std::vector<tinyobj::shape_t> &shapes = reader.GetShapes();
+        for (std::size_t shapeIndex = 0; shapeIndex < shapes.size(); ++shapeIndex)
+        {
+            const tinyobj::mesh_t &mesh = shapes[shapeIndex].mesh;
+            std::size_t indexOffset = 0;
+            for (std::size_t faceIndex = 0; faceIndex < mesh.num_face_vertices.size(); ++faceIndex)
             {
-                // 第一版只读取位置顶点；若顶点坐标不完整或不是合法浮点数则立即报错。
-                std::string xs;
-                std::string ys;
-                std::string zs;
-                if (!(lineStream >> xs >> ys >> zs))
+                const std::size_t faceVertexCount = static_cast<std::size_t>(mesh.num_face_vertices[faceIndex]);
+                if ((indexOffset + faceVertexCount) > mesh.indices.size())
                 {
                     return failIo(
                         kReadObjMeshScope,
                         outError,
-                        "OBJ vertex line is missing coordinates at line " + std::to_string(lineNumber) + ".");
+                        "OBJ face index data is incomplete in shape " + std::to_string(shapeIndex) + ".");
                 }
 
-                ObjVertex vertex;
-                if (!parseDoubleToken(xs, vertex.x) ||
-                    !parseDoubleToken(ys, vertex.y) ||
-                    !parseDoubleToken(zs, vertex.z))
+                if (faceVertexCount < 3u)
                 {
                     return failIo(
                         kReadObjMeshScope,
                         outError,
-                        "OBJ vertex line contains an invalid floating-point coordinate at line " +
-                            std::to_string(lineNumber) + ".");
+                        "OBJ face has fewer than three vertices in shape " + std::to_string(shapeIndex) + ".");
                 }
 
-                outMesh.vertices.push_back(vertex);
-                continue;
-            }
-
-            if (keyword == "f")
-            {
-                // face token 允许携带 vt/vn，但当前位置索引必须合法且面至少有三个顶点。
+                // tinyobjloader handles standard OBJ index forms, including relative indices;
+                // this layer keeps only geometry position indices for the project boundary.
                 std::vector<std::size_t> face;
-                std::string token;
-                while (lineStream >> token)
+                face.reserve(faceVertexCount);
+                for (std::size_t i = 0; i < faceVertexCount; ++i)
                 {
-                    if (!token.empty() && token[0] == '#')
-                    {
-                        break;
-                    }
-
-                    std::size_t index = 0;
-                    if (!parsePositiveIndexToken(token, index))
+                    const tinyobj::index_t &index = mesh.indices[indexOffset + i];
+                    if (index.vertex_index < 0)
                     {
                         return failIo(
                             kReadObjMeshScope,
                             outError,
-                            "OBJ face contains an invalid position index token at line " +
-                                std::to_string(lineNumber) + ".");
+                            "OBJ face contains a missing position index in shape " + std::to_string(shapeIndex) + ".");
                     }
-                    if (index >= outMesh.vertices.size())
+
+                    const std::size_t vertexIndex = static_cast<std::size_t>(index.vertex_index);
+                    if (vertexIndex >= outMesh.vertices.size())
                     {
                         return failIo(
                             kReadObjMeshScope,
                             outError,
-                            "OBJ face references a vertex that does not exist at line " +
-                                std::to_string(lineNumber) + ".");
+                            "OBJ face references a vertex that does not exist in shape " +
+                                std::to_string(shapeIndex) + ".");
                     }
 
-                    face.push_back(index);
-                }
-
-                if (face.size() < 3)
-                {
-                    return failIo(
-                        kReadObjMeshScope,
-                        outError,
-                        "OBJ face has fewer than three vertices at line " + std::to_string(lineNumber) + ".");
+                    face.push_back(vertexIndex);
                 }
 
                 outMesh.faces.push_back(std::move(face));
+                indexOffset += faceVertexCount;
             }
         }
 

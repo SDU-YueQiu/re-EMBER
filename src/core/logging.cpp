@@ -1,8 +1,12 @@
 #include "logging.h"
 
+#include <spdlog/logger.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+
 #include <atomic>
-#include <iostream>
+#include <memory>
 #include <mutex>
+#include <sstream>
 #include <utility>
 
 namespace ember
@@ -47,15 +51,42 @@ namespace ember
 
         void defaultLogSink(const LogEvent &event)
         {
-            std::clog << "["
-                      << logLevelName(event.level)
-                      << "]["
-                      << logCategoryName(event.category)
-                      << "]["
-                      << event.scope
-                      << "] "
-                      << event.message
-                      << std::endl;
+            static const std::shared_ptr<spdlog::logger> logger = []()
+            {
+                auto sink = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
+                auto result = std::make_shared<spdlog::logger>("ember", std::move(sink));
+                result->set_pattern("%v");
+                result->set_level(spdlog::level::trace);
+                return result;
+            }();
+
+            std::ostringstream stream;
+            stream << "["
+                   << logLevelName(event.level)
+                   << "]["
+                   << logCategoryName(event.category)
+                   << "]["
+                   << event.scope
+                   << "] "
+                   << event.message;
+
+            spdlog::level::level_enum spdlogLevel = spdlog::level::debug;
+            switch (event.level)
+            {
+            case LogLevel::Error:
+                spdlogLevel = spdlog::level::err;
+                break;
+            case LogLevel::Info:
+                spdlogLevel = spdlog::level::info;
+                break;
+            case LogLevel::Debug:
+                spdlogLevel = spdlog::level::debug;
+                break;
+            case LogLevel::Off:
+                return;
+            }
+
+            logger->log(spdlogLevel, "{}", stream.str());
         }
 
         std::atomic<LogLevel> g_logLevel(LogLevel::Off);

@@ -23,6 +23,26 @@ option(KEMBER_ENABLE_EIGEN "Link Eigen3 from vcpkg" OFF)
 option(KEMBER_ENABLE_CGAL "Link CGAL from vcpkg" OFF)
 option(KEMBER_ENABLE_VISUAL_TEST "Build the visual-test application target" OFF)
 
+set(KEMBER_REQUIRED_VCPKG_COMMAND
+  "vcpkg install spdlog tinyobjloader[double] --triplet x64-windows"
+)
+
+find_package(spdlog CONFIG QUIET)
+if(NOT spdlog_FOUND OR NOT TARGET spdlog::spdlog)
+  message(FATAL_ERROR
+    "Missing required dependency spdlog. Install dependencies with: "
+    "${KEMBER_REQUIRED_VCPKG_COMMAND}"
+  )
+endif()
+
+find_package(tinyobjloader CONFIG QUIET)
+if(NOT tinyobjloader_FOUND OR NOT TARGET tinyobjloader::tinyobjloader_double)
+  message(FATAL_ERROR
+    "Missing required dependency tinyobjloader double target. Install dependencies with: "
+    "${KEMBER_REQUIRED_VCPKG_COMMAND}"
+  )
+endif()
+
 file(GLOB_RECURSE KEMBER_ALL_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
@@ -65,6 +85,12 @@ target_compile_features(kember_lib PUBLIC cxx_std_17)
 if(MSVC)
   target_compile_options(kember_lib PRIVATE /MP)
 endif()
+
+target_link_libraries(kember_lib
+  PRIVATE
+    spdlog::spdlog
+    tinyobjloader::tinyobjloader_double
+)
 
 if(KEMBER_ENABLE_EIGEN)
   find_package(Eigen3 CONFIG REQUIRED)
