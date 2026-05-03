@@ -3,11 +3,16 @@
 #include "core/bool_problem.h"
 #include "io/io.h"
 
+#include <array>
+#include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace
@@ -19,6 +24,13 @@ namespace
     using ember::PolygonSoupBuildOptions;
     using ember::Polygon256;
     using ember::Vec3i;
+
+    struct MeshVec3
+    {
+        double x;
+        double y;
+        double z;
+    };
 
     std::filesystem::path makeTestPath(const std::string &filename)
     {
@@ -91,6 +103,245 @@ namespace
             makeFaceXZ(ymax, xmin, xmax, zmin, zmax, 1),
             makeFaceXY(zmin, xmin, xmax, ymin, ymax, -1),
             makeFaceXY(zmax, xmin, xmax, ymin, ymax, 1)};
+    }
+
+    ObjMeshData makeObjBox(double xmin, double ymin, double zmin, double xmax, double ymax, double zmax)
+    {
+        ObjMeshData box;
+        box.vertices = {
+            ObjVertex{xmin, ymin, zmin},
+            ObjVertex{xmax, ymin, zmin},
+            ObjVertex{xmax, ymax, zmin},
+            ObjVertex{xmin, ymax, zmin},
+            ObjVertex{xmin, ymin, zmax},
+            ObjVertex{xmax, ymin, zmax},
+            ObjVertex{xmax, ymax, zmax},
+            ObjVertex{xmin, ymax, zmax}};
+        box.faces = {
+            {3, 2, 1, 0},
+            {4, 5, 6, 7},
+            {0, 1, 5, 4},
+            {1, 2, 6, 5},
+            {2, 3, 7, 6},
+            {3, 0, 4, 7}};
+        return box;
+    }
+
+    MeshVec3 normalized(MeshVec3 point)
+    {
+        const double length = std::sqrt(point.x * point.x + point.y * point.y + point.z * point.z);
+        return MeshVec3{point.x / length, point.y / length, point.z / length};
+    }
+
+    std::size_t appendIcosphereVertex(ObjMeshData &mesh, MeshVec3 point)
+    {
+        const MeshVec3 unit = normalized(point);
+        mesh.vertices.push_back(ObjVertex{unit.x, unit.y, unit.z});
+        return mesh.vertices.size() - 1u;
+    }
+
+    ObjMeshData makeIcosphere80()
+    {
+        ObjMeshData mesh;
+        const double t = (1.0 + std::sqrt(5.0)) / 2.0;
+        const std::array<MeshVec3, 12> vertices = {
+            MeshVec3{-1.0, t, 0.0},
+            MeshVec3{1.0, t, 0.0},
+            MeshVec3{-1.0, -t, 0.0},
+            MeshVec3{1.0, -t, 0.0},
+            MeshVec3{0.0, -1.0, t},
+            MeshVec3{0.0, 1.0, t},
+            MeshVec3{0.0, -1.0, -t},
+            MeshVec3{0.0, 1.0, -t},
+            MeshVec3{t, 0.0, -1.0},
+            MeshVec3{t, 0.0, 1.0},
+            MeshVec3{-t, 0.0, -1.0},
+            MeshVec3{-t, 0.0, 1.0}};
+        for (const MeshVec3 &vertex : vertices)
+        {
+            appendIcosphereVertex(mesh, vertex);
+        }
+
+        const std::array<std::array<std::size_t, 3>, 20> baseFaces = {
+            std::array<std::size_t, 3>{0, 11, 5},
+            std::array<std::size_t, 3>{0, 5, 1},
+            std::array<std::size_t, 3>{0, 1, 7},
+            std::array<std::size_t, 3>{0, 7, 10},
+            std::array<std::size_t, 3>{0, 10, 11},
+            std::array<std::size_t, 3>{1, 5, 9},
+            std::array<std::size_t, 3>{5, 11, 4},
+            std::array<std::size_t, 3>{11, 10, 2},
+            std::array<std::size_t, 3>{10, 7, 6},
+            std::array<std::size_t, 3>{7, 1, 8},
+            std::array<std::size_t, 3>{3, 9, 4},
+            std::array<std::size_t, 3>{3, 4, 2},
+            std::array<std::size_t, 3>{3, 2, 6},
+            std::array<std::size_t, 3>{3, 6, 8},
+            std::array<std::size_t, 3>{3, 8, 9},
+            std::array<std::size_t, 3>{4, 9, 5},
+            std::array<std::size_t, 3>{2, 4, 11},
+            std::array<std::size_t, 3>{6, 2, 10},
+            std::array<std::size_t, 3>{8, 6, 7},
+            std::array<std::size_t, 3>{9, 8, 1}};
+
+        std::map<std::pair<std::size_t, std::size_t>, std::size_t> midpointByEdge;
+        auto midpointIndex = [&mesh, &midpointByEdge](std::size_t lhs, std::size_t rhs)
+        {
+            const std::pair<std::size_t, std::size_t> key =
+                lhs < rhs ? std::make_pair(lhs, rhs) : std::make_pair(rhs, lhs);
+            const auto found = midpointByEdge.find(key);
+            if (found != midpointByEdge.end())
+            {
+                return found->second;
+            }
+
+            const ObjVertex &a = mesh.vertices[lhs];
+            const ObjVertex &b = mesh.vertices[rhs];
+            const std::size_t index = appendIcosphereVertex(
+                mesh,
+                MeshVec3{
+                    (a.x + b.x) * 0.5,
+                    (a.y + b.y) * 0.5,
+                    (a.z + b.z) * 0.5});
+            midpointByEdge.emplace(key, index);
+            return index;
+        };
+
+        for (const auto &face : baseFaces)
+        {
+            const std::size_t ab = midpointIndex(face[0], face[1]);
+            const std::size_t bc = midpointIndex(face[1], face[2]);
+            const std::size_t ca = midpointIndex(face[2], face[0]);
+            mesh.faces.push_back({face[0], ab, ca});
+            mesh.faces.push_back({face[1], bc, ab});
+            mesh.faces.push_back({face[2], ca, bc});
+            mesh.faces.push_back({ab, bc, ca});
+        }
+
+        return mesh;
+    }
+
+    ObjMeshData makeTorus256()
+    {
+        ObjMeshData mesh;
+        constexpr int majorSegments = 16;
+        constexpr int minorSegments = 8;
+        constexpr double majorRadius = 1.15;
+        constexpr double minorRadius = 0.32;
+        const double pi = std::acos(-1.0);
+
+        for (int major = 0; major < majorSegments; ++major)
+        {
+            const double theta = 2.0 * pi * static_cast<double>(major) / static_cast<double>(majorSegments);
+            const double cosTheta = std::cos(theta);
+            const double sinTheta = std::sin(theta);
+            for (int minor = 0; minor < minorSegments; ++minor)
+            {
+                const double phi = 2.0 * pi * static_cast<double>(minor) / static_cast<double>(minorSegments);
+                const double radial = majorRadius + minorRadius * std::cos(phi);
+                mesh.vertices.push_back(ObjVertex{
+                    radial * cosTheta,
+                    minorRadius * std::sin(phi),
+                    radial * sinTheta});
+            }
+        }
+
+        for (int major = 0; major < majorSegments; ++major)
+        {
+            const int nextMajor = (major + 1) % majorSegments;
+            for (int minor = 0; minor < minorSegments; ++minor)
+            {
+                const int nextMinor = (minor + 1) % minorSegments;
+                const std::size_t a = static_cast<std::size_t>(major * minorSegments + minor);
+                const std::size_t b = static_cast<std::size_t>(nextMajor * minorSegments + minor);
+                const std::size_t c = static_cast<std::size_t>(nextMajor * minorSegments + nextMinor);
+                const std::size_t d = static_cast<std::size_t>(major * minorSegments + nextMinor);
+                mesh.faces.push_back({a, b, c});
+                mesh.faces.push_back({a, c, d});
+            }
+        }
+
+        return mesh;
+    }
+
+    ObjMeshData transformObjMesh(
+        const ObjMeshData &mesh,
+        double tx,
+        double ty,
+        double tz,
+        double rxDegrees,
+        double ryDegrees,
+        double rzDegrees)
+    {
+        ObjMeshData transformed = mesh;
+        const double pi = std::acos(-1.0);
+        const double rx = rxDegrees * pi / 180.0;
+        const double ry = ryDegrees * pi / 180.0;
+        const double rz = rzDegrees * pi / 180.0;
+        const double cx = std::cos(rx);
+        const double sx = std::sin(rx);
+        const double cy = std::cos(ry);
+        const double sy = std::sin(ry);
+        const double cz = std::cos(rz);
+        const double sz = std::sin(rz);
+
+        for (ObjVertex &vertex : transformed.vertices)
+        {
+            const double x1 = vertex.x;
+            const double y1 = cx * vertex.y - sx * vertex.z;
+            const double z1 = sx * vertex.y + cx * vertex.z;
+            const double x2 = cy * x1 + sy * z1;
+            const double y2 = y1;
+            const double z2 = -sy * x1 + cy * z1;
+            vertex.x = cz * x2 - sz * y2 + tx;
+            vertex.y = sz * x2 + cz * y2 + ty;
+            vertex.z = z2 + tz;
+        }
+
+        return transformed;
+    }
+
+    ObjMeshData solveObjDifferenceMesh(const ObjMeshData &lhs, const ObjMeshData &rhs, std::size_t leafThreshold)
+    {
+        ember::QuantizeOptions options;
+        std::uint64_t scale = 0;
+        std::string error;
+        if (!ember::chooseSharedScale({lhs, rhs}, options, scale, error))
+        {
+            throw std::runtime_error("io_tests failed to choose shared scale: " + error);
+        }
+
+        PolygonSoupBuildOptions polygonBuildOptions;
+        polygonBuildOptions.triangulateNonCoplanarFaces = true;
+
+        std::vector<Polygon256> lhsPolygons;
+        std::vector<Polygon256> rhsPolygons;
+        if (!ember::buildPolygonSoup(lhs, scale, polygonBuildOptions, lhsPolygons, error) ||
+            !ember::buildPolygonSoup(rhs, scale, polygonBuildOptions, rhsPolygons, error))
+        {
+            throw std::runtime_error("io_tests failed to build polygon soup: " + error);
+        }
+
+        ember::BoolProblem problem(leafThreshold);
+        problem.setOperation(BoolOp::Difference);
+        problem.setOperands(lhsPolygons, rhsPolygons);
+        problem.solve();
+        if (!problem.isSolved())
+        {
+            throw std::runtime_error("io_tests BoolProblem did not report solved.");
+        }
+
+        ObjMeshData result;
+        if (!ember::buildObjMeshFromPolygonSoup(problem.resultFragments(), result, error, scale))
+        {
+            throw std::runtime_error("io_tests failed to build result mesh: " + error);
+        }
+        return result;
+    }
+
+    std::size_t solveObjDifferenceFragmentCount(const ObjMeshData &lhs, const ObjMeshData &rhs, std::size_t leafThreshold)
+    {
+        return solveObjDifferenceMesh(lhs, rhs, leafThreshold).faces.size();
     }
 }
 
@@ -202,7 +453,41 @@ void runIoTests()
         problem.setOperation(BoolOp::Difference);
         problem.setOperands(lhsPolygons, rhsPolygons);
         problem.solve();
-        assert(!problem.resultFragments().empty());
+        assert(problem.resultFragments().size() == 12u);
+    }
+
+    {
+        const ObjMeshData tool = makeObjBox(-0.08, -0.08, -0.5, 0.08, 0.08, 0.5);
+
+        const std::size_t icosphereDefaultFragments =
+            solveObjDifferenceFragmentCount(makeIcosphere80(), tool, 25u);
+        assert(icosphereDefaultFragments > 0u);
+
+        const std::size_t icosphereFirstSplitFragments =
+            solveObjDifferenceFragmentCount(makeIcosphere80(), tool, 85u);
+        assert(icosphereFirstSplitFragments > 0u);
+
+        const std::size_t torusFragments =
+            solveObjDifferenceFragmentCount(makeTorus256(), tool, 25u);
+        assert(torusFragments > 0u);
+
+        const ObjMeshData visualPoseTool = transformObjMesh(
+            tool,
+            0.5,
+            0.5,
+            0.35,
+            123.582094,
+            -26.865671,
+            118.208964);
+        const ObjMeshData visualPoseResult =
+            solveObjDifferenceMesh(makeIcosphere80(), visualPoseTool, 25u);
+        assert(!visualPoseResult.faces.empty());
+        for (const ObjVertex &vertex : visualPoseResult.vertices)
+        {
+            const double radius =
+                std::sqrt(vertex.x * vertex.x + vertex.y * vertex.y + vertex.z * vertex.z);
+            assert(radius <= 1.000001);
+        }
     }
 
     {

@@ -8,6 +8,7 @@
 
 #include <sstream>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 namespace ember
@@ -50,6 +51,102 @@ namespace ember
 
             return "UNKNOWN";
         }
+
+        bool isSameStrictSideForDiagnostics(int lhs, int rhs) noexcept
+        {
+            return lhs == rhs && (lhs == -1 || lhs == 1);
+        }
+
+        std::string describeSurfaceTraceFailure(
+            const refPoint &refpoint,
+            const Path &path,
+            const std::vector<Polygon256> &polygons,
+            const Plane3i &referencePlane)
+        {
+            if (path.empty())
+            {
+                return "empty_path";
+            }
+            if (!areSamePlanePoint(path.front().getStartPoint(), refpoint.point))
+            {
+                return "path_start_mismatch";
+            }
+
+            const PlanePoint3i targetPoint = path.back().getEndPoint();
+            if (!targetPoint.hasUniqueIntersection() || targetPoint.classify(referencePlane) != 0)
+            {
+                return "target_not_on_reference_plane";
+            }
+
+            for (std::size_t polygonIndex = 0; polygonIndex < polygons.size(); ++polygonIndex)
+            {
+                const Polygon256 &poly = polygons[polygonIndex];
+                PlanePoint3i startPoint = path[0].getStartPoint();
+                int pcs = poly.classify(startPoint);
+                if (pcs == 0)
+                {
+                    std::ostringstream message;
+                    message << "start_on_surface polygon_index=" << polygonIndex;
+                    return message.str();
+                }
+
+                for (std::size_t segmentIndex = 0; segmentIndex < path.size(); ++segmentIndex)
+                {
+                    const Segment256 &seg = path[segmentIndex];
+                    const PlanePoint3i endPoint = seg.getEndPoint();
+                    const int pce = poly.classify(endPoint);
+                    const bool isLastSegment = (segmentIndex + 1 == path.size());
+
+                    if (!isLastSegment && pce == 0)
+                    {
+                        std::ostringstream message;
+                        message << "intermediate_endpoint_on_surface polygon_index=" << polygonIndex
+                                << " segment_index=" << segmentIndex;
+                        return message.str();
+                    }
+                    if (isSameStrictSideForDiagnostics(pcs, pce))
+                    {
+                        pcs = pce;
+                        continue;
+                    }
+
+                    const PlanePoint3i intersectPoint = intersect(seg.direction, poly.plane);
+                    if (intersectPoint.hasUniqueIntersection())
+                    {
+                        const detail::PolygonSurfaceLocation hitLocation =
+                            detail::classifyPolygonSurfacePointUnchecked(poly, intersectPoint);
+                        if (hitLocation == detail::PolygonSurfaceLocation::Boundary)
+                        {
+                            std::ostringstream message;
+                            message << "boundary_hit polygon_index=" << polygonIndex
+                                    << " segment_index=" << segmentIndex;
+                            return message.str();
+                        }
+
+                        pcs = pce;
+                        continue;
+                    }
+
+                    if (detail::isSegmentTouchPolygonEdgeUnchecked(seg, poly))
+                    {
+                        std::ostringstream message;
+                        message << "edge_touch polygon_index=" << polygonIndex
+                                << " segment_index=" << segmentIndex;
+                        return message.str();
+                    }
+
+                    pcs = pce;
+                }
+            }
+
+            const PlanePoint3i lastStartPoint = path.back().getStartPoint();
+            if (lastStartPoint.classify(referencePlane) == 0)
+            {
+                return "last_start_on_reference_plane";
+            }
+
+            return "unknown_path_invalid";
+        }
     }
 
     // 对叶子节点内的每个 polygon 建立局部 BSP，并收集启用的 fragment。
@@ -88,12 +185,16 @@ namespace ember
         }
 
         const refPoint localReference(reference_.point, reference_.wnv);
+        const bool collectFailureDiagnostics = detail::isLogEnabled(LogLevel::Debug);
         for (std::size_t fragmentIndex = 0; fragmentIndex < leafFragments_.size(); ++fragmentIndex)
         {
             Polygon256 &fragment = leafFragments_[fragmentIndex];
             std::size_t pointCandidateCount = 0;
+            std::size_t normalCandidateCount = 0;
             std::size_t fastCandidateCount = 0;
+            std::size_t interiorBridgeCandidateCount = 0;
             std::size_t fallbackCandidateCount = 0;
+            std::string lastFailureReason = "not_collected";
 
             bool classified = false;
             traceStatus lastStatus = FAIL;
@@ -109,17 +210,30 @@ namespace ember
                         fragment.plane,
                         frontWNV,
                         backWNV);
+                    if (status != SUCCESS && collectFailureDiagnostics)
+                    {
+                        lastFailureReason = describeSurfaceTraceFailure(
+                            localReference,
+                            candidate.path,
+                            polygons_,
+                            fragment.plane);
+                    }
 
                     logTracingDebug(
                         kBoolProblemClassifyScope,
-                        [fragmentIndex, candidateLayer, candidateIndex, &candidate, status]()
+                        [fragmentIndex, candidateLayer, candidateIndex, &candidate, status, &lastFailureReason]()
                         {
                             std::ostringstream message;
                             message << "Leaf fragment trace attempt fragment_index=" << fragmentIndex
                                     << " candidate_layer=" << candidateLayer
                                     << " candidate_index=" << candidateIndex
                                     << " path_segments=" << candidate.path.size()
-                                    << " status=" << traceStatusName(status)
+                                    << " status=" << traceStatusName(status);
+                            if (status != SUCCESS)
+                            {
+                                message << " reason=" << lastFailureReason;
+                            }
+                            message
                                     << ".";
                             return message.str();
                         });
@@ -182,7 +296,70 @@ namespace ember
                                 }
 
                                 lastStatus = status;
-                                return status == PATH_INVALID;
+                                if (status != PATH_INVALID)
+                                {
+                                    allowFallback = false;
+                                    return false;
+                                }
+
+                                return true;
+                            });
+                    }
+
+                    if (!classified && allowFallback)
+                    {
+                        enumerateLeafClassificationNormalApproachCandidatesFromPoints(
+                            reference_.point,
+                            pointCandidates,
+                            fragment.plane,
+                            aabb_,
+                            [&](LeafClassificationPathCandidate candidate)
+                            {
+                                const std::size_t candidateIndex = normalCandidateCount;
+                                ++normalCandidateCount;
+                                const traceStatus status = traceCandidate(candidate, "normal", candidateIndex);
+                                if (status == SUCCESS)
+                                {
+                                    return false;
+                                }
+
+                                lastStatus = status;
+                                if (status != PATH_INVALID)
+                                {
+                                    allowFallback = false;
+                                    return false;
+                                }
+
+                                allowFallback = true;
+                                return true;
+                            });
+                    }
+
+                    if (!classified && allowFallback)
+                    {
+                        enumerateLeafClassificationInteriorBridgeCandidatesFromPoints(
+                            reference_.point,
+                            pointCandidates,
+                            aabb_,
+                            [&](LeafClassificationPathCandidate candidate)
+                            {
+                                const std::size_t candidateIndex = interiorBridgeCandidateCount;
+                                ++interiorBridgeCandidateCount;
+                                const traceStatus status = traceCandidate(candidate, "interior-bridge", candidateIndex);
+                                if (status == SUCCESS)
+                                {
+                                    return false;
+                                }
+
+                                lastStatus = status;
+                                if (status != PATH_INVALID)
+                                {
+                                    allowFallback = false;
+                                    return false;
+                                }
+
+                                allowFallback = true;
+                                return true;
                             });
                     }
 
@@ -202,22 +379,66 @@ namespace ember
 
             if (!classified)
             {
-                std::ostringstream message;
-                message << "BoolProblem failed to classify leaf fragment "
+                std::ostringstream summary;
+                summary << "BoolProblem failed to classify leaf fragment "
                         << fragmentIndex
                         << " at depth "
                         << depth_
-                        << " after "
-                        << fastCandidateCount
-                        << " fast path candidates and "
-                        << fallbackCandidateCount
-                        << " fallback path candidates from "
-                        << pointCandidateCount
-                        << " point candidates; last trace status = "
-                        << traceStatusName(lastStatus)
                         << ".";
-                logBoolError(kBoolProblemClassifyScope, message.str());
-                throw std::runtime_error(message.str());
+
+                logBoolDebug(
+                    kBoolProblemClassifyScope,
+                    [this,
+                     fragmentIndex,
+                     normalCandidateCount,
+                     fastCandidateCount,
+                     interiorBridgeCandidateCount,
+                     fallbackCandidateCount,
+                     pointCandidateCount,
+                     lastStatus,
+                     &lastFailureReason,
+                     &fragment]()
+                    {
+                        std::ostringstream message;
+                        message << "Leaf classification failure diagnostic fragment_index="
+                                << fragmentIndex
+                                << " depth="
+                                << depth_
+                                << " target_point_candidates="
+                                << pointCandidateCount
+                                << " normal_candidates="
+                                << normalCandidateCount
+                                << " fast_candidates="
+                                << fastCandidateCount
+                                << " interior_bridge_candidates="
+                                << interiorBridgeCandidateCount
+                                << " fallback_candidates="
+                                << fallbackCandidateCount
+                                << " last_trace_status="
+                                << traceStatusName(lastStatus)
+                                << " last_failure_reason="
+                                << lastFailureReason
+                                << " fragment_plane="
+                                << fragment.plane
+                                << " aabb={x=["
+                                << aabb_.xMin
+                                << ", "
+                                << aabb_.xMax
+                                << "], y=["
+                                << aabb_.yMin
+                                << ", "
+                                << aabb_.yMax
+                                << "], z=["
+                                << aabb_.zMin
+                                << ", "
+                                << aabb_.zMax
+                                << "]}";
+                        return message.str();
+                    });
+
+                const std::string summaryMessage = summary.str();
+                logBoolError(kBoolProblemClassifyScope, summaryMessage);
+                throw std::runtime_error(summaryMessage);
             }
 
             const ClassifiedFragment &classifiedFragment = classifiedFragments_.back();

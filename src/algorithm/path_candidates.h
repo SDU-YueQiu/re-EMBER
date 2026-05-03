@@ -701,6 +701,301 @@ namespace ember
             return false;
         }
 
+        inline Plane3i makePlaneThroughPointWithNormal(const PlanePoint3i &point, const Vec3i &normal) noexcept
+        {
+            if (!point.hasUniqueIntersection() || isZero(point.x.w))
+            {
+                return Plane3i();
+            }
+
+            const Integer d =
+                -(normal.x * point.x.x + normal.y * point.x.y + normal.z * point.x.z);
+            return primitivePlane(Plane3i(
+                normal.x * point.x.w,
+                normal.y * point.x.w,
+                normal.z * point.x.w,
+                d));
+        }
+
+        inline bool makeNormalLineThroughPoint(
+            const PlanePoint3i &point,
+            const Plane3i &surfacePlane,
+            Line256 &outLine) noexcept
+        {
+            const Vec3i normal = surfacePlane.normal();
+            if (isZero(normal.x) && isZero(normal.y) && isZero(normal.z))
+            {
+                return false;
+            }
+
+            Vec3i tangent0;
+            Vec3i tangent1;
+            if (!isZero(normal.x) || !isZero(normal.y))
+            {
+                tangent0 = Vec3i(normal.y, -normal.x, 0);
+                tangent1 = Vec3i(
+                    normal.x * normal.z,
+                    normal.y * normal.z,
+                    -(normal.x * normal.x + normal.y * normal.y));
+            }
+            else
+            {
+                tangent0 = Vec3i(1, 0, 0);
+                tangent1 = Vec3i(0, 1, 0);
+            }
+
+            const Plane3i linePlane0 = makePlaneThroughPointWithNormal(point, tangent0);
+            const Plane3i linePlane1 = makePlaneThroughPointWithNormal(point, tangent1);
+            const Line256 line(linePlane0, linePlane1);
+            if (!line.isValid())
+            {
+                return false;
+            }
+
+            outLine = line;
+            return true;
+        }
+
+        inline bool buildNormalApproachPath(
+            const PlanePoint3i &referencePoint,
+            const PlanePoint3i &targetPoint,
+            const Plane3i &surfacePlane,
+            const AABB3i &box,
+            const Integer &signedPlaneOffset,
+            std::vector<Segment256> &outPath)
+        {
+            outPath.clear();
+
+            Line256 approachLine;
+            if (isZero(signedPlaneOffset) ||
+                !makeNormalLineThroughPoint(targetPoint, surfacePlane, approachLine))
+            {
+                return false;
+            }
+
+            const Plane3i startPlane(
+                surfacePlane.a,
+                surfacePlane.b,
+                surfacePlane.c,
+                surfacePlane.d - signedPlaneOffset);
+            Segment256 approachSegment(startPlane, surfacePlane, approachLine);
+            if (!approachSegment.isValid() ||
+                !areSamePlanePoint(approachSegment.getEndPoint(), targetPoint))
+            {
+                return false;
+            }
+
+            const PlanePoint3i approachStart = approachSegment.getStartPoint();
+            if (!approachStart.hasUniqueIntersection() ||
+                !isPointInsideOrOnAABB(approachStart, box) ||
+                areSamePlanePoint(approachStart, targetPoint))
+            {
+                return false;
+            }
+
+            std::vector<Segment256> path;
+            if (!appendBridgePath(path, referencePoint, approachStart, box))
+            {
+                return false;
+            }
+
+            path.push_back(std::move(approachSegment));
+            if (!areSamePlanePoint(path.front().getStartPoint(), referencePoint) ||
+                !areSamePlanePoint(path.back().getEndPoint(), targetPoint))
+            {
+                return false;
+            }
+            for (std::size_t i = 1; i < path.size(); ++i)
+            {
+                if (!areSamePlanePoint(path[i - 1].getEndPoint(), path[i].getStartPoint()))
+                {
+                    return false;
+                }
+            }
+
+            outPath = std::move(path);
+            return true;
+        }
+
+        inline bool buildNormalApproachPathViaBridgePoint(
+            const PlanePoint3i &referencePoint,
+            const PlanePoint3i &bridgePoint,
+            const PlanePoint3i &targetPoint,
+            const Plane3i &surfacePlane,
+            const AABB3i &box,
+            const Integer &signedPlaneOffset,
+            std::vector<Segment256> &outPath)
+        {
+            outPath.clear();
+            if (!bridgePoint.hasUniqueIntersection() ||
+                !isPointInsideOrOnAABB(bridgePoint, box) ||
+                areSamePlanePoint(referencePoint, bridgePoint))
+            {
+                return false;
+            }
+
+            Line256 approachLine;
+            if (isZero(signedPlaneOffset) ||
+                !makeNormalLineThroughPoint(targetPoint, surfacePlane, approachLine))
+            {
+                return false;
+            }
+
+            const Plane3i startPlane(
+                surfacePlane.a,
+                surfacePlane.b,
+                surfacePlane.c,
+                surfacePlane.d - signedPlaneOffset);
+            Segment256 approachSegment(startPlane, surfacePlane, approachLine);
+            if (!approachSegment.isValid() ||
+                !areSamePlanePoint(approachSegment.getEndPoint(), targetPoint))
+            {
+                return false;
+            }
+
+            const PlanePoint3i approachStart = approachSegment.getStartPoint();
+            if (!approachStart.hasUniqueIntersection() ||
+                !isPointInsideOrOnAABB(approachStart, box) ||
+                areSamePlanePoint(approachStart, targetPoint))
+            {
+                return false;
+            }
+
+            std::vector<Segment256> path;
+            if (!appendBridgePath(path, referencePoint, bridgePoint, box) ||
+                !appendBridgePath(path, bridgePoint, approachStart, box))
+            {
+                return false;
+            }
+
+            path.push_back(std::move(approachSegment));
+            if (!areSamePlanePoint(path.front().getStartPoint(), referencePoint) ||
+                !areSamePlanePoint(path.back().getEndPoint(), targetPoint))
+            {
+                return false;
+            }
+            for (std::size_t i = 1; i < path.size(); ++i)
+            {
+                if (!areSamePlanePoint(path[i - 1].getEndPoint(), path[i].getStartPoint()))
+                {
+                    return false;
+                }
+            }
+
+            outPath = std::move(path);
+            return true;
+        }
+
+        inline bool chooseStrictInteriorAABBCoordinate(
+            const Integer &minValue,
+            const Integer &maxValue,
+            Integer preferred,
+            Integer &outValue) noexcept
+        {
+            if (maxValue - minValue <= 1)
+            {
+                return false;
+            }
+
+            if (preferred <= minValue)
+            {
+                preferred = minValue + 1;
+            }
+            if (preferred >= maxValue)
+            {
+                preferred = maxValue - 1;
+            }
+            if (preferred <= minValue || preferred >= maxValue)
+            {
+                return false;
+            }
+
+            outValue = preferred;
+            return true;
+        }
+
+        inline void appendUniqueAABBInteriorPoint(
+            std::vector<PlanePoint3i> &points,
+            const AABB3i &box,
+            const Integer &x,
+            const Integer &y,
+            const Integer &z)
+        {
+            if (x <= box.xMin || x >= box.xMax ||
+                y <= box.yMin || y >= box.yMax ||
+                z <= box.zMin || z >= box.zMax)
+            {
+                return;
+            }
+
+            const PlanePoint3i point = makeIntegerPoint(x, y, z);
+            for (const PlanePoint3i &existing : points)
+            {
+                if (areSamePlanePoint(existing, point))
+                {
+                    return;
+                }
+            }
+
+            points.push_back(point);
+        }
+
+        inline std::vector<PlanePoint3i> enumerateAABBInteriorBridgePoints(
+            const PlanePoint3i &referencePoint,
+            const AABB3i &box)
+        {
+            std::vector<PlanePoint3i> points;
+            if (!referencePoint.hasUniqueIntersection() || !isValidAABB(box))
+            {
+                return points;
+            }
+
+            Integer referenceX;
+            Integer referenceY;
+            Integer referenceZ;
+            if (tryExtractExactIntegerPoint(referencePoint, referenceX, referenceY, referenceZ))
+            {
+                Integer x;
+                Integer y;
+                Integer z;
+                if (chooseStrictInteriorAABBCoordinate(box.xMin, box.xMax, referenceX, x) &&
+                    chooseStrictInteriorAABBCoordinate(box.yMin, box.yMax, referenceY, y) &&
+                    chooseStrictInteriorAABBCoordinate(box.zMin, box.zMax, referenceZ, z))
+                {
+                    appendUniqueAABBInteriorPoint(points, box, x, y, z);
+                }
+            }
+
+            const Integer centerX = floorDiv(box.xMin + box.xMax, Integer(2));
+            const Integer centerY = floorDiv(box.yMin + box.yMax, Integer(2));
+            const Integer centerZ = floorDiv(box.zMin + box.zMax, Integer(2));
+            Integer x;
+            Integer y;
+            Integer z;
+            if (chooseStrictInteriorAABBCoordinate(box.xMin, box.xMax, centerX, x) &&
+                chooseStrictInteriorAABBCoordinate(box.yMin, box.yMax, centerY, y) &&
+                chooseStrictInteriorAABBCoordinate(box.zMin, box.zMax, centerZ, z))
+            {
+                appendUniqueAABBInteriorPoint(points, box, x, y, z);
+            }
+
+            const std::array<Integer, 2> xInsets = {box.xMin + 1, box.xMax - 1};
+            const std::array<Integer, 2> yInsets = {box.yMin + 1, box.yMax - 1};
+            const std::array<Integer, 2> zInsets = {box.zMin + 1, box.zMax - 1};
+            for (const Integer &xInset : xInsets)
+            {
+                for (const Integer &yInset : yInsets)
+                {
+                    for (const Integer &zInset : zInsets)
+                    {
+                        appendUniqueAABBInteriorPoint(points, box, xInset, yInset, zInset);
+                    }
+                }
+            }
+
+            return points;
+        }
+
         /**
          * @brief 将单条线段裁剪到 AABB 内部。
          */
@@ -1062,6 +1357,84 @@ namespace ember
         }
 
     }
+
+    /**
+     * @brief 枚举以目标 fragment 支撑平面法向作为最后一段的分类路径候选。
+     *
+     * @tparam CandidateVisitor 接收 `LeafClassificationPathCandidate` 的回调；返回 `false` 表示停止枚举。
+     * @param[in] referencePoint 当前叶子子问题的局部参考点。
+     * @param[in] targetPoints 已生成的 leaf polygon 严格内部点。
+     * @param[in] surfacePlane 待分类 fragment 的支撑平面。
+     * @param[in] box 当前叶子子问题的 AABB。
+     * @param[in,out] visitor 候选路径访问器。
+     * @return 实际枚举出的候选路径数量。
+     */
+    template <typename CandidateVisitor>
+    inline std::size_t enumerateLeafClassificationNormalApproachCandidatesFromPoints(
+        const PlanePoint3i &referencePoint,
+        const std::vector<PlanePoint3i> &targetPoints,
+        const Plane3i &surfacePlane,
+        const AABB3i &box,
+        CandidateVisitor &&visitor)
+    {
+        std::size_t emitted = 0;
+        if (!referencePoint.hasUniqueIntersection() || !isValidAABB(box))
+        {
+            return emitted;
+        }
+
+        constexpr std::array<int, 10> offsets = {1, -1, 2, -2, 4, -4, 8, -8, 16, -16};
+        const std::vector<PlanePoint3i> bridgePoints =
+            detail::enumerateAABBInteriorBridgePoints(referencePoint, box);
+        for (const PlanePoint3i &targetPoint : targetPoints)
+        {
+            for (const int offset : offsets)
+            {
+                std::vector<Segment256> path;
+                if (!detail::buildNormalApproachPath(
+                        referencePoint,
+                        targetPoint,
+                        surfacePlane,
+                        box,
+                        Integer(offset),
+                        path))
+                {
+                    continue;
+                }
+
+                ++emitted;
+                if (!visitor(LeafClassificationPathCandidate{targetPoint, std::move(path)}))
+                {
+                    return emitted;
+                }
+
+                for (const PlanePoint3i &bridgePoint : bridgePoints)
+                {
+                    std::vector<Segment256> detourPath;
+                    if (!detail::buildNormalApproachPathViaBridgePoint(
+                            referencePoint,
+                            bridgePoint,
+                            targetPoint,
+                            surfacePlane,
+                            box,
+                            Integer(offset),
+                            detourPath))
+                    {
+                        continue;
+                    }
+
+                    ++emitted;
+                    if (!visitor(LeafClassificationPathCandidate{targetPoint, std::move(detourPath)}))
+                    {
+                        return emitted;
+                    }
+                }
+            }
+        }
+
+        return emitted;
+    }
+
     inline std::vector<AABBPathCandidate> enumerateAABBPathCandidates(const PlanePoint3i &startPoint, const AABB3i &targetBox)
     {
         std::vector<AABBPathCandidate> candidates;
@@ -1471,6 +1844,114 @@ namespace ember
                     }
                 } while (std::next_permutation(changedPlaneIndices.begin(), changedPlaneIndices.end()));
             } while (std::next_permutation(targetPlaneOrder.begin(), targetPlaneOrder.end()));
+        }
+
+        return emitted;
+    }
+
+    /**
+     * @brief 先桥接到 AABB 严格内部点，再枚举 leaf 分类路径候选。
+     *
+     * 这些候选保留原有 clean-crossing 判定，只在常规轴对齐路径贴着 cell/split 边界失效后提供
+     * 少量确定性绕行路径。
+     *
+     * @tparam CandidateVisitor 接收 `LeafClassificationPathCandidate` 的回调；返回 `false` 表示停止枚举。
+     * @param[in] referencePoint 当前叶子子问题的局部参考点。
+     * @param[in] targetPoints 已生成的 leaf polygon 严格内部点。
+     * @param[in] box 当前叶子子问题的 AABB。
+     * @param[in,out] visitor 候选路径访问器。
+     * @return 实际枚举出的候选路径数量。
+     */
+    template <typename CandidateVisitor>
+    inline std::size_t enumerateLeafClassificationInteriorBridgeCandidatesFromPoints(
+        const PlanePoint3i &referencePoint,
+        const std::vector<PlanePoint3i> &targetPoints,
+        const AABB3i &box,
+        CandidateVisitor &&visitor)
+    {
+        std::size_t emitted = 0;
+        if (!referencePoint.hasUniqueIntersection() || !isValidAABB(box))
+        {
+            return emitted;
+        }
+
+        const std::vector<PlanePoint3i> bridgePoints =
+            detail::enumerateAABBInteriorBridgePoints(referencePoint, box);
+        for (const PlanePoint3i &bridgePoint : bridgePoints)
+        {
+            std::vector<LeafClassificationPathCandidate> prefixCandidates;
+            enumerateLeafClassificationFastPathCandidatesFromPoints(
+                referencePoint,
+                std::vector<PlanePoint3i>{bridgePoint},
+                box,
+                [&prefixCandidates](LeafClassificationPathCandidate candidate)
+                {
+                    prefixCandidates.push_back(std::move(candidate));
+                    return true;
+                });
+            enumerateLeafClassificationFallbackPathCandidatesFromPoints(
+                referencePoint,
+                std::vector<PlanePoint3i>{bridgePoint},
+                box,
+                [&prefixCandidates](LeafClassificationPathCandidate candidate)
+                {
+                    prefixCandidates.push_back(std::move(candidate));
+                    return true;
+                });
+
+            if (prefixCandidates.empty())
+            {
+                continue;
+            }
+
+            bool keepGoing = true;
+            for (const LeafClassificationPathCandidate &prefixCandidate : prefixCandidates)
+            {
+                const auto emitWithPrefix =
+                    [&](LeafClassificationPathCandidate candidate) -> bool
+                {
+                    std::vector<Segment256> path;
+                    path.reserve(prefixCandidate.path.size() + candidate.path.size());
+                    path.insert(path.end(), prefixCandidate.path.begin(), prefixCandidate.path.end());
+                    path.insert(
+                        path.end(),
+                        std::make_move_iterator(candidate.path.begin()),
+                        std::make_move_iterator(candidate.path.end()));
+
+                    ++emitted;
+                    return visitor(LeafClassificationPathCandidate{candidate.targetPoint, std::move(path)});
+                };
+
+                enumerateLeafClassificationFastPathCandidatesFromPoints(
+                    bridgePoint,
+                    targetPoints,
+                    box,
+                    [&](LeafClassificationPathCandidate candidate)
+                    {
+                        keepGoing = emitWithPrefix(std::move(candidate));
+                        return keepGoing;
+                    });
+
+                if (!keepGoing)
+                {
+                    return emitted;
+                }
+
+                enumerateLeafClassificationFallbackPathCandidatesFromPoints(
+                    bridgePoint,
+                    targetPoints,
+                    box,
+                    [&](LeafClassificationPathCandidate candidate)
+                    {
+                        keepGoing = emitWithPrefix(std::move(candidate));
+                        return keepGoing;
+                    });
+
+                if (!keepGoing)
+                {
+                    return emitted;
+                }
+            }
         }
 
         return emitted;
