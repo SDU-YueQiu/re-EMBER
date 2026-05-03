@@ -2,6 +2,9 @@
 
 #include "core/logging.h"
 
+#include <sstream>
+#include <utility>
+
 namespace ember
 {
 
@@ -287,15 +290,47 @@ namespace ember
             }
         }
 
-		bool ret = backClipped.isValid() && frontClipped.isValid();
+        Polygon256 orientedFront(frontClipped.plane, std::move(frontClipped.edgePlanes));
+        orientedFront.WNTV = std::move(frontClipped.WNTV);
+        Polygon256 orientedBack(backClipped.plane, std::move(backClipped.edgePlanes));
+        orientedBack.WNTV = std::move(backClipped.WNTV);
+
+        const bool frontValid = orientedFront.isValid();
+        const bool backValid = orientedBack.isValid();
+		bool ret = backValid && frontValid;
         if (!ret) {
+            std::ostringstream message;
+            message << "Rejected leaf clipping because one clipped polygon is invalid"
+                    << " source_plane=" << source.plane
+                    << " clip_plane=" << clipPlane
+                    << " source_edges=" << source.edgeCount()
+                    << " front_edges=" << orientedFront.edgeCount()
+                    << " back_edges=" << orientedBack.edgeCount()
+                    << " front_valid=" << frontValid
+                    << " back_valid=" << backValid
+                    << " sides=[";
+            for (std::size_t i = 0; i < sides.size(); ++i)
+            {
+                if (i != 0)
+                {
+                    message << ",";
+                }
+                message << sides[i];
+            }
+            message << "].";
             emitLog(
                 LogLevel::Debug,
                 LogCategory::Geometry,
                 "clipLeafGeometryByPlane",
-                "Rejected leaf clipping because one clipped polygon is invalid.");
+                message.str());
+            frontClipped = Polygon256();
+            backClipped = Polygon256();
+            return false;
         }
-        return ret;
+
+        frontClipped = std::move(orientedFront);
+        backClipped = std::move(orientedBack);
+        return true;
     }
 }
 

@@ -96,6 +96,7 @@ namespace ember
      * @param[in] path 输出 OBJ 路径。
      * @param[out] outFaceCount 成功时写入导出的面数。
      * @param[out] outError 失败时写入可读错误信息。
+     * @param[in] coordinateScale 将整数坐标反量化回 OBJ 坐标的共享尺度。
      * @retval true 导出成功。
      * @retval false 结果面无法恢复有序顶点，或输出文件无法写入。
      * @note 当前导出保持 polygon soup 形态，不做三角化、拓扑缝合或 T-junction 恢复。
@@ -104,7 +105,8 @@ namespace ember
         const std::vector<Polygon256> &fragments,
         const std::string &path,
         std::size_t &outFaceCount,
-        std::string &outError);
+        std::string &outError,
+        std::uint64_t coordinateScale = 1);
 
     /**
      * @brief 将 `Polygon256` polygon soup 转换为 OBJ 风格的 n-gon 网格。
@@ -115,6 +117,7 @@ namespace ember
      * @param[in] fragments 待转换的结果面集合。
      * @param[out] outMesh 成功时写入顶点和 n-gon 面索引。
      * @param[out] outError 失败时写入可读错误信息。
+     * @param[in] coordinateScale 将整数坐标反量化回 OBJ 坐标的共享尺度。
      * @retval true 转换成功。
      * @retval false 任一结果面无法恢复唯一有限顶点。
      * @note 输出坐标会按齐次点的 `x/w`、`y/w`、`z/w` 近似恢复为十进制双精度。
@@ -122,5 +125,6 @@ namespace ember
     bool buildObjMeshFromPolygonSoup(
         const std::vector<Polygon256> &fragments,
         ObjMeshData &outMesh,
-        std::string &outError);
+        std::string &outError,
+        std::uint64_t coordinateScale = 1);
 }

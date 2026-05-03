@@ -233,7 +233,7 @@ int main(int argc, char **argv)
 
         // 默认直接导出 OBJ n-gon；三角化和拓扑恢复属于调用方后处理。
         std::size_t exportedFaces = 0;
-        if (!ember::writePolygonSoupObj(problem.resultFragments(), options.outputPath, exportedFaces, error))
+        if (!ember::writePolygonSoupObj(problem.resultFragments(), options.outputPath, exportedFaces, error, sharedScale))
         {
             std::cerr << error << std::endl;
             return 1;

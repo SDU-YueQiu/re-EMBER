@@ -1,8 +1,10 @@
 #include "core/bool_problem.h"
+#include "core/logging.h"
 #include "io/io.h"
 
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>
 #include <CGAL/Nef_polyhedron_3.h>
+#include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
 #include <CGAL/Surface_mesh.h>
 #include <CGAL/boost/graph/convert_nef_polyhedron_to_polygon_mesh.h>
 
@@ -19,7 +21,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
@@ -44,6 +45,7 @@ namespace ember::visual_test
     inline constexpr double kDefaultTx = 0.5;
     inline constexpr double kDefaultTy = 0.5;
     inline constexpr double kDefaultTz = 0.35;
+    inline constexpr std::uint64_t kVisualTestSharedScale = 1000;
 
     enum class EngineKind
     {
@@ -184,6 +186,27 @@ namespace ember::visual_test
         return transformed;
     }
 
+    ObjMeshData triangulateMeshFaces(const ObjMeshData &mesh)
+    {
+        ObjMeshData triangulated;
+        triangulated.vertices = mesh.vertices;
+        for (const std::vector<std::size_t> &face : mesh.faces)
+        {
+            if (face.size() <= 3)
+            {
+                triangulated.faces.push_back(face);
+                continue;
+            }
+
+            for (std::size_t i = 1; i + 1 < face.size(); ++i)
+            {
+                triangulated.faces.push_back({face[0], face[i], face[i + 1]});
+            }
+        }
+
+        return triangulated;
+    }
+
     SurfaceMesh makeSurfaceMesh(const ObjMeshData &mesh)
     {
         SurfaceMesh surfaceMesh;
@@ -202,22 +225,37 @@ namespace ember::visual_test
                 throw std::runtime_error("OBJ face " + std::to_string(faceIndex) + " has fewer than three vertices.");
             }
 
-            std::vector<SurfaceMesh::Vertex_index> faceVertices;
-            faceVertices.reserve(face.size());
             for (const std::size_t vertexIndex : face)
             {
                 if (vertexIndex >= vertexHandles.size())
                 {
                     throw std::runtime_error("OBJ face " + std::to_string(faceIndex) + " references an out-of-range vertex.");
                 }
-
-                faceVertices.push_back(vertexHandles[vertexIndex]);
             }
 
-            const auto newFace = surfaceMesh.add_face(faceVertices);
-            if (newFace == SurfaceMesh::null_face())
+            if (face.size() == 3)
             {
-                throw std::runtime_error("Failed to add OBJ face " + std::to_string(faceIndex) + " as a valid CGAL face.");
+                const auto newFace = surfaceMesh.add_face(
+                    vertexHandles[face[0]],
+                    vertexHandles[face[1]],
+                    vertexHandles[face[2]]);
+                if (newFace == SurfaceMesh::null_face())
+                {
+                    throw std::runtime_error("Failed to add OBJ face " + std::to_string(faceIndex) + " as a valid CGAL face.");
+                }
+                continue;
+            }
+
+            for (std::size_t i = 1; i + 1 < face.size(); ++i)
+            {
+                const auto newFace = surfaceMesh.add_face(
+                    vertexHandles[face[0]],
+                    vertexHandles[face[i]],
+                    vertexHandles[face[i + 1]]);
+                if (newFace == SurfaceMesh::null_face())
+                {
+                    throw std::runtime_error("Failed to triangulate OBJ face " + std::to_string(faceIndex) + " for CGAL.");
+                }
             }
         }
 
@@ -283,6 +321,7 @@ namespace ember::visual_test
 
         SurfaceMesh surfaceMesh;
         CGAL::convert_nef_polyhedron_to_polygon_mesh(nef, surfaceMesh, false);
+        CGAL::Polygon_mesh_processing::triangulate_faces(surfaceMesh);
         return makeObjMeshData(surfaceMesh);
     }
 
@@ -321,28 +360,10 @@ namespace ember::visual_test
     {
         outError.clear();
 
-        double maxToolRadius = 0.0;
-        for (const ObjVertex &vertex : scene.toolOriginalMesh.vertices)
-        {
-            const double radius = std::sqrt(vertex.x * vertex.x + vertex.y * vertex.y + vertex.z * vertex.z);
-            maxToolRadius = std::max(maxToolRadius, radius);
-        }
-
-        const double maxTranslateAbs = std::max(std::abs(kTranslationMin), std::abs(kTranslationMax));
-        const double bound = maxTranslateAbs + maxToolRadius;
-
-        ObjMeshData boundMesh;
-        boundMesh.vertices = {
-            ObjVertex{ bound, 0.0, 0.0},
-            ObjVertex{0.0,  bound, 0.0},
-            ObjVertex{0.0, 0.0,  bound},
-            ObjVertex{-bound, 0.0, 0.0},
-            ObjVertex{0.0, -bound, 0.0},
-            ObjVertex{0.0, 0.0, -bound}};
-        boundMesh.faces = {{0, 1, 2}, {3, 4, 5}};
-
+        QuantizeOptions options;
+        options.explicitScale = kVisualTestSharedScale;
         std::uint64_t sharedScale = 0;
-        if (!ember::chooseSharedScale({scene.workpieceMesh, boundMesh}, QuantizeOptions(), sharedScale, outError))
+        if (!ember::chooseSharedScale({scene.workpieceMesh, scene.toolOriginalMesh}, options, sharedScale, outError))
         {
             return false;
         }
@@ -354,10 +375,12 @@ namespace ember::visual_test
     bool computeEmberResult(SceneData &scene, const UiState &ui, ResultStats &outStats, std::string &outError)
     {
         outStats = ResultStats();
+        outStats.sharedScale = scene.emberSharedScale;
         outError.clear();
 
         std::vector<Polygon256> toolPolygons;
-        if (!ember::buildPolygonSoup(scene.toolCurrentMesh, scene.emberSharedScale, toolPolygons, outError))
+        const ObjMeshData toolInputMesh = triangulateMeshFaces(scene.toolCurrentMesh);
+        if (!ember::buildPolygonSoup(toolInputMesh, scene.emberSharedScale, toolPolygons, outError))
         {
             outError = "Failed to build the EMBER tool polygon soup: " + outError;
             return false;
@@ -372,7 +395,11 @@ namespace ember::visual_test
         const Clock::time_point solveEnd = Clock::now();
 
         const Clock::time_point convertStart = Clock::now();
-        if (!ember::buildObjMeshFromPolygonSoup(problem.resultFragments(), scene.resultDisplayMesh, outError))
+        if (!ember::buildObjMeshFromPolygonSoup(
+                problem.resultFragments(),
+                scene.resultDisplayMesh,
+                outError,
+                scene.emberSharedScale))
         {
             outError = "Failed to convert the EMBER result polygon soup to an OBJ mesh: " + outError;
             return false;
@@ -570,6 +597,9 @@ namespace ember::visual_test
 int main()
 {
     using namespace ember::visual_test;
+
+    ember::setLogLevel(ember::LogLevel::Debug);
+    std::cerr << "[visual-test] EMBER logging enabled at Debug level." << std::endl;
 
     SceneData scene;
 #ifdef KEMBER_SOURCE_DIR

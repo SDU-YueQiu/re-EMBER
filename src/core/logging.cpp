@@ -3,7 +3,11 @@
 #include <spdlog/logger.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
 #include <memory>
+#include <string>
 #include <utility>
 
 namespace ember
@@ -63,6 +67,44 @@ namespace ember
             return spdlog::level::off;
         }
 
+        LogLevel parseLogLevelName(std::string value)
+        {
+            std::transform(
+                value.begin(),
+                value.end(),
+                value.begin(),
+                [](unsigned char ch)
+                {
+                    return static_cast<char>(std::tolower(ch));
+                });
+
+            if (value == "error")
+            {
+                return LogLevel::Error;
+            }
+            if (value == "info")
+            {
+                return LogLevel::Info;
+            }
+            if (value == "debug")
+            {
+                return LogLevel::Debug;
+            }
+
+            return LogLevel::Off;
+        }
+
+        LogLevel initialLogLevel()
+        {
+            const char *levelName = std::getenv("EMBER_LOG_LEVEL");
+            if (levelName == nullptr)
+            {
+                return LogLevel::Off;
+            }
+
+            return parseLogLevelName(levelName);
+        }
+
         std::shared_ptr<spdlog::logger> emberLogger()
         {
             static const std::shared_ptr<spdlog::logger> logger = []()
@@ -70,7 +112,8 @@ namespace ember
                 auto sink = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
                 auto result = std::make_shared<spdlog::logger>("ember", std::move(sink));
                 result->set_pattern("%v");
-                result->set_level(spdlog::level::off);
+                result->set_level(toSpdlogLevel(initialLogLevel()));
+                result->flush_on(spdlog::level::debug);
                 return result;
             }();
 
