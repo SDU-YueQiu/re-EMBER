@@ -246,22 +246,10 @@ namespace ember
             return planeSide;
         }
 
-        // 在支撑平面上时：边平面符号一致表示点在多边形内或边界上；符号混杂表示共面但在外部。
-        bool hasPositive = false;
-        bool hasNegative = false;
+        // `isValid()` 已要求边平面法向向外；支撑平面内只要落在任一边平面正侧就是外部。
         for (const Plane3i &edge : edgePlanes)
         {
-            const int side = point.classify(edge);
-            if (side > 0)
-            {
-                hasPositive = true;
-            }
-            else if (side < 0)
-            {
-                hasNegative = true;
-            }
-
-            if (hasPositive && hasNegative)
+            if (point.classify(edge) > 0)
             {
                 return 2;
             }
@@ -277,26 +265,15 @@ namespace ember
             return false;
         }
 
-        int sideRef = 0;
         for (const Plane3i &edge : edgePlanes)
         {
-            const int side = point.classify(edge);
-            if (side == 0)
-            {
-                return false;
-            }
-
-            if (sideRef == 0)
-            {
-                sideRef = side;
-            }
-            else if (side != sideRef)
+            if (point.classify(edge) >= 0)
             {
                 return false;
             }
         }
 
-        return sideRef != 0;
+        return true;
     }
 
     bool Polygon256::containsOrOnBoundary(const PlanePoint3i &point) const noexcept
@@ -391,13 +368,8 @@ namespace ember
                 continue;
             }
 
-            // TODO：现在多边形边平面的约束是法向必须向外，这里现在是多余的
-            const int interiorSideA = vertices[refIdxA].classify(edgePlanes[i]);
-            const int interiorSideB = vertices[refIdxB].classify(edgePlanes[prev]);
-            if (interiorSideA == 0 || interiorSideB == 0)
-            {
-                continue;
-            }
+            constexpr int interiorSideA = -1;
+            constexpr int interiorSideB = -1;
 
             Plane3i insetA;
             Plane3i insetB;

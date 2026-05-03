@@ -30,6 +30,17 @@ namespace ember
             Plane3i& outSplitPlane,
             Plane3i& outV0,
             Plane3i& outV1);
+
+        /**
+         * @brief 在调用方已验证 source polygon 的前提下按平面切分叶片几何。
+         *
+         * @pre `source` 满足 `Polygon256::isValid()`。
+         */
+        bool clipLeafGeometryByPlaneTrusted(
+            const Polygon256& source,
+            const Plane3i& clipPlane,
+            Polygon256& frontClipped,
+            Polygon256& backClipped);
     }
 
     bool clipLeafGeometryByPlane(const Polygon256& source, const Plane3i& clipPlane, Polygon256& frontClipped, Polygon256& backClipped);

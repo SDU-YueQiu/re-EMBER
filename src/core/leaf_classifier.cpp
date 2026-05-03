@@ -34,33 +34,6 @@ namespace ember
             emitLog(LogLevel::Error, LogCategory::BoolProblem, scope, message);
         }
 
-        void validateLeafClassificationInput(
-            const PlanePoint3i &referencePoint,
-            const AABB3i &aabb,
-            const std::vector<Polygon256> &leafFragments)
-        {
-            if (!referencePoint.hasUniqueIntersection())
-            {
-                throw std::runtime_error("Leaf classification received an invalid reference point.");
-            }
-            if (!isValidAABB(aabb))
-            {
-                throw std::runtime_error("Leaf classification received an invalid AABB.");
-            }
-
-            for (std::size_t fragmentIndex = 0; fragmentIndex < leafFragments.size(); ++fragmentIndex)
-            {
-                if (!leafFragments[fragmentIndex].isValid())
-                {
-                    std::ostringstream message;
-                    message << "Leaf classification received an invalid leaf fragment at index "
-                            << fragmentIndex
-                            << ".";
-                    throw std::runtime_error(message.str());
-                }
-            }
-        }
-
         const char *traceStatusName(traceStatus status) noexcept
         {
             switch (status)
@@ -112,16 +85,6 @@ namespace ember
         if (discarded_ || leafFragments_.empty())
         {
             return;
-        }
-
-        try
-        {
-            validateLeafClassificationInput(reference_.point, aabb_, leafFragments_);
-        }
-        catch (const std::runtime_error &ex)
-        {
-            logBoolError(kBoolProblemClassifyScope, ex.what());
-            throw;
         }
 
         const refPoint localReference(reference_.point, reference_.wnv);

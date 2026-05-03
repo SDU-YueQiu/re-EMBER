@@ -407,12 +407,8 @@ namespace ember
                         continue;
                     }
 
-                    const int interiorSideA = vertices[refIdxA].classify(polygon.edgePlanes[i]);
-                    const int interiorSideB = vertices[refIdxB].classify(polygon.edgePlanes[prev]);
-                    if (interiorSideA == 0 || interiorSideB == 0)
-                    {
-                        continue;
-                    }
+                    constexpr int interiorSideA = -1;
+                    constexpr int interiorSideB = -1;
                     if (!canScalePlaneWithinInsetHeadroom(polygon.edgePlanes[i], scale) ||
                         !canScalePlaneWithinInsetHeadroom(polygon.edgePlanes[prev], scale))
                     {
