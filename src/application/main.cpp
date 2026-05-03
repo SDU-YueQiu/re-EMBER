@@ -215,12 +215,14 @@ int main(int argc, char **argv)
 
         std::vector<ember::Polygon256> lhsPolygons;
         std::vector<ember::Polygon256> rhsPolygons;
-        if (!ember::buildPolygonSoup(lhsMesh, sharedScale, lhsPolygons, error))
+        ember::PolygonSoupBuildOptions buildOptions;
+        buildOptions.triangulateNonCoplanarFaces = true;
+        if (!ember::buildPolygonSoup(lhsMesh, sharedScale, buildOptions, lhsPolygons, error))
         {
             std::cerr << error << std::endl;
             return 1;
         }
-        if (!ember::buildPolygonSoup(rhsMesh, sharedScale, rhsPolygons, error))
+        if (!ember::buildPolygonSoup(rhsMesh, sharedScale, buildOptions, rhsPolygons, error))
         {
             std::cerr << error << std::endl;
             return 1;

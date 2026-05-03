@@ -189,27 +189,6 @@ namespace ember::visual_test
         return transformed;
     }
 
-    ObjMeshData triangulateMeshFaces(const ObjMeshData &mesh)
-    {
-        ObjMeshData triangulated;
-        triangulated.vertices = mesh.vertices;
-        for (const std::vector<std::size_t> &face : mesh.faces)
-        {
-            if (face.size() <= 3)
-            {
-                triangulated.faces.push_back(face);
-                continue;
-            }
-
-            for (std::size_t i = 1; i + 1 < face.size(); ++i)
-            {
-                triangulated.faces.push_back({face[0], face[i], face[i + 1]});
-            }
-        }
-
-        return triangulated;
-    }
-
     SurfaceMesh makeSurfaceMesh(const ObjMeshData &mesh)
     {
         SurfaceMesh surfaceMesh;
@@ -384,8 +363,11 @@ namespace ember::visual_test
             return true;
         }
 
+        PolygonSoupBuildOptions polygonBuildOptions;
+        polygonBuildOptions.triangulateNonCoplanarFaces = true;
+
         std::vector<Polygon256> workpiecePolygons;
-        if (!ember::buildPolygonSoup(scene.workpieceMesh, sharedScale, workpiecePolygons, outError))
+        if (!ember::buildPolygonSoup(scene.workpieceMesh, sharedScale, polygonBuildOptions, workpiecePolygons, outError))
         {
             outError = "Failed to build the EMBER workpiece polygon soup: " + outError;
             return false;
@@ -410,18 +392,14 @@ namespace ember::visual_test
             }
             outStats.sharedScale = scene.emberSharedScale;
 
+            PolygonSoupBuildOptions polygonBuildOptions;
+            polygonBuildOptions.triangulateNonCoplanarFaces = true;
+
             std::vector<Polygon256> toolPolygons;
-            std::string nGonToolError;
-            if (!ember::buildPolygonSoup(scene.toolCurrentMesh, scene.emberSharedScale, toolPolygons, nGonToolError))
+            if (!ember::buildPolygonSoup(scene.toolCurrentMesh, scene.emberSharedScale, polygonBuildOptions, toolPolygons, outError))
             {
-                const ObjMeshData triangulatedToolMesh = triangulateMeshFaces(scene.toolCurrentMesh);
-                toolPolygons.clear();
-                if (!ember::buildPolygonSoup(triangulatedToolMesh, scene.emberSharedScale, toolPolygons, outError))
-                {
-                    outError = "Failed to build the EMBER tool polygon soup: " + nGonToolError +
-                               " Triangulated fallback also failed: " + outError;
-                    return false;
-                }
+                outError = "Failed to build the EMBER tool polygon soup: " + outError;
+                return false;
             }
 
             ember::BoolProblem problem(ui.leafThreshold);
