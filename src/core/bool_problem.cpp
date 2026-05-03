@@ -1,6 +1,7 @@
-﻿#include "bool_problem.h"
+#include "bool_problem.h"
 #include "algorithm/bsp.h"
 #include "algorithm/WNV_tracing.h"
+#include "core/logging.h"
 
 #include <algorithm>
 #include <iterator>
@@ -12,6 +13,37 @@ namespace ember
 {
     namespace
     {
+        constexpr const char *kBoolProblemSolveScope = "BoolProblem::solve";
+        constexpr const char *kBoolProblemRootReferenceScope = "BoolProblem::initializeRootReference";
+        constexpr const char *kBoolProblemSolveRecursiveScope = "BoolProblem::solveRecursive";
+        constexpr const char *kBoolProblemLeafScope = "BoolProblem::solveLeafArrangement";
+        constexpr const char *kBoolProblemClassifyScope = "BoolProblem::classifyLeafFragmentsAndCollectResults";
+        constexpr const char *kBoolProblemChildrenScope = "BoolProblem::createChildrenFromSplit";
+        constexpr const char *kBoolProblemChildReferenceScope = "BoolProblem::makeChildReference";
+
+        template <typename Builder>
+        void logBoolInfo(const char *scope, Builder &&builder)
+        {
+            emitLogLazy(LogLevel::Info, LogCategory::BoolProblem, scope, std::forward<Builder>(builder));
+        }
+
+        template <typename Builder>
+        void logBoolDebug(const char *scope, Builder &&builder)
+        {
+            emitLogLazy(LogLevel::Debug, LogCategory::BoolProblem, scope, std::forward<Builder>(builder));
+        }
+
+        template <typename Builder>
+        void logTracingDebug(const char *scope, Builder &&builder)
+        {
+            emitLogLazy(LogLevel::Debug, LogCategory::Tracing, scope, std::forward<Builder>(builder));
+        }
+
+        void logBoolError(const char *scope, const std::string &message)
+        {
+            emitLog(LogLevel::Error, LogCategory::BoolProblem, scope, message);
+        }
+
         std::size_t computeWNVSize(const std::vector<Polygon256> &polygons) noexcept
         {
             std::size_t dimension = 0;
@@ -38,6 +70,32 @@ namespace ember
             }
 
             return "UNKNOWN";
+        }
+
+        const char *boolOpName(BoolOp op) noexcept
+        {
+            switch (op)
+            {
+            case BoolOp::Union:
+                return "union";
+            case BoolOp::Intersection:
+                return "intersection";
+            case BoolOp::Difference:
+                return "difference";
+            }
+
+            return "unknown";
+        }
+
+        std::string formatAABB(const AABB3i &box)
+        {
+            std::ostringstream message;
+            message << "{valid=" << box.valid
+                    << ", x=[" << box.xMin << ", " << box.xMax
+                    << "], y=[" << box.yMin << ", " << box.yMax
+                    << "], z=[" << box.zMin << ", " << box.zMax
+                    << "]}";
+            return message.str();
         }
     }
 
@@ -120,10 +178,27 @@ namespace ember
         depth_ = 0;
         resetSubdivisionState();
 
+        logBoolInfo(
+            kBoolProblemSolveScope,
+            [this]()
+            {
+                std::ostringstream message;
+                message << "Starting solve operation=" << boolOpName(op_)
+                        << " polygon_count=" << polygons_.size()
+                        << " leaf_threshold=" << leafPolygonThreshold_
+                        << ".";
+                return message.str();
+            });
+
         if (polygons_.empty())
         {
             discarded_ = true;
             solved_ = true;
+            emitLog(
+                LogLevel::Info,
+                LogCategory::BoolProblem,
+                kBoolProblemSolveScope,
+                "Solve ended early because the input polygon soup is empty.");
             return;
         }
 
@@ -132,11 +207,35 @@ namespace ember
         {
             discarded_ = true;
             solved_ = true;
+            logBoolInfo(
+                kBoolProblemSolveScope,
+                [this]()
+                {
+                    return "Solve ended early because root AABB is invalid root_aabb=" + formatAABB(aabb_) + ".";
+                });
             return;
         }
 
+        logBoolInfo(
+            kBoolProblemSolveScope,
+            [this]()
+            {
+                return "Computed valid root AABB root_aabb=" + formatAABB(aabb_) + ".";
+            });
+
         initializeRootReference();
         solveRecursive();
+
+        logBoolInfo(
+            kBoolProblemSolveScope,
+            [this]()
+            {
+                std::ostringstream message;
+                message << "Solve finished discarded=" << discarded_
+                        << " result_fragments=" << resultFragments_.size()
+                        << ".";
+                return message.str();
+            });
     }
 
     bool BoolProblem::isLeaf() const noexcept
@@ -244,6 +343,18 @@ namespace ember
     {
         reference_.point = getAABBCornerPoint(aabb_, false, false, false);
         reference_.wnv.assign(computeWNVSize(polygons_), 0);
+
+        logBoolDebug(
+            kBoolProblemRootReferenceScope,
+            [this]()
+            {
+                std::ostringstream message;
+                message << "Initialized root reference depth=" << depth_
+                        << " wnv_dimension=" << reference_.wnv.size()
+                        << " point=" << reference_.point
+                        << ".";
+                return message.str();
+            });
     }
 
     // 递归推进 subdivision；到达叶子后立即执行局部 BSP 和 WNV 分类。
@@ -254,12 +365,36 @@ namespace ember
             discarded_ = true;
             isLeaf_ = true;
             solved_ = true;
+            logBoolInfo(
+                kBoolProblemSolveRecursiveScope,
+                [this]()
+                {
+                    std::ostringstream message;
+                    message << "Discarded node depth=" << depth_
+                            << " polygon_count=" << polygons_.size()
+                            << " aabb=" << formatAABB(aabb_)
+                            << ".";
+                    return message.str();
+                });
             return;
         }
 
-        if (shouldStopSubdivision())
+        const bool thresholdReached = polygons_.size() <= leafPolygonThreshold_;
+        const bool aabbSplittable = hasSplittableAxis(aabb_);
+        if (thresholdReached || !aabbSplittable)
         {
             isLeaf_ = true;
+            logBoolInfo(
+                kBoolProblemSolveRecursiveScope,
+                [this, thresholdReached]()
+                {
+                    std::ostringstream message;
+                    message << "Stopping subdivision depth=" << depth_
+                            << " polygon_count=" << polygons_.size()
+                            << " reason=" << (thresholdReached ? "leaf_threshold" : "aabb_not_splittable")
+                            << ".";
+                    return message.str();
+                });
             solveLeafArrangement();
             classifyLeafFragmentsAndCollectResults();
             solved_ = true;
@@ -270,17 +405,51 @@ namespace ember
         if (!splitAABBAtMidpoint(aabb_, split))
         {
             isLeaf_ = true;
+            logBoolInfo(
+                kBoolProblemSolveRecursiveScope,
+                [this]()
+                {
+                    std::ostringstream message;
+                    message << "Stopping subdivision depth=" << depth_
+                            << " polygon_count=" << polygons_.size()
+                            << " reason=split_aabb_failed.";
+                    return message.str();
+                });
             solveLeafArrangement();
             classifyLeafFragmentsAndCollectResults();
             solved_ = true;
             return;
         }
 
+        logBoolDebug(
+            kBoolProblemSolveRecursiveScope,
+            [this, &split]()
+            {
+                std::ostringstream message;
+                message << "Split node depth=" << depth_
+                        << " polygon_count=" << polygons_.size()
+                        << " split_plane=" << split.splitPlane
+                        << " left_aabb=" << formatAABB(split.left)
+                        << " right_aabb=" << formatAABB(split.right)
+                        << ".";
+                return message.str();
+            });
+
         splitPlane_ = split.splitPlane;
         if (!createChildrenFromSplit(split))
         {
             splitPlane_ = Plane3i();
             isLeaf_ = true;
+            logBoolInfo(
+                kBoolProblemSolveRecursiveScope,
+                [this]()
+                {
+                    std::ostringstream message;
+                    message << "Stopping subdivision depth=" << depth_
+                            << " polygon_count=" << polygons_.size()
+                            << " reason=child_creation_failed.";
+                    return message.str();
+                });
             solveLeafArrangement();
             classifyLeafFragmentsAndCollectResults();
             solved_ = true;
@@ -318,6 +487,18 @@ namespace ember
             (!leftChild_ || leftChild_->discarded_) &&
             (!rightChild_ || rightChild_->discarded_);
         solved_ = true;
+
+        logBoolDebug(
+            kBoolProblemSolveRecursiveScope,
+            [this]()
+            {
+                std::ostringstream message;
+                message << "Merged child results depth=" << depth_
+                        << " result_fragments=" << resultFragments_.size()
+                        << " discarded=" << discarded_
+                        << ".";
+                return message.str();
+            });
     }
 
     // 对叶子节点内的每个 polygon 建立局部 BSP，并收集启用的 fragment。
@@ -352,6 +533,18 @@ namespace ember
                 std::make_move_iterator(localFragments.begin()),
                 std::make_move_iterator(localFragments.end()));
         }
+
+        logBoolDebug(
+            kBoolProblemLeafScope,
+            [this]()
+            {
+                std::ostringstream message;
+                message << "Leaf arrangement finished depth=" << depth_
+                        << " input_polygons=" << polygons_.size()
+                        << " leaf_fragments=" << leafFragments_.size()
+                        << ".";
+                return message.str();
+            });
     }
 
     // 对每个 leaf fragment 追踪到严格内部点；分类失败属于不可恢复错误。
@@ -372,8 +565,9 @@ namespace ember
 
             bool classified = false;
             traceStatus lastStatus = FAIL;
-            for (const LeafClassificationPathCandidate &candidate : candidates)
+            for (std::size_t candidateIndex = 0; candidateIndex < candidates.size(); ++candidateIndex)
             {
+                const LeafClassificationPathCandidate &candidate = candidates[candidateIndex];
                 WNV frontWNV;
                 WNV backWNV;
                 const traceStatus status = tracePathWNVToSurfacePoint(
@@ -383,6 +577,19 @@ namespace ember
                     fragment.plane,
                     frontWNV,
                     backWNV);
+
+                logTracingDebug(
+                    kBoolProblemClassifyScope,
+                    [fragmentIndex, candidateIndex, &candidate, status]()
+                    {
+                        std::ostringstream message;
+                        message << "Leaf fragment trace attempt fragment_index=" << fragmentIndex
+                                << " candidate_index=" << candidateIndex
+                                << " path_segments=" << candidate.path.size()
+                                << " status=" << traceStatusName(status)
+                                << ".";
+                        return message.str();
+                    });
 
                 if (status == SUCCESS)
                 {
@@ -409,6 +616,7 @@ namespace ember
                         << " candidates; last trace status = "
                         << traceStatusName(lastStatus)
                         << ".";
+                logBoolError(kBoolProblemClassifyScope, message.str());
                 throw std::runtime_error(message.str());
             }
 
@@ -423,6 +631,17 @@ namespace ember
                 resultFragments_.push_back(reversePolygonOrientation(fragment));
             }
         }
+
+        logBoolDebug(
+            kBoolProblemClassifyScope,
+            [this]()
+            {
+                std::ostringstream message;
+                message << "Leaf classification finished depth=" << depth_
+                        << " result_fragments=" << resultFragments_.size()
+                        << ".";
+                return message.str();
+            });
     }
 
     // 叶子阈值和 AABB 可切分性共同决定当前节点是否停止递归。
@@ -456,8 +675,25 @@ namespace ember
 
         if (leftPolygons.empty() && rightPolygons.empty())
         {
+            emitLog(
+                LogLevel::Debug,
+                LogCategory::BoolProblem,
+                kBoolProblemChildrenScope,
+                "Split produced no child polygons.");
             return false;
         }
+
+        logBoolDebug(
+            kBoolProblemChildrenScope,
+            [this, &leftPolygons, &rightPolygons]()
+            {
+                std::ostringstream message;
+                message << "Prepared child polygon soups depth=" << depth_
+                        << " left_polygons=" << leftPolygons.size()
+                        << " right_polygons=" << rightPolygons.size()
+                        << ".";
+                return message.str();
+            });
 
         SubdivisionRefState leftReference;
         SubdivisionRefState rightReference;
@@ -490,6 +726,18 @@ namespace ember
             rightChild_->reference_ = std::move(rightReference);
         }
 
+        logBoolDebug(
+            kBoolProblemChildrenScope,
+            [this]()
+            {
+                std::ostringstream message;
+                message << "Created child nodes depth=" << depth_
+                        << " has_left=" << (leftChild_ != nullptr)
+                        << " has_right=" << (rightChild_ != nullptr)
+                        << ".";
+                return message.str();
+            });
+
         return true;
     }
 
@@ -514,14 +762,25 @@ namespace ember
             if (!onSurface)
             {
                 outReference = reference_;
+                logTracingDebug(
+                    kBoolProblemChildReferenceScope,
+                    [this, &childBox]()
+                    {
+                        std::ostringstream message;
+                        message << "Reused reference depth=" << depth_
+                                << " child_aabb=" << formatAABB(childBox)
+                                << ".";
+                        return message.str();
+                    });
                 return true;
             }
         }
 
         const refPoint sourceRef(reference_.point, reference_.wnv);
         const std::vector<AABBPathCandidate> candidates = enumerateAABBPathCandidates(reference_.point, childBox);
-        for (const AABBPathCandidate &candidate : candidates)
+        for (std::size_t candidateIndex = 0; candidateIndex < candidates.size(); ++candidateIndex)
         {
+            const AABBPathCandidate &candidate = candidates[candidateIndex];
             bool onSurface = false;
             for (const Polygon256 &polygon : childPolygons)
             {
@@ -533,11 +792,34 @@ namespace ember
             }
             if (onSurface)
             {
+                logTracingDebug(
+                    kBoolProblemChildReferenceScope,
+                    [this, candidateIndex, &candidate]()
+                    {
+                        std::ostringstream message;
+                        message << "Skipped child reference candidate depth=" << depth_
+                                << " candidate_index=" << candidateIndex
+                                << " path_segments=" << candidate.path.size()
+                                << " reason=target_on_surface.";
+                        return message.str();
+                    });
                 continue;
             }
 
             WNV propagatedWNV;
             const traceStatus status = tracePathWNV(sourceRef, candidate.path, polygons_, propagatedWNV);
+            logTracingDebug(
+                kBoolProblemChildReferenceScope,
+                [this, candidateIndex, &candidate, status]()
+                {
+                    std::ostringstream message;
+                    message << "Child reference trace depth=" << depth_
+                            << " candidate_index=" << candidateIndex
+                            << " path_segments=" << candidate.path.size()
+                            << " status=" << traceStatusName(status)
+                            << ".";
+                    return message.str();
+                });
             if (status == SUCCESS)
             {
                 outReference.point = candidate.targetPoint;
@@ -552,6 +834,17 @@ namespace ember
         }
 
         outReference = SubdivisionRefState();
+        logTracingDebug(
+            kBoolProblemChildReferenceScope,
+            [this, &childBox, &candidates]()
+            {
+                std::ostringstream message;
+                message << "Failed to propagate child reference depth=" << depth_
+                        << " child_aabb=" << formatAABB(childBox)
+                        << " candidate_count=" << candidates.size()
+                        << ".";
+                return message.str();
+            });
         return false;
     }
 
