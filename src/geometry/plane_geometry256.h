@@ -4,6 +4,55 @@
 
 namespace ember
 {
+    /**
+     * @brief 返回整数绝对值，用于几何系数的幅值归一化。
+     */
+    inline Integer absMagnitude(Integer value) noexcept
+    {
+        return value < 0 ? -value : value;
+    }
+
+    /**
+     * @brief 计算两个整数幅值的最大公约数。
+     */
+    inline Integer gcdMagnitude(Integer lhs, Integer rhs) noexcept
+    {
+        lhs = absMagnitude(lhs);
+        rhs = absMagnitude(rhs);
+        while (!isZero(rhs))
+        {
+            const Integer remainder = lhs % rhs;
+            lhs = rhs;
+            rhs = remainder;
+        }
+        return lhs;
+    }
+
+    /**
+     * @brief 计算四个整数幅值的最大公约数。
+     */
+    inline Integer gcdMagnitude(const Integer &a, const Integer &b, const Integer &c, const Integer &d) noexcept
+    {
+        return gcdMagnitude(gcdMagnitude(a, b), gcdMagnitude(c, d));
+    }
+
+    /**
+     * @brief 原地约分平面方程系数，保留同一个有向半空间。
+     */
+    inline void reducePlaneCoefficients(Integer &a, Integer &b, Integer &c, Integer &d) noexcept
+    {
+        const Integer divisor = gcdMagnitude(a, b, c, d);
+        if (divisor <= 1)
+        {
+            return;
+        }
+
+        a /= divisor;
+        b /= divisor;
+        c /= divisor;
+        d /= divisor;
+    }
+
     struct Plane3i
     {
         Integer a = 0;
@@ -22,11 +71,29 @@ namespace ember
             return Vec3i(a, b, c);
         }
 
-        static constexpr Plane3i fromPointNormal(const Vec3i &point, const Vec3i &normal) noexcept
+        static Plane3i fromPointNormal(const Vec3i &point, const Vec3i &normal) noexcept
         {
-            return Plane3i(normal.x, normal.y, normal.z, -dot(point, normal));
+            Integer a = normal.x;
+            Integer b = normal.y;
+            Integer c = normal.z;
+            Integer d = -dot(point, normal);
+            reducePlaneCoefficients(a, b, c, d);
+            return Plane3i(a, b, c, d);
         }
     };
+
+    /**
+     * @brief 返回与输入几何等价的 primitive 平面方程。
+     */
+    inline Plane3i primitivePlane(const Plane3i &plane) noexcept
+    {
+        Integer a = plane.a;
+        Integer b = plane.b;
+        Integer c = plane.c;
+        Integer d = plane.d;
+        reducePlaneCoefficients(a, b, c, d);
+        return Plane3i(a, b, c, d);
+    }
 
     inline std::ostream &operator<<(std::ostream &os, const Plane3i &p)
     {
@@ -65,6 +132,36 @@ namespace ember
             return x == rhs.x && y == rhs.y && z == rhs.z && w == rhs.w;
         }
     };
+
+    /**
+     * @brief 返回与输入几何等价的 primitive 齐次点。
+     */
+    inline HomPoint4i primitiveHomPoint(const HomPoint4i &point) noexcept
+    {
+        Integer x = point.x;
+        Integer y = point.y;
+        Integer z = point.z;
+        Integer w = point.w;
+        const Integer divisor = gcdMagnitude(x, y, z, w);
+        if (divisor > 1)
+        {
+            x /= divisor;
+            y /= divisor;
+            z /= divisor;
+            w /= divisor;
+        }
+        if (w < 0 ||
+            (isZero(w) && (z < 0 ||
+                           (isZero(z) && (y < 0 ||
+                                          (isZero(y) && x < 0))))))
+        {
+            x = -x;
+            y = -y;
+            z = -z;
+            w = -w;
+        }
+        return HomPoint4i(x, y, z, w);
+    }
 
     /**
      * @brief 使用当前固定宽度整数运算比较齐次点。
@@ -131,13 +228,13 @@ namespace ember
     }
 
     //该函数没有进行退化检查，注意使用hasUniqueIntersection确保不退化
-    inline constexpr HomPoint4i intersectHomogeneous(const Plane3i &p, const Plane3i &q, const Plane3i &r) noexcept
+    inline HomPoint4i intersectHomogeneous(const Plane3i &p, const Plane3i &q, const Plane3i &r) noexcept
     {
         const Integer x = determinant3x3(-p.d, p.b, p.c, -q.d, q.b, q.c, -r.d, r.b, r.c);
         const Integer y = determinant3x3(p.a, -p.d, p.c, q.a, -q.d, q.c, r.a, -r.d, r.c);
         const Integer z = determinant3x3(p.a, p.b, -p.d, q.a, q.b, -q.d, r.a, r.b, -r.d);
         const Integer w = determinant3x3(p.a, p.b, p.c, q.a, q.b, q.c, r.a, r.b, r.c);
-        return HomPoint4i(x, y, z, w);
+        return primitiveHomPoint(HomPoint4i(x, y, z, w));
     }
 
     inline constexpr int classifyPointAgainstPlane(const HomPoint4i &x, const Plane3i &s) noexcept
@@ -161,7 +258,7 @@ namespace ember
         Plane3i r;
         HomPoint4i x;
 
-        constexpr PlanePoint3i(const Plane3i &pVal, const Plane3i &qVal, const Plane3i &rVal) noexcept
+        PlanePoint3i(const Plane3i &pVal, const Plane3i &qVal, const Plane3i &rVal) noexcept
             : p(pVal), q(qVal), r(rVal), x(intersectHomogeneous(pVal, qVal, rVal))
         {
         }

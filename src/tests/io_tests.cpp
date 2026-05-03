@@ -150,6 +150,131 @@ void runIoTests()
     }
 
     {
+        ObjMeshData lhs;
+        lhs.vertices = {
+            ObjVertex{0.0, 0.0, 0.0},
+            ObjVertex{1.0, 0.0, 0.0},
+            ObjVertex{1.0, 1.0, 0.0},
+            ObjVertex{0.0, 1.0, 0.0},
+            ObjVertex{0.0, 0.0, 1.0},
+            ObjVertex{1.0, 0.0, 1.0},
+            ObjVertex{1.0, 1.0, 1.0},
+            ObjVertex{0.0, 1.0, 1.0}};
+        lhs.faces = {
+            {3, 2, 1, 0},
+            {4, 5, 6, 7},
+            {0, 1, 5, 4},
+            {1, 2, 6, 5},
+            {2, 3, 7, 6},
+            {3, 0, 4, 7}};
+
+        ObjMeshData rhs;
+        rhs.vertices = {
+            ObjVertex{-0.08, -0.08, -0.5},
+            ObjVertex{0.08, -0.08, -0.5},
+            ObjVertex{0.08, 0.08, -0.5},
+            ObjVertex{-0.08, 0.08, -0.5},
+            ObjVertex{-0.08, -0.08, 0.5},
+            ObjVertex{0.08, -0.08, 0.5},
+            ObjVertex{0.08, 0.08, 0.5},
+            ObjVertex{-0.08, 0.08, 0.5}};
+        rhs.faces = {
+            {3, 2, 1, 0},
+            {4, 5, 6, 7},
+            {0, 1, 5, 4},
+            {1, 2, 6, 5},
+            {2, 3, 7, 6},
+            {3, 0, 4, 7}};
+
+        ember::QuantizeOptions options;
+        std::uint64_t scale = 0;
+        std::string error;
+        assert(ember::chooseSharedScale({lhs, rhs}, options, scale, error));
+        assert(scale == 10000000u);
+
+        std::vector<Polygon256> lhsPolygons;
+        std::vector<Polygon256> rhsPolygons;
+        assert(ember::buildPolygonSoup(lhs, scale, lhsPolygons, error));
+        assert(ember::buildPolygonSoup(rhs, scale, rhsPolygons, error));
+
+        ember::BoolProblem problem(25);
+        problem.setOperation(BoolOp::Difference);
+        problem.setOperands(lhsPolygons, rhsPolygons);
+        problem.solve();
+        assert(!problem.resultFragments().empty());
+    }
+
+    {
+        ObjMeshData lhs;
+        lhs.vertices = {
+            ObjVertex{0.0, 0.0, 0.0},
+            ObjVertex{1.0, 0.0, 0.0},
+            ObjVertex{1.0, 1.0, 0.0},
+            ObjVertex{0.0, 1.0, 0.0},
+            ObjVertex{0.0, 0.0, 1.0},
+            ObjVertex{1.0, 0.0, 1.0},
+            ObjVertex{1.0, 1.0, 1.0},
+            ObjVertex{0.0, 1.0, 1.0}};
+        lhs.faces = {
+            {3, 2, 1, 0},
+            {4, 5, 6, 7},
+            {0, 1, 5, 4},
+            {1, 2, 6, 5},
+            {2, 3, 7, 6},
+            {3, 0, 4, 7}};
+
+        ObjMeshData rhs;
+        rhs.vertices = {
+            ObjVertex{0.6740791455178619, 0.2857432247353239, 0.10450414972599636},
+            ObjVertex{0.7982417133188726, 0.3486409791457349, 0.025589453710697374},
+            ObjVertex{0.725937664677665, 0.49137193076482094, 0.025589453710697374},
+            ObjVertex{0.6017750968766542, 0.42847417635440993, 0.10450414972599636},
+            ObjVertex{1.1140623353223351, 0.5086280692351791, 0.9744105462893027},
+            ObjVertex{1.2382249031233459, 0.5715258236455901, 0.8954958502740036},
+            ObjVertex{1.1659208544821382, 0.7142567752646761, 0.8954958502740036},
+            ObjVertex{1.0417582866811275, 0.6513590208542651, 0.9744105462893027}};
+        rhs.faces = {
+            {3, 2, 1},
+            {3, 1, 0},
+            {4, 5, 6},
+            {4, 6, 7},
+            {0, 1, 5},
+            {0, 5, 4},
+            {1, 2, 6},
+            {1, 6, 5},
+            {2, 3, 7},
+            {2, 7, 6},
+            {3, 0, 4},
+            {3, 4, 7}};
+
+        ember::QuantizeOptions options;
+        std::uint64_t scale = 0;
+        std::string error;
+        assert(ember::chooseSharedScale({lhs, rhs}, options, scale, error));
+        assert(scale == 10000000u);
+
+        std::vector<Polygon256> lhsPolygons;
+        std::vector<Polygon256> rhsPolygons;
+        assert(ember::buildPolygonSoup(lhs, scale, lhsPolygons, error));
+        assert(ember::buildPolygonSoup(rhs, scale, rhsPolygons, error));
+
+        ember::BoolProblem problem(25);
+        problem.setOperation(BoolOp::Difference);
+        problem.setOperands(lhsPolygons, rhsPolygons);
+        problem.solve();
+
+        ObjMeshData resultMesh;
+        assert(ember::buildObjMeshFromPolygonSoup(problem.resultFragments(), resultMesh, error, scale));
+        assert(!resultMesh.vertices.empty());
+        for (const ObjVertex &vertex : resultMesh.vertices)
+        {
+            assert(vertex.x >= -1e-9 && vertex.x <= 1.0 + 1e-9);
+            assert(vertex.y >= -1e-9 && vertex.y <= 1.0 + 1e-9);
+            assert(vertex.z >= -1e-9 && vertex.z <= 1.0 + 1e-9);
+        }
+    }
+
+    {
         ObjMeshData quad;
         quad.vertices = {
             ObjVertex{0.0, 0.0, 0.0},

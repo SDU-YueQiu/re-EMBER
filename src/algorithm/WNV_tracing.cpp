@@ -13,6 +13,11 @@ namespace ember
             }
         }
 
+        bool isSameStrictSide(int lhs, int rhs) noexcept
+        {
+            return lhs == rhs && (lhs == -1 || lhs == 1);
+        }
+
         traceStatus tracePathWNVToSurfacePointImpl(
             const refPoint &refpoint,
             const Path &path,
@@ -20,18 +25,22 @@ namespace ember
             const Plane3i &referencePlane,
             WNV &frontWNV,
             WNV &backWNV,
-            bool validatePolygons)
+            bool validatePolygons,
+            bool validatePath)
         {
             if (path.empty())
             {
                 return INPUT_INVALID;
             }
 
-            for (const auto &seg : path)
+            if (validatePath)
             {
-                if (!seg.isValid())
+                for (const auto &seg : path)
                 {
-                    return INPUT_INVALID;
+                    if (!seg.isValid())
+                    {
+                        return INPUT_INVALID;
+                    }
                 }
             }
 
@@ -46,16 +55,19 @@ namespace ember
                 }
             }
 
-            if (!areSamePlanePoint(path[0].getStartPoint(), refpoint.point))
+            if (validatePath && !areSamePlanePoint(path[0].getStartPoint(), refpoint.point))
             {
                 return INPUT_INVALID;
             }
 
-            for (std::size_t i = 1; i < path.size(); ++i)
+            if (validatePath)
             {
-                if (!areSamePlanePoint(path[i - 1].getEndPoint(), path[i].getStartPoint()))
+                for (std::size_t i = 1; i < path.size(); ++i)
                 {
-                    return INPUT_INVALID;
+                    if (!areSamePlanePoint(path[i - 1].getEndPoint(), path[i].getStartPoint()))
+                    {
+                        return INPUT_INVALID;
+                    }
                 }
             }
 
@@ -88,23 +100,40 @@ namespace ember
                     {
                         return PATH_INVALID;
                     }
+                    if (isSameStrictSide(pcs, pce))
+                    {
+                        pcs = pce;
+                        continue;
+                    }
+
+                    const PlanePoint3i intersectPoint = intersect(seg.direction, poly.plane);
+                    if (intersectPoint.hasUniqueIntersection())
+                    {
+                        const detail::PolygonSurfaceLocation hitLocation =
+                            detail::classifyPolygonSurfacePointUnchecked(poly, intersectPoint);
+                        if (hitLocation == detail::PolygonSurfaceLocation::Boundary)
+                        {
+                            return PATH_INVALID;
+                        }
+                        if (hitLocation == detail::PolygonSurfaceLocation::StrictInterior)
+                        {
+                            if (isLastSegment && pce == 0)
+                            {
+                                addScaledWNTV(surfaceDelta, poly.WNTV, pcs);
+                            }
+                            else
+                            {
+                                const int sigma = (pcs - pce) / 2;
+                                addScaledWNTV(surfaceWNV, poly.WNTV, sigma);
+                            }
+                        }
+                        pcs = pce;
+                        continue;
+                    }
+
                     if (detail::isSegmentTouchPolygonEdgeUnchecked(seg, poly))
                     {
                         return PATH_INVALID;
-                    }
-
-                    PlanePoint3i intersectPoint;
-                    if (intersectionSegmentPolygon(seg, poly, intersectPoint))
-                    {
-                        if (isLastSegment && pce == 0)
-                        {
-                            addScaledWNTV(surfaceDelta, poly.WNTV, pcs);
-                        }
-                        else
-                        {
-                            const int sigma = (pcs - pce) / 2;
-                            addScaledWNTV(surfaceWNV, poly.WNTV, sigma);
-                        }
                     }
 
                     pcs = pce;
@@ -193,6 +222,12 @@ namespace ember
 
                 if (pce == 0)
                     return PATH_INVALID;
+                if (isSameStrictSide(pcs, pce))
+                {
+                    pcs = pce;
+                    continue;
+                }
+
                 if (detail::isSegmentTouchPolygonEdgeUnchecked(seg, poly))
                     return PATH_INVALID;
 
@@ -227,7 +262,7 @@ namespace ember
         WNV &frontWNV,
         WNV &backWNV)
     {
-        return tracePathWNVToSurfacePointImpl(refpoint, path, polygons, referencePlane, frontWNV, backWNV, true);
+        return tracePathWNVToSurfacePointImpl(refpoint, path, polygons, referencePlane, frontWNV, backWNV, true, true);
     }
 
     traceStatus detail::tracePathWNVToSurfacePointTrusted(
@@ -238,7 +273,7 @@ namespace ember
         WNV &frontWNV,
         WNV &backWNV)
     {
-        return tracePathWNVToSurfacePointImpl(refpoint, path, polygons, referencePlane, frontWNV, backWNV, false);
+        return tracePathWNVToSurfacePointImpl(refpoint, path, polygons, referencePlane, frontWNV, backWNV, false, false);
     }
 }
 

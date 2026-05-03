@@ -47,6 +47,15 @@ namespace ember
         void insert(const Polygon256& polygon, std::size_t incomingOrder = 0);
 
         /**
+         * @brief 插入已由调用方验证过的多边形。
+         *
+         * @param[in] polygon 待插入多边形。
+         * @param[in] incomingOrder 待插入多边形的稳定顺序键。
+         * @pre `setBasePolygon()` 已设置有效 base polygon，且 `polygon.isValid()` 为真。
+         */
+        void insertTrusted(const Polygon256& polygon, std::size_t incomingOrder = 0);
+
+        /**
          * @brief 收集当前局部 BSP 的全部启用叶子几何。
          *
          * @return 按树遍历顺序输出的 leaf polygon 集合。
