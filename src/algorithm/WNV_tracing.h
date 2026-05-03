@@ -75,5 +75,21 @@ namespace ember
         const Plane3i &referencePlane,
         WNV &frontWNV,
         WNV &backWNV);
+
+    namespace detail
+    {
+        /**
+         * @brief 在调用方已验证 polygon soup 的前提下传播到曲面目标点。
+         *
+         * @pre `polygons` 均为有效 polygon，且其 `WNTV` 维度与 `refpoint.wnv` 一致。
+         */
+        traceStatus tracePathWNVToSurfacePointTrusted(
+            const refPoint &refpoint,
+            const Path &path,
+            const std::vector<Polygon256> &polygons,
+            const Plane3i &referencePlane,
+            WNV &frontWNV,
+            WNV &backWNV);
+    }
 }
 
