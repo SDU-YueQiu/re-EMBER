@@ -15,8 +15,13 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if(MSVC)
+  add_compile_options(/utf-8)
+endif()
+
 option(KEMBER_ENABLE_EIGEN "Link Eigen3 from vcpkg" OFF)
 option(KEMBER_ENABLE_CGAL "Link CGAL from vcpkg" OFF)
+option(KEMBER_ENABLE_VISUAL_TEST "Build the visual-test application target" OFF)
 
 file(GLOB_RECURSE KEMBER_ALL_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
@@ -31,12 +36,20 @@ file(GLOB_RECURSE KEMBER_TEST_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/src/tests/*.cpp"
 )
 
+file(GLOB_RECURSE KEMBER_APPLICATION_SOURCES CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/application/*.cpp"
+)
+
 set(KEMBER_APP_SOURCE
   "${CMAKE_CURRENT_SOURCE_DIR}/src/application/main.cpp"
 )
 
+set(KEMBER_VISUAL_TEST_SOURCE
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/application/visual_test.cpp"
+)
+
 set(KEMBER_LIBRARY_SOURCES ${KEMBER_ALL_SOURCES})
-list(REMOVE_ITEM KEMBER_LIBRARY_SOURCES ${KEMBER_APP_SOURCE})
+list(REMOVE_ITEM KEMBER_LIBRARY_SOURCES ${KEMBER_APPLICATION_SOURCES})
 list(REMOVE_ITEM KEMBER_LIBRARY_SOURCES ${KEMBER_TEST_SOURCES})
 
 add_library(kember_lib ${KEMBER_LIBRARY_SOURCES} ${KEMBER_HEADERS})
@@ -76,6 +89,25 @@ endif()
 
 add_executable(kEmber_tests ${KEMBER_TEST_SOURCES})
 target_link_libraries(kEmber_tests PRIVATE kember_lib)
+
+if(KEMBER_ENABLE_VISUAL_TEST)
+  find_package(Eigen3 CONFIG REQUIRED)
+  find_package(CGAL CONFIG REQUIRED)
+  find_package(libigl CONFIG REQUIRED)
+
+  add_executable(visual-test
+    ${KEMBER_VISUAL_TEST_SOURCE}
+  )
+  target_compile_definitions(visual-test PRIVATE KEMBER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+  target_link_libraries(visual-test
+    PRIVATE
+      kember_lib
+      Eigen3::Eigen
+      CGAL::CGAL
+      igl::igl_glfw
+      igl::igl_imgui
+  )
+endif()
 
 enable_testing()
 add_test(NAME kEmber_tests COMMAND kEmber_tests)

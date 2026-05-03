@@ -2,6 +2,7 @@
 
 #include "geometry/geometry256.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -32,6 +33,18 @@ namespace ember
     {
         std::vector<ObjVertex> vertices;
         std::vector<std::vector<std::size_t>> faces;
+    };
+
+    /**
+     * @brief 可直接用于显示或三角网格算法的三角面网格数据。
+     *
+     * `triangles` 中每个元素保存一个三角形的 0-based 顶点下标，
+     * 且仅对应 `vertices`。
+     */
+    struct TriangleMeshData
+    {
+        std::vector<ObjVertex> vertices;
+        std::vector<std::array<std::size_t, 3>> triangles;
     };
 
     /**
@@ -104,5 +117,23 @@ namespace ember
         const std::vector<Polygon256> &fragments,
         const std::string &path,
         std::size_t &outFaceCount,
+        std::string &outError);
+
+    /**
+     * @brief 将 `Polygon256` polygon soup 转换为可显示的三角网格。
+     *
+     * 该函数先按 `Polygon256` 的边平面顺序恢复每个面的有序顶点，
+     * 再按凸扇方式将每个 `n-gon` 三角化。
+     *
+     * @param[in] fragments 待转换的结果面集合。
+     * @param[out] outMesh 成功时写入顶点和三角面索引。
+     * @param[out] outError 失败时写入可读错误信息。
+     * @retval true 转换成功。
+     * @retval false 任一结果面无法恢复唯一有限顶点，或三角化前不满足当前几何约束。
+     * @note 输出坐标会按齐次点的 `x/w`、`y/w`、`z/w` 近似恢复为十进制双精度。
+     */
+    bool buildTriangleMeshFromPolygonSoup(
+        const std::vector<Polygon256> &fragments,
+        TriangleMeshData &outMesh,
         std::string &outError);
 }

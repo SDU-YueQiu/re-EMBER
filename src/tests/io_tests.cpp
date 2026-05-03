@@ -252,6 +252,16 @@ void runIoTests()
 
     {
         const Polygon256 square = makeFaceXY(0, 0, 2, 0, 2, 1);
+
+        ember::TriangleMeshData mesh;
+        std::string error;
+        assert(ember::buildTriangleMeshFromPolygonSoup({square}, mesh, error));
+        assert(mesh.vertices.size() == 4u);
+        assert(mesh.triangles.size() == 2u);
+    }
+
+    {
+        const Polygon256 square = makeFaceXY(0, 0, 2, 0, 2, 1);
         const std::filesystem::path outputPath = makeTestPath("io_single_square_export.obj");
 
         std::size_t faceCount = 0;

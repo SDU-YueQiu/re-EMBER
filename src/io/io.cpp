@@ -163,6 +163,20 @@ namespace ember
             return std::stold(integerToString(value));
         }
 
+        ObjVertex homogeneousPointToObjVertex(const PlanePoint3i &vertex)
+        {
+            const long double w = integerToLongDouble(vertex.x.w);
+            const long double x = integerToLongDouble(vertex.x.x) / w;
+            const long double y = integerToLongDouble(vertex.x.y) / w;
+            const long double z = integerToLongDouble(vertex.x.z) / w;
+
+            ObjVertex point;
+            point.x = static_cast<double>(x);
+            point.y = static_cast<double>(y);
+            point.z = static_cast<double>(z);
+            return point;
+        }
+
         // 以齐次四元组全文本作为顶点键，避免浮点近似导致的错误去重。
         std::string makeHomogeneousPointKey(const HomPoint4i &point)
         {
@@ -200,19 +214,77 @@ namespace ember
             return true;
         }
 
+        struct RecoveredPolygonSoupData
+        {
+            std::vector<PlanePoint3i> uniqueVertices;
+            std::vector<std::vector<std::size_t>> faces;
+        };
+
+        bool recoverPolygonSoupData(
+            const std::vector<Polygon256> &fragments,
+            RecoveredPolygonSoupData &outData,
+            std::string &outError)
+        {
+            outData.uniqueVertices.clear();
+            outData.faces.clear();
+            outError.clear();
+
+            std::vector<std::pair<std::string, std::size_t>> vertexIndexTable;
+            outData.faces.reserve(fragments.size());
+            vertexIndexTable.reserve(fragments.size() * 4);
+
+            for (std::size_t polygonIndex = 0; polygonIndex < fragments.size(); ++polygonIndex)
+            {
+                std::vector<PlanePoint3i> orderedVertices;
+                if (!recoverOrderedPolygonVertices(fragments[polygonIndex], orderedVertices, outError))
+                {
+                    outError = "Failed to recover polygon " + std::to_string(polygonIndex) + ": " + outError;
+                    return false;
+                }
+
+                std::vector<std::size_t> face;
+                face.reserve(orderedVertices.size());
+                for (const PlanePoint3i &vertex : orderedVertices)
+                {
+                    const std::string key = makeHomogeneousPointKey(vertex.x);
+                    std::size_t slot = 0;
+                    bool found = false;
+                    for (const auto &entry : vertexIndexTable)
+                    {
+                        if (entry.first == key)
+                        {
+                            slot = entry.second;
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if (!found)
+                    {
+                        slot = outData.uniqueVertices.size();
+                        outData.uniqueVertices.push_back(vertex);
+                        vertexIndexTable.push_back(std::make_pair(key, slot));
+                    }
+
+                    face.push_back(slot);
+                }
+
+                outData.faces.push_back(std::move(face));
+            }
+
+            return true;
+        }
+
         // 导出 OBJ 时只写几何坐标；这里把齐次点按 x/w, y/w, z/w 近似恢复为十进制。
         void writeObjVertexLine(std::ostream &stream, const PlanePoint3i &vertex)
         {
-            const long double w = integerToLongDouble(vertex.x.w);
-            const long double x = integerToLongDouble(vertex.x.x) / w;
-            const long double y = integerToLongDouble(vertex.x.y) / w;
-            const long double z = integerToLongDouble(vertex.x.z) / w;
+            const ObjVertex point = homogeneousPointToObjVertex(vertex);
 
             stream << "v "
                    << std::setprecision(std::numeric_limits<long double>::digits10 + 1)
-                   << static_cast<double>(x) << " "
-                   << static_cast<double>(y) << " "
-                   << static_cast<double>(z) << "\n";
+                   << point.x << " "
+                   << point.y << " "
+                   << point.z << "\n";
         }
     }
 
@@ -497,55 +569,11 @@ namespace ember
             }
         }
 
-        struct PolygonFace
+        RecoveredPolygonSoupData recovered;
+        if (!recoverPolygonSoupData(fragments, recovered, outError))
         {
-            std::vector<std::size_t> vertexIndices;
-        };
-
-        std::vector<PlanePoint3i> uniqueVertices;
-        std::vector<PolygonFace> faces;
-        std::vector<std::pair<std::string, std::size_t>> vertexIndexTable;
-        faces.reserve(fragments.size());
-        vertexIndexTable.reserve(fragments.size() * 4);
-
-        for (std::size_t polygonIndex = 0; polygonIndex < fragments.size(); ++polygonIndex)
-        {
-            // 先恢复每个结果面的有序顶点，再按完全相同的齐次点做全局去重。
-            std::vector<PlanePoint3i> orderedVertices;
-            if (!recoverOrderedPolygonVertices(fragments[polygonIndex], orderedVertices, outError))
-            {
-                outError = "Failed to export polygon " + std::to_string(polygonIndex) + ": " + outError;
-                return false;
-            }
-
-            PolygonFace face;
-            face.vertexIndices.reserve(orderedVertices.size());
-            for (const PlanePoint3i &vertex : orderedVertices)
-            {
-                const std::string key = makeHomogeneousPointKey(vertex.x);
-                std::size_t slot = 0;
-                bool found = false;
-                for (const auto &entry : vertexIndexTable)
-                {
-                    if (entry.first == key)
-                    {
-                        slot = entry.second;
-                        found = true;
-                        break;
-                    }
-                }
-
-                if (!found)
-                {
-                    slot = uniqueVertices.size();
-                    uniqueVertices.push_back(vertex);
-                    vertexIndexTable.push_back(std::make_pair(key, slot));
-                }
-
-                face.vertexIndices.push_back(slot + 1);
-            }
-
-            faces.push_back(std::move(face));
+            outError = "Failed to prepare polygon soup OBJ export: " + outError;
+            return false;
         }
 
         std::ofstream output(path, std::ios::trunc);
@@ -557,22 +585,61 @@ namespace ember
 
         // 默认保持 polygon soup 形态：写顶点，再逐面写 OBJ n-gon。
         output << "# Ember exact polygon soup export\n";
-        for (const PlanePoint3i &vertex : uniqueVertices)
+        for (const PlanePoint3i &vertex : recovered.uniqueVertices)
         {
             writeObjVertexLine(output, vertex);
         }
 
-        for (const PolygonFace &face : faces)
+        for (const std::vector<std::size_t> &face : recovered.faces)
         {
             output << "f";
-            for (const std::size_t vertexIndex : face.vertexIndices)
+            for (const std::size_t vertexIndex : face)
             {
-                output << " " << vertexIndex;
+                output << " " << (vertexIndex + 1);
             }
             output << "\n";
         }
 
-        outFaceCount = faces.size();
+        outFaceCount = recovered.faces.size();
+        return true;
+    }
+
+    bool buildTriangleMeshFromPolygonSoup(
+        const std::vector<Polygon256> &fragments,
+        TriangleMeshData &outMesh,
+        std::string &outError)
+    {
+        outMesh = TriangleMeshData();
+        outError.clear();
+
+        RecoveredPolygonSoupData recovered;
+        if (!recoverPolygonSoupData(fragments, recovered, outError))
+        {
+            outError = "Failed to prepare triangle mesh from polygon soup: " + outError;
+            return false;
+        }
+
+        outMesh.vertices.reserve(recovered.uniqueVertices.size());
+        for (const PlanePoint3i &vertex : recovered.uniqueVertices)
+        {
+            outMesh.vertices.push_back(homogeneousPointToObjVertex(vertex));
+        }
+
+        for (std::size_t faceIndex = 0; faceIndex < recovered.faces.size(); ++faceIndex)
+        {
+            const std::vector<std::size_t> &face = recovered.faces[faceIndex];
+            if (face.size() < 3)
+            {
+                outError = "Recovered polygon face " + std::to_string(faceIndex) + " has fewer than three vertices.";
+                return false;
+            }
+
+            for (std::size_t i = 1; i + 1 < face.size(); ++i)
+            {
+                outMesh.triangles.push_back({face[0], face[i], face[i + 1]});
+            }
+        }
+
         return true;
     }
 }
