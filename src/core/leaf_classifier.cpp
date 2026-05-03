@@ -128,52 +128,89 @@ namespace ember
         for (std::size_t fragmentIndex = 0; fragmentIndex < leafFragments_.size(); ++fragmentIndex)
         {
             Polygon256 &fragment = leafFragments_[fragmentIndex];
-            const std::size_t pointCandidateCount =
-                enumerateLeafClassificationPointCandidates(fragment).size();
-            const std::vector<LeafClassificationPathCandidate> candidates =
-                enumerateLeafClassificationPathCandidates(reference_.point, fragment, aabb_);
+            const std::vector<PlanePoint3i> pointCandidates =
+                detail::enumerateLeafClassificationPointCandidatesUnchecked(fragment);
+            const std::vector<LeafClassificationPathCandidate> fastCandidates =
+                enumerateLeafClassificationFastPathCandidatesFromPoints(reference_.point, pointCandidates, aabb_);
+            const std::size_t fastCandidateCount = fastCandidates.size();
+            std::size_t fallbackCandidateCount = 0;
 
             bool classified = false;
             traceStatus lastStatus = FAIL;
-            for (std::size_t candidateIndex = 0; candidateIndex < candidates.size(); ++candidateIndex)
-            {
-                const LeafClassificationPathCandidate &candidate = candidates[candidateIndex];
-                WNV frontWNV;
-                WNV backWNV;
-                const traceStatus status = tracePathWNVToSurfacePoint(
-                    localReference,
-                    candidate.path,
-                    polygons_,
-                    fragment.plane,
-                    frontWNV,
-                    backWNV);
+            auto traceCandidate =
+                [&](const LeafClassificationPathCandidate &candidate, const char *candidateLayer, std::size_t candidateIndex)
+                {
+                    WNV frontWNV;
+                    WNV backWNV;
+                    const traceStatus status = tracePathWNVToSurfacePoint(
+                        localReference,
+                        candidate.path,
+                        polygons_,
+                        fragment.plane,
+                        frontWNV,
+                        backWNV);
 
-                logTracingDebug(
-                    kBoolProblemClassifyScope,
-                    [fragmentIndex, candidateIndex, &candidate, status]()
+                    logTracingDebug(
+                        kBoolProblemClassifyScope,
+                        [fragmentIndex, candidateLayer, candidateIndex, &candidate, status]()
+                        {
+                            std::ostringstream message;
+                            message << "Leaf fragment trace attempt fragment_index=" << fragmentIndex
+                                    << " candidate_layer=" << candidateLayer
+                                    << " candidate_index=" << candidateIndex
+                                    << " path_segments=" << candidate.path.size()
+                                    << " status=" << traceStatusName(status)
+                                    << ".";
+                            return message.str();
+                        });
+
+                    if (status == SUCCESS)
                     {
-                        std::ostringstream message;
-                        message << "Leaf fragment trace attempt fragment_index=" << fragmentIndex
-                                << " candidate_index=" << candidateIndex
-                                << " path_segments=" << candidate.path.size()
-                                << " status=" << traceStatusName(status)
-                                << ".";
-                        return message.str();
-                    });
+                        classifiedFragments_.push_back(
+                            ClassifiedFragment{fragment, std::move(frontWNV), std::move(backWNV)});
+                        classified = true;
+                    }
 
+                    return status;
+                };
+
+            bool allowFallback = fastCandidates.empty();
+            for (std::size_t candidateIndex = 0; candidateIndex < fastCandidates.size(); ++candidateIndex)
+            {
+                const traceStatus status = traceCandidate(fastCandidates[candidateIndex], "fast", candidateIndex);
                 if (status == SUCCESS)
                 {
-                    classifiedFragments_.push_back(
-                        ClassifiedFragment{fragment, std::move(frontWNV), std::move(backWNV)});
-                    classified = true;
                     break;
                 }
 
                 lastStatus = status;
                 if (status != PATH_INVALID)
                 {
+                    allowFallback = false;
                     break;
                 }
+                allowFallback = true;
+            }
+
+            if (!classified && allowFallback)
+            {
+                enumerateLeafClassificationFallbackPathCandidatesFromPoints(
+                    reference_.point,
+                    pointCandidates,
+                    aabb_,
+                    [&](LeafClassificationPathCandidate candidate)
+                    {
+                        const std::size_t candidateIndex = fallbackCandidateCount;
+                        ++fallbackCandidateCount;
+                        const traceStatus status = traceCandidate(candidate, "fallback", candidateIndex);
+                        if (status == SUCCESS)
+                        {
+                            return false;
+                        }
+
+                        lastStatus = status;
+                        return status == PATH_INVALID;
+                    });
             }
 
             if (!classified)
@@ -184,9 +221,11 @@ namespace ember
                         << " at depth "
                         << depth_
                         << " after "
-                        << candidates.size()
-                        << " path candidates from "
-                        << pointCandidateCount
+                        << fastCandidateCount
+                        << " fast path candidates and "
+                        << fallbackCandidateCount
+                        << " fallback path candidates from "
+                        << pointCandidates.size()
                         << " point candidates; last trace status = "
                         << traceStatusName(lastStatus)
                         << ".";

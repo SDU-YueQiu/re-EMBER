@@ -179,6 +179,46 @@ void runBoolProblemTests()
     }
 
     {
+        ember::AABB3i box;
+        box.xMin = 0;
+        box.xMax = 10;
+        box.yMin = 0;
+        box.yMax = 10;
+        box.zMin = 0;
+        box.zMax = 10;
+        box.valid = true;
+
+        const PlanePoint3i reference = ember::makeIntegerPoint(1, 1, 1);
+        const PlanePoint3i target(
+            Plane3i(0, 2, 0, -9),
+            Plane3i(0, 0, 2, -9),
+            Plane3i(2, 0, 0, -9));
+        const std::vector<PlanePoint3i> targetPoints{target};
+
+        const std::vector<ember::LeafClassificationPathCandidate> fastCandidates =
+            ember::enumerateLeafClassificationFastPathCandidatesFromPoints(reference, targetPoints, box);
+        assert(fastCandidates.empty());
+
+        std::size_t visitedFallbackCandidates = 0;
+        const std::size_t emittedFallbackCandidates =
+            ember::enumerateLeafClassificationFallbackPathCandidatesFromPoints(
+                reference,
+                targetPoints,
+                box,
+                [&](ember::LeafClassificationPathCandidate candidate)
+                {
+                    ++visitedFallbackCandidates;
+                    assert(!candidate.path.empty());
+                    assert(ember::areSamePlanePoint(candidate.path.front().getStartPoint(), reference));
+                    assert(ember::areSamePlanePoint(candidate.path.back().getEndPoint(), target));
+                    return false;
+                });
+
+        assert(emittedFallbackCandidates == 1u);
+        assert(visitedFallbackCandidates == 1u);
+    }
+
+    {
         ember::BoolProblem problem(2);
         problem.setOperation(BoolOp::Union);
         problem.setOperands(lhs, rhs);
