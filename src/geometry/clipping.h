@@ -44,7 +44,8 @@ namespace ember
             const Polygon256& source,
             const Plane3i& clipPlane,
             Polygon256& frontClipped,
-            Polygon256& backClipped);
+            Polygon256& backClipped,
+            PolygonEdgeProvenance insertedEdgeProvenance = PolygonEdgeProvenance::Regular);
     }
 
     bool clipLeafGeometryByPlane(const Polygon256& source, const Plane3i& clipPlane, Polygon256& frontClipped, Polygon256& backClipped);
