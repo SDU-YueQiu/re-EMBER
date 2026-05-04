@@ -1,6 +1,6 @@
 /**
  * @file clipping.cpp
- * @brief Implements exact polygon-plane intersection and clipping operations.
+ * @brief 实现精确的多边形-平面相交与裁剪操作。
  */
 #include "clipping.h"
 
@@ -71,8 +71,8 @@ namespace ember
             const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
             const Plane3i& segmentEdge = source.edgePlanes[i];
 
-            const int sSide = sides[i];//startSide
-            const int eSide = sides[next];//endSide
+            const int sSide = sides[i];// 起点侧别。
+            const int eSide = sides[next];// 终点侧别。
 
             if (sSide == 0 && eSide == 0)
             {
@@ -180,7 +180,7 @@ namespace ember
 		int side11 = vq1.classify(p1);
 
         //边平面法向必须指向外侧
-        //vq0 vq1都在p的外侧说明没相交
+        // vq0 和 vq1 都在 p 的外侧时，说明两段没有相交。
         if (side00 >= 0 && side10 >= 0) {
             return false;
         }
@@ -275,7 +275,7 @@ namespace ember
 		backClipped.WNTV = source.WNTV;
 
 		const std::size_t n = source.edgeCount();
-        const Plane3i oppositePlane(-clipPlane.a, -clipPlane.b, -clipPlane.c, -clipPlane.d);//-c(x)<0 => c(x)>0
+        const Plane3i oppositePlane(-clipPlane.a, -clipPlane.b, -clipPlane.c, -clipPlane.d);// 取反后表示裁剪平面的另一侧。
 
 		std::vector<int> sides;
 		sides.resize(n);
