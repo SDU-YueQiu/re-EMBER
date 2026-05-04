@@ -1,3 +1,7 @@
+/**
+ * @file leaf_arrangement.h
+ * @brief Declares leaf arrangement construction for subdivision leaves.
+ */
 #pragma once
 
 #include "geometry/geometry256.h"

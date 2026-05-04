@@ -1,4 +1,8 @@
-﻿#include "WNV_tracing.h"
+/**
+ * @file WNV_tracing.cpp
+ * @brief Implements WNV propagation along validated tracing paths.
+ */
+#include "WNV_tracing.h"
 #include "algorithm/tracing_geometry.h"
 
 #include <utility>

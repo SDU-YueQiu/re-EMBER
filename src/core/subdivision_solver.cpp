@@ -1,10 +1,15 @@
-#include "core/bool_problem.h"
+/**
+ * @file subdivision_solver.cpp
+ * @brief Implements recursive spatial subdivision and child-reference propagation.
+ */
+#include "core/subdivision_solver.h"
 
 #include "algorithm/path_candidates.h"
 #include "algorithm/WNV_tracing.h"
 #include "core/logging.h"
 #include "geometry/polygon_ops.h"
 
+#include <algorithm>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -13,9 +18,11 @@ namespace ember
 {
     namespace
     {
-        constexpr const char *kBoolProblemSolveRecursiveScope = "BoolProblem::solveRecursive";
-        constexpr const char *kBoolProblemChildrenScope = "BoolProblem::createChildrenFromSplit";
-        constexpr const char *kBoolProblemChildReferenceScope = "BoolProblem::makeChildReference";
+        constexpr const char *kBoolProblemSolveScope = "SubdivisionSolver::solve";
+        constexpr const char *kBoolProblemRootReferenceScope = "SubdivisionSolver::initializeRootReference";
+        constexpr const char *kBoolProblemSolveRecursiveScope = "SubdivisionSolver::solveRecursive";
+        constexpr const char *kBoolProblemChildrenScope = "SubdivisionSolver::createChildrenFromSplit";
+        constexpr const char *kBoolProblemChildReferenceScope = "SubdivisionSolver::makeChildReference";
 
         template <typename Builder>
         void logBoolInfo(const char *scope, Builder &&builder)
@@ -67,10 +74,131 @@ namespace ember
                     << "]}";
             return message.str();
         }
+
+        std::size_t computeWNVSize(const std::vector<Polygon256> &polygons) noexcept
+        {
+            std::size_t dimension = 0;
+            for (const Polygon256 &polygon : polygons)
+            {
+                dimension = std::max(dimension, polygon.WNTV.size());
+            }
+
+            return dimension;
+        }
+    }
+
+    SubdivisionSolver::SubdivisionSolver(
+        BoolOp op,
+        std::size_t leafPolygonThreshold,
+        const std::vector<Polygon256> &polygons)
+        : op_(op),
+          leafPolygonThreshold_(leafPolygonThreshold == 0 ? 1 : leafPolygonThreshold),
+          polygons_(polygons)
+    {
+    }
+
+    SubdivisionSolver::SubdivisionSolver(
+        BoolOp op,
+        std::size_t leafPolygonThreshold,
+        std::size_t depth,
+        std::vector<Polygon256> polygons,
+        const AABB3i &aabb,
+        SubdivisionRefState reference)
+        : op_(op),
+          leafPolygonThreshold_(leafPolygonThreshold == 0 ? 1 : leafPolygonThreshold),
+          depth_(depth),
+          aabb_(aabb),
+          reference_(std::move(reference)),
+          polygons_(std::move(polygons))
+    {
+    }
+
+    void SubdivisionSolver::solve()
+    {
+        resetSolveState();
+        if (polygons_.empty())
+        {
+            discarded_ = true;
+            solved_ = true;
+            return;
+        }
+
+        aabb_ = computeAABB(polygons_);
+        if (!isValidAABB(aabb_))
+        {
+            std::ostringstream message;
+            message << "SubdivisionSolver failed to compute a valid root AABB root_aabb="
+                    << formatAABB(aabb_)
+                    << ".";
+            emitLog(LogLevel::Error, LogCategory::BoolProblem, kBoolProblemSolveScope, message.str());
+            throw std::runtime_error(message.str());
+        }
+
+        logBoolInfo(
+            kBoolProblemSolveScope,
+            [this]()
+            {
+                return "Computed valid root AABB root_aabb=" + formatAABB(aabb_) + ".";
+            });
+
+        initializeRootReference();
+        solveRecursive();
+        leafSummaries_.clear();
+        collectLeafSummaries(leafSummaries_);
+    }
+
+    bool SubdivisionSolver::isDiscarded() const noexcept
+    {
+        return discarded_;
+    }
+
+    const std::vector<Polygon256> &SubdivisionSolver::resultFragments() const noexcept
+    {
+        return resultFragments_;
+    }
+
+    const std::vector<BoolLeafSummary> &SubdivisionSolver::leafSummaries() const noexcept
+    {
+        return leafSummaries_;
+    }
+
+    void SubdivisionSolver::resetSolveState() noexcept
+    {
+        depth_ = 0;
+        isLeaf_ = true;
+        discarded_ = false;
+        solved_ = false;
+        splitPlane_ = Plane3i();
+        aabb_ = AABB3i();
+        reference_ = SubdivisionRefState();
+        leafFragments_.clear();
+        classifiedFragments_.clear();
+        resultFragments_.clear();
+        leafSummaries_.clear();
+        leftChild_.reset();
+        rightChild_.reset();
+    }
+
+    void SubdivisionSolver::initializeRootReference()
+    {
+        reference_.point = getAABBCornerPoint(aabb_, false, false, false);
+        reference_.wnv.assign(computeWNVSize(polygons_), 0);
+
+        logBoolDebug(
+            kBoolProblemRootReferenceScope,
+            [this]()
+            {
+                std::ostringstream message;
+                message << "Initialized root reference depth=" << depth_
+                        << " wnv_dimension=" << reference_.wnv.size()
+                        << " point=" << reference_.point
+                        << ".";
+                return message.str();
+            });
     }
 
     // 递归推进 subdivision；到达叶子后立即执行局部 BSP 和 WNV 分类。
-    void BoolProblem::solveRecursive()
+    void SubdivisionSolver::solveRecursive()
     {
         if (polygons_.empty() || !isValidAABB(aabb_))
         {
@@ -202,13 +330,13 @@ namespace ember
     }
 
     // 叶子阈值和 AABB 可切分性共同决定当前节点是否停止递归。
-    bool BoolProblem::shouldStopSubdivision() const noexcept
+    bool SubdivisionSolver::shouldStopSubdivision() const noexcept
     {
         return polygons_.size() <= leafPolygonThreshold_ || !hasSplittableAxis(aabb_);
     }
 
     // 裁剪当前 polygon soup 到左右子 AABB，并为每个非空子问题建立参考状态。
-    bool BoolProblem::createChildrenFromSplit(const AABBSplit3i &split)
+    bool SubdivisionSolver::createChildrenFromSplit(const AABBSplit3i &split)
     {
         std::vector<Polygon256> leftPolygons;
         std::vector<Polygon256> rightPolygons;
@@ -273,22 +401,24 @@ namespace ember
 
         if (!leftPolygons.empty())
         {
-            leftChild_ = std::make_unique<BoolProblem>(leafPolygonThreshold_);
-            leftChild_->op_ = op_;
-            leftChild_->depth_ = depth_ + 1;
-            leftChild_->polygons_ = std::move(leftPolygons);
-            leftChild_->aabb_ = split.left;
-            leftChild_->reference_ = std::move(leftReference);
+            leftChild_.reset(new SubdivisionSolver(
+                op_,
+                leafPolygonThreshold_,
+                depth_ + 1,
+                std::move(leftPolygons),
+                split.left,
+                std::move(leftReference)));
         }
 
         if (!rightPolygons.empty())
         {
-            rightChild_ = std::make_unique<BoolProblem>(leafPolygonThreshold_);
-            rightChild_->op_ = op_;
-            rightChild_->depth_ = depth_ + 1;
-            rightChild_->polygons_ = std::move(rightPolygons);
-            rightChild_->aabb_ = split.right;
-            rightChild_->reference_ = std::move(rightReference);
+            rightChild_.reset(new SubdivisionSolver(
+                op_,
+                leafPolygonThreshold_,
+                depth_ + 1,
+                std::move(rightPolygons),
+                split.right,
+                std::move(rightReference)));
         }
 
         logBoolDebug(
@@ -307,7 +437,7 @@ namespace ember
     }
 
     // 优先复用仍在子 AABB 内且不落在表面上的参考点，否则枚举 AABB 路径传播 WNV。
-    bool BoolProblem::makeChildReference(
+    bool SubdivisionSolver::makeChildReference(
         const AABB3i &childBox,
         const std::vector<Polygon256> &childPolygons,
         SubdivisionRefState &outReference) const
@@ -411,5 +541,28 @@ namespace ember
                 return message.str();
             });
         return false;
+    }
+
+    void SubdivisionSolver::collectLeafSummaries(std::vector<BoolLeafSummary> &outSummaries) const
+    {
+        if (discarded_)
+        {
+            return;
+        }
+
+        if (isLeaf_)
+        {
+            outSummaries.push_back(BoolLeafSummary{depth_, polygons_.size(), aabb_, discarded_});
+            return;
+        }
+
+        if (leftChild_)
+        {
+            leftChild_->collectLeafSummaries(outSummaries);
+        }
+        if (rightChild_)
+        {
+            rightChild_->collectLeafSummaries(outSummaries);
+        }
     }
 }

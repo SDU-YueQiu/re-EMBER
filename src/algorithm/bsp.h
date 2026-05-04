@@ -1,4 +1,8 @@
-﻿#include "geometry/geometry256.h"
+/**
+ * @file bsp.h
+ * @brief Declares the local BSP tree used to cut one base polygon by others.
+ */
+#include "geometry/geometry256.h"
 #include "geometry/clipping.h"
 #include <memory>
 #include <vector>

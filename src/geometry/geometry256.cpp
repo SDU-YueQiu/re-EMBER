@@ -1,4 +1,8 @@
-﻿#include "geometry256.h"
+/**
+ * @file geometry256.cpp
+ * @brief Implements exact 256-bit line, segment, and polygon geometry operations.
+ */
+#include "geometry256.h"
 
 #include <utility>
 

@@ -1,3 +1,7 @@
+/**
+ * @file aabb.h
+ * @brief Defines integer AABB helpers and midpoint split operations.
+ */
 #pragma once
 
 #include "geometry/geometry256.h"
