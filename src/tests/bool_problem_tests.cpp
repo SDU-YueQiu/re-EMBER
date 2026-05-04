@@ -7,6 +7,8 @@
 #include "core/bool_problem.h"
 #include "algorithm/WNV_tracing.h"
 #include "algorithm/path_candidates.h"
+#include "algorithm/tracing_geometry.h"
+#include "geometry/clipping.h"
 
 #include <cassert>
 #include <functional>
@@ -17,6 +19,7 @@
 namespace
 {
     using ember::BoolOp;
+    using ember::Integer;
     using ember::Plane3i;
     using ember::PlanePoint3i;
     using ember::Polygon256;
@@ -86,6 +89,26 @@ namespace
         polygon.addEdgePlane(Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(1, 0, 0)));
         polygon.WNTV = {1, 0};
         return polygon;
+    }
+
+    Polygon256 makeSubdivisionClippedFaceYZ()
+    {
+        Polygon256 polygon = makeFaceYZ(0, 0, 4, 0, 4, 1);
+        polygon.WNTV = {1, 0};
+
+        Polygon256 frontPolygon;
+        Polygon256 backPolygon;
+        if (!ember::detail::clipLeafGeometryByPlaneTrusted(
+                polygon,
+                Plane3i::fromPointNormal(Vec3i(0, 2, 0), Vec3i(0, 1, 0)),
+                frontPolygon,
+                backPolygon,
+                ember::PolygonEdgeProvenance::SubdivisionClip))
+        {
+            throw std::runtime_error("bool_problem_tests failed to build a subdivision-clipped polygon.");
+        }
+
+        return backPolygon;
     }
 
     ember::Segment256 makeAxisSegment(const PlanePoint3i &start, const PlanePoint3i &end)
@@ -257,6 +280,30 @@ void runBoolProblemTests()
     }
 
     {
+        ember::AABB3i box;
+        box.xMin = 0;
+        box.xMax = 4;
+        box.yMin = 0;
+        box.yMax = 4;
+        box.zMin = 0;
+        box.zMax = 4;
+        box.valid = true;
+
+        const PlanePoint3i start = ember::makeIntegerPoint(-1, 1, 1);
+        const std::vector<ember::AABBPathCandidate> candidates =
+            ember::enumerateAABBPathCandidates(start, box);
+        assert(!candidates.empty());
+
+        Integer x;
+        Integer y;
+        Integer z;
+        assert(ember::detail::tryExtractExactIntegerPoint(candidates.front().targetPoint, x, y, z));
+        assert(x > box.xMin && x < box.xMax);
+        assert(y > box.yMin && y < box.yMax);
+        assert(z > box.zMin && z < box.zMax);
+    }
+
+    {
         Polygon256 crossingSurface = makeFaceYZ(0, -1, 1, -1, 1, 1);
         crossingSurface.WNTV = {1, 0};
         const std::vector<Polygon256> polygons{crossingSurface};
@@ -384,6 +431,78 @@ void runBoolProblemTests()
                    backWNV) == ember::SUCCESS);
         assert(frontWNV == ember::WNV({-1, 0}));
         assert(backWNV == ember::WNV({0, 0}));
+    }
+
+    {
+        const Polygon256 clippedSurface = makeSubdivisionClippedFaceYZ();
+        const std::vector<Polygon256> polygons{clippedSurface};
+        ember::WNV targetWNV;
+
+        const PlanePoint3i artificialLeft = ember::makeIntegerPoint(-1, 2, 1);
+        const PlanePoint3i artificialRight = ember::makeIntegerPoint(1, 2, 1);
+        const ember::Path artificialCrossing = makeAxisPath({artificialLeft, artificialRight});
+        const ember::detail::PolygonBoundaryContact artificialContact =
+            ember::detail::classifySegmentPolygonBoundaryContactUnchecked(artificialCrossing.front(), clippedSurface);
+        assert(artificialContact.type == ember::detail::PolygonBoundaryContactType::BoundaryPointHit);
+        assert(artificialContact.edgeIndices.size() == 1u);
+        assert(clippedSurface.edgeProvenance(artificialContact.edgeIndices.front()) == ember::PolygonEdgeProvenance::SubdivisionClip);
+        assert(ember::tracePathWNV(
+                   ember::refPoint(artificialLeft, ember::WNV{0, 0}),
+                   artificialCrossing,
+                   polygons,
+                   targetWNV) == ember::PATH_INVALID);
+        assert(ember::detail::tracePathWNVAllowSubdivisionClipCrossingTrusted(
+                   ember::refPoint(artificialLeft, ember::WNV{0, 0}),
+                   artificialCrossing,
+                   polygons,
+                   targetWNV) == ember::SUCCESS);
+        assert(targetWNV == ember::WNV({-1, 0}));
+
+        const PlanePoint3i boundaryEndpoint = ember::makeIntegerPoint(0, 2, 1);
+        const ember::Path endpointOnArtificialEdge = makeAxisPath({artificialLeft, boundaryEndpoint});
+        const ember::detail::PolygonBoundaryContact endpointContact =
+            ember::detail::classifySegmentPolygonBoundaryContactUnchecked(
+                endpointOnArtificialEdge.front(),
+                clippedSurface);
+        assert(endpointContact.type == ember::detail::PolygonBoundaryContactType::EndpointOnBoundary);
+        assert(ember::detail::tracePathWNVAllowSubdivisionClipCrossingTrusted(
+                   ember::refPoint(artificialLeft, ember::WNV{0, 0}),
+                   endpointOnArtificialEdge,
+                   polygons,
+                   targetWNV) == ember::PATH_INVALID);
+
+        const PlanePoint3i mixedLeft = ember::makeIntegerPoint(-1, 2, 0);
+        const PlanePoint3i mixedRight = ember::makeIntegerPoint(1, 2, 0);
+        const ember::Path mixedVertexCrossing = makeAxisPath({mixedLeft, mixedRight});
+        const ember::detail::PolygonBoundaryContact mixedContact =
+            ember::detail::classifySegmentPolygonBoundaryContactUnchecked(mixedVertexCrossing.front(), clippedSurface);
+        assert(mixedContact.type == ember::detail::PolygonBoundaryContactType::BoundaryPointHit);
+        assert(mixedContact.edgeIndices.size() == 2u);
+        assert(ember::detail::tracePathWNVAllowSubdivisionClipCrossingTrusted(
+                   ember::refPoint(mixedLeft, ember::WNV{0, 0}),
+                   mixedVertexCrossing,
+                   polygons,
+                   targetWNV) == ember::PATH_INVALID);
+
+        const PlanePoint3i regularLeft = ember::makeIntegerPoint(-1, 0, 1);
+        const PlanePoint3i regularRight = ember::makeIntegerPoint(1, 0, 1);
+        const ember::Path regularCrossing = makeAxisPath({regularLeft, regularRight});
+        const ember::detail::PolygonBoundaryContact regularContact =
+            ember::detail::classifySegmentPolygonBoundaryContactUnchecked(regularCrossing.front(), clippedSurface);
+        assert(regularContact.type == ember::detail::PolygonBoundaryContactType::BoundaryPointHit);
+        assert(!regularContact.edgeIndices.empty());
+        assert(clippedSurface.edgeProvenance(regularContact.edgeIndices.front()) == ember::PolygonEdgeProvenance::Regular);
+        assert(ember::detail::tracePathWNVAllowSubdivisionClipCrossingTrusted(
+                   ember::refPoint(regularLeft, ember::WNV{0, 0}),
+                   regularCrossing,
+                   polygons,
+                   targetWNV) == ember::PATH_INVALID);
+
+        const ember::Path edgeOverlapPath = makeAxisPath(
+            {ember::makeIntegerPoint(0, 2, -1), ember::makeIntegerPoint(0, 2, 3)});
+        const ember::detail::PolygonBoundaryContact overlapContact =
+            ember::detail::classifySegmentPolygonBoundaryContactUnchecked(edgeOverlapPath.front(), clippedSurface);
+        assert(overlapContact.type == ember::detail::PolygonBoundaryContactType::EdgeOverlap);
     }
 
     {

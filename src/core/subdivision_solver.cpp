@@ -85,6 +85,17 @@ namespace ember
 
             return dimension;
         }
+
+        bool isPointStrictlyInsideAABB(const PlanePoint3i &point, const AABB3i &box) noexcept
+        {
+            Integer x;
+            Integer y;
+            Integer z;
+            return detail::tryExtractExactIntegerPoint(point, x, y, z) &&
+                   x > box.xMin && x < box.xMax &&
+                   y > box.yMin && y < box.yMax &&
+                   z > box.zMin && z < box.zMax;
+        }
     }
 
     SubdivisionSolver::SubdivisionSolver(
@@ -346,13 +357,23 @@ namespace ember
         for (const Polygon256 &polygon : polygons_)
         {
             Polygon256 leftPolygon;
-            if (detail::clipPolygonToHalfSpace(polygon, split.splitPlane, true, leftPolygon))
+            if (detail::clipPolygonToHalfSpace(
+                    polygon,
+                    split.splitPlane,
+                    true,
+                    leftPolygon,
+                    PolygonEdgeProvenance::SubdivisionClip))
             {
                 leftPolygons.push_back(std::move(leftPolygon));
             }
 
             Polygon256 rightPolygon;
-            if (detail::clipPolygonToHalfSpace(polygon, split.splitPlane, false, rightPolygon))
+            if (detail::clipPolygonToHalfSpace(
+                    polygon,
+                    split.splitPlane,
+                    false,
+                    rightPolygon,
+                    PolygonEdgeProvenance::SubdivisionClip))
             {
                 rightPolygons.push_back(std::move(rightPolygon));
             }
@@ -442,7 +463,8 @@ namespace ember
         const std::vector<Polygon256> &childPolygons,
         SubdivisionRefState &outReference) const
     {
-        if (isPointInsideOrOnAABB(reference_.point, childBox))
+        const bool sourceReferenceIsStrictInterior = isPointStrictlyInsideAABB(reference_.point, childBox);
+        if (sourceReferenceIsStrictInterior)
         {
             bool onSurface = false;
             for (const Polygon256 &polygon : childPolygons)
@@ -476,6 +498,36 @@ namespace ember
         for (std::size_t candidateIndex = 0; candidateIndex < candidates.size(); ++candidateIndex)
         {
             const AABBPathCandidate &candidate = candidates[candidateIndex];
+            if (!sourceReferenceIsStrictInterior &&
+                candidate.path.empty() &&
+                areSamePlanePoint(candidate.targetPoint, reference_.point))
+            {
+                bool onSupportPlane = false;
+                for (const Polygon256 &polygon : childPolygons)
+                {
+                    if (candidate.targetPoint.classify(polygon.plane) == 0)
+                    {
+                        onSupportPlane = true;
+                        break;
+                    }
+                }
+
+                if (onSupportPlane)
+                {
+                    logTracingDebug(
+                        kBoolProblemChildReferenceScope,
+                        [this, candidateIndex]()
+                        {
+                            std::ostringstream message;
+                            message << "Skipped child reference candidate depth=" << depth_
+                                    << " candidate_index=" << candidateIndex
+                                    << " path_segments=0 reason=source_on_child_surface_plane.";
+                            return message.str();
+                        });
+                    continue;
+                }
+            }
+
             bool onSurface = false;
             for (const Polygon256 &polygon : childPolygons)
             {
@@ -502,7 +554,11 @@ namespace ember
             }
 
             WNV propagatedWNV;
-            const traceStatus status = detail::tracePathWNVTrusted(sourceRef, candidate.path, polygons_, propagatedWNV);
+            const traceStatus status = detail::tracePathWNVAllowSubdivisionClipCrossingTrusted(
+                sourceRef,
+                candidate.path,
+                polygons_,
+                propagatedWNV);
             logTracingDebug(
                 kBoolProblemChildReferenceScope,
                 [this, candidateIndex, &candidate, status]()
