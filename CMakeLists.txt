@@ -1,4 +1,5 @@
-﻿cmake_minimum_required(VERSION 3.24)
+# Builds the kEmber library, CLI, optional visual test, and custom tests.
+cmake_minimum_required(VERSION 3.24)
 
 if(NOT DEFINED CMAKE_TOOLCHAIN_FILE AND DEFINED ENV{VCPKG_ROOT})
   set(CMAKE_TOOLCHAIN_FILE
@@ -34,28 +35,58 @@ set(KEMBER_VISUAL_TEST_SOURCE
   "${CMAKE_CURRENT_SOURCE_DIR}/src/application/visual_test.cpp"
 )
 
-file(GLOB_RECURSE KEMBER_LIBRARY_SOURCES CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/*.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/*.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/io/*.cpp"
+set(KEMBER_LIBRARY_SOURCES
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/WNV_tracing.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/bsp.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/leaf_arrangement.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/core/bool_problem.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/core/leaf_classifier.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/core/logging.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/core/subdivision_solver.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/clipping.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/geometry256.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/io/io.cpp"
 )
 
-file(GLOB_RECURSE KEMBER_LIBRARY_HEADERS CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/*.h"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.h"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/*.h"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/io/*.h"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/math/*.h"
+set(KEMBER_LIBRARY_HEADERS
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_fixdiv.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_int.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_io.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_math.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_math_gcc.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_math_long.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_math_msvc.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_uint.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/WNV_tracing.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/bsp.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/leaf_arrangement.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/path_candidate_details.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/path_candidates.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/tracing_geometry.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/core/bool_problem.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/core/logging.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/core/subdivision_solver.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/aabb.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/clipping.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/geometry256.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/plane_geometry256.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/polygon_ops.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/io/io.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/math/math256.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/math/winding_number_f.h"
 )
 
-file(GLOB_RECURSE KEMBER_TEST_SOURCES CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/tests/*.cpp"
+set(KEMBER_TEST_SOURCES
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/tests/bool_problem_tests.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/tests/io_tests.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/tests/math256_tests.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/tests/test_main.cpp"
 )
 
-file(GLOB_RECURSE KEMBER_TEST_HEADERS CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/tests/*.h"
+set(KEMBER_TEST_HEADERS
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/tests/bool_problem_tests.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/tests/io_tests.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/tests/math256_tests.h"
 )
 
 add_library(kember_lib ${KEMBER_LIBRARY_SOURCES} ${KEMBER_LIBRARY_HEADERS})

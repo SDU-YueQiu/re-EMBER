@@ -1,4 +1,8 @@
-﻿#pragma once
+/**
+ * @file WNV_tracing.h
+ * @brief Declares WNV tracing APIs and trusted internal tracing entry points.
+ */
+#pragma once
 
 #include "geometry/geometry256.h"
 #include <vector>

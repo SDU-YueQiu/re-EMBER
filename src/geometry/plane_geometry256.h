@@ -1,4 +1,8 @@
-﻿#pragma once
+/**
+ * @file plane_geometry256.h
+ * @brief Defines exact integer planes and homogeneous plane-point primitives.
+ */
+#pragma once
 
 #include "math/math256.h"
 

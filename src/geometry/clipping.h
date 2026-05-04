@@ -1,4 +1,8 @@
-﻿#pragma once
+/**
+ * @file clipping.h
+ * @brief Declares polygon intersection carrier and clipping operations.
+ */
+#pragma once
 
 #include "geometry256.h"
 

@@ -1,3 +1,4 @@
+# Profiles kEmber CLI runs and writes timing/ETW artifacts under build\perf.
 param(
     [string]$Lhs,
     [string]$Rhs,

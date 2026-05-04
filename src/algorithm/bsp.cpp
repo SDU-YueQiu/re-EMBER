@@ -1,4 +1,8 @@
-﻿#include "bsp.h"
+/**
+ * @file bsp.cpp
+ * @brief Implements local BSP insertion and leaf collection for polygon arrangements.
+ */
+#include "bsp.h"
 
 #include "core/logging.h"
 

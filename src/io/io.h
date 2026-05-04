@@ -1,4 +1,8 @@
-﻿#pragma once
+/**
+ * @file io.h
+ * @brief Declares OBJ mesh data and polygon-soup I/O APIs.
+ */
+#pragma once
 
 #include "geometry/geometry256.h"
 

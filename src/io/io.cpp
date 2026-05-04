@@ -1,3 +1,7 @@
+/**
+ * @file io.cpp
+ * @brief Implements OBJ import, quantization, polygon-soup construction, and export.
+ */
 #include "io.h"
 
 #include "core/logging.h"

@@ -1,3 +1,7 @@
+/**
+ * @file tracing_geometry.h
+ * @brief Defines geometry predicates shared by WNV tracing and path diagnostics.
+ */
 #pragma once
 
 #include "geometry/polygon_ops.h"

@@ -1,4 +1,8 @@
-﻿#pragma once
+/**
+ * @file geometry256.h
+ * @brief Declares exact 256-bit line, segment, and convex polygon primitives.
+ */
+#pragma once
 
 #include "math/math256.h"
 #include "geometry/plane_geometry256.h"

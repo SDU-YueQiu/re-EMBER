@@ -1,3 +1,7 @@
+/**
+ * @file leaf_arrangement.cpp
+ * @brief Builds leaf-local BSP arrangements for polygon soups.
+ */
 #include "leaf_arrangement.h"
 
 #include "algorithm/bsp.h"

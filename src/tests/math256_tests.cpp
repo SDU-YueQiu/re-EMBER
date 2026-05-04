@@ -1,7 +1,10 @@
-﻿#include "math256_tests.h"
+/**
+ * @file math256_tests.cpp
+ * @brief Implements regression tests for exact integer geometry primitives.
+ */
+#include "math256_tests.h"
 
 #include <cassert>
-#include <iostream>
 #include <stdexcept>
 
 #include "geometry/geometry256.h"
@@ -186,8 +189,6 @@ void runMath256Tests()
 			assert(incoming.containsOrOnBoundary(hit0));
 			assert(incoming.containsOrOnBoundary(hit1));
 
-			std::cout << "hit0 " << hit0 << std::endl;
-			std::cout << "nit1 " << hit1 << std::endl;
 		}
 
 		ember::Plane3i splitter = ember::Plane3i::fromPointNormal(Vec3i(0, 0, 3), Vec3i(-1, 1, 0));

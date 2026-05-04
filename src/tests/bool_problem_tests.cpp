@@ -1,4 +1,8 @@
-﻿#include "bool_problem_tests.h"
+/**
+ * @file bool_problem_tests.cpp
+ * @brief Implements regression tests for boolean solving and tracing behavior.
+ */
+#include "bool_problem_tests.h"
 
 #include "core/bool_problem.h"
 #include "algorithm/WNV_tracing.h"
@@ -389,16 +393,16 @@ void runBoolProblemTests()
 
         problem.solve();
 
-        std::vector<const ember::BoolProblem *> leaves;
-        problem.collectLeafProblems(leaves);
+        const std::vector<ember::BoolLeafSummary> &leaves = problem.leafSummaries();
 
         assert(problem.isSolved());
         assert(!problem.isDiscarded());
         assert(problem.resultFragments().size() == 12u);
         assert(!leaves.empty());
-        for (const ember::BoolProblem *leaf : leaves)
+        for (const ember::BoolLeafSummary &leaf : leaves)
         {
-            assert(leaf->polygonCount() <= 2u || !ember::hasSplittableAxis(leaf->aabb()));
+            assert(!leaf.discarded);
+            assert(leaf.polygonCount <= 2u || !ember::hasSplittableAxis(leaf.aabb));
         }
         for (const Polygon256 &fragment : problem.resultFragments())
         {

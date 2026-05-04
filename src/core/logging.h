@@ -1,3 +1,7 @@
+/**
+ * @file logging.h
+ * @brief Declares logging levels, categories, and helper entry points.
+ */
 #pragma once
 
 #include <string>

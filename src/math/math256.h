@@ -1,4 +1,8 @@
-﻿#pragma once
+/**
+ * @file math256.h
+ * @brief Defines fixed-width integer vector and determinant math utilities.
+ */
+#pragma once
 
 #include <slimcpplib/long_int.h>
 #include <slimcpplib/long_io.h>

@@ -1,3 +1,7 @@
+/**
+ * @file logging.cpp
+ * @brief Implements lightweight logging configuration and emission helpers.
+ */
 #include "logging.h"
 
 #include <spdlog/logger.h>

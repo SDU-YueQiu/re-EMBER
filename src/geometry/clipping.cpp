@@ -1,4 +1,8 @@
-﻿#include "clipping.h"
+/**
+ * @file clipping.cpp
+ * @brief Implements exact polygon-plane intersection and clipping operations.
+ */
+#include "clipping.h"
 
 #include "core/logging.h"
 

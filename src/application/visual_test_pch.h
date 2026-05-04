@@ -1,3 +1,7 @@
+/**
+ * @file visual_test_pch.h
+ * @brief Provides precompiled includes for the visual-test application.
+ */
 #pragma once
 
 #include "core/bool_problem.h"

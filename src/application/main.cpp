@@ -1,3 +1,7 @@
+/**
+ * @file main.cpp
+ * @brief Implements the command-line OBJ boolean application.
+ */
 #include "core/bool_problem.h"
 #include "io/io.h"
 
