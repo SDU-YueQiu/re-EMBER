@@ -309,7 +309,12 @@ namespace ember
     }
 
     //按顶点分类裁剪
-    bool detail::clipLeafGeometryByPlaneTrusted(const Polygon256& source, const Plane3i& clipPlane, Polygon256& frontClipped, Polygon256& backClipped)
+    bool detail::clipLeafGeometryByPlaneTrusted(
+        const Polygon256& source,
+        const Plane3i& clipPlane,
+        Polygon256& frontClipped,
+        Polygon256& backClipped,
+        PolygonEdgeProvenance insertedEdgeProvenance)
     {
         if (arePlaneNormalsParallel(source.plane, clipPlane))
         {
@@ -346,6 +351,7 @@ namespace ember
         {
             const std::size_t next = (i + 1 == n) ? 0 : (i + 1);
             const Plane3i& segmentEdge = source.edgePlanes[i];
+            const PolygonEdgeProvenance segmentEdgeProvenance = source.edgeProvenance(i);
 
             const int sSide = sides[i];
             const int eSide = sides[next];
@@ -366,13 +372,13 @@ namespace ember
 
             if (sInside && eInside)
             {
-				frontClipped.addEdgePlane(segmentEdge);
+				frontClipped.addEdgePlane(segmentEdge, segmentEdgeProvenance);
                 continue;
             }
 
             if (!sInside && !eInside)
             {
-				backClipped.addEdgePlane(segmentEdge);
+				backClipped.addEdgePlane(segmentEdge, segmentEdgeProvenance);
                 continue;
             }
 
@@ -380,28 +386,34 @@ namespace ember
             {
 				if (sSide == 1) // (s,e) == (1, -1)
                 {
-                    frontClipped.addEdgePlane(segmentEdge);
+                    frontClipped.addEdgePlane(segmentEdge, segmentEdgeProvenance);
                 }
-				frontClipped.addEdgePlane(oppositePlane);
+				frontClipped.addEdgePlane(oppositePlane, insertedEdgeProvenance);
 
-                backClipped.addEdgePlane(segmentEdge);
+                backClipped.addEdgePlane(segmentEdge, segmentEdgeProvenance);
                 continue;
             }
 
             if (!sInside && eInside)
             {
-                backClipped.addEdgePlane(segmentEdge);
-				backClipped.addEdgePlane(clipPlane);
+                backClipped.addEdgePlane(segmentEdge, segmentEdgeProvenance);
+				backClipped.addEdgePlane(clipPlane, insertedEdgeProvenance);
                 if (eSide == 1) // (s,e) == (-1, 1)
                 {
-                    frontClipped.addEdgePlane(segmentEdge);
+                    frontClipped.addEdgePlane(segmentEdge, segmentEdgeProvenance);
 				}
             }
         }
 
-        Polygon256 orientedFront(frontClipped.plane, std::move(frontClipped.edgePlanes));
+        Polygon256 orientedFront(
+            frontClipped.plane,
+            std::move(frontClipped.edgePlanes),
+            std::move(frontClipped.edgeProvenances));
         orientedFront.WNTV = std::move(frontClipped.WNTV);
-        Polygon256 orientedBack(backClipped.plane, std::move(backClipped.edgePlanes));
+        Polygon256 orientedBack(
+            backClipped.plane,
+            std::move(backClipped.edgePlanes),
+            std::move(backClipped.edgeProvenances));
         orientedBack.WNTV = std::move(backClipped.WNTV);
 
         const bool frontValid = orientedFront.isValid();

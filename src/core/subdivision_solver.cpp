@@ -166,7 +166,12 @@ namespace ember
 
             Polygon256 frontClipped;
             Polygon256 backClipped;
-            if (!detail::clipLeafGeometryByPlaneTrusted(polygon, splitPlane, frontClipped, backClipped))
+            if (!detail::clipLeafGeometryByPlaneTrusted(
+                    polygon,
+                    splitPlane,
+                    frontClipped,
+                    backClipped,
+                    PolygonEdgeProvenance::SubdivisionClip))
             {
                 return false;
             }
@@ -174,6 +179,17 @@ namespace ember
             leftPolygons.push_back(std::move(backClipped));
             rightPolygons.push_back(std::move(frontClipped));
             return true;
+        }
+
+        bool isPointStrictlyInsideAABB(const PlanePoint3i &point, const AABB3i &box) noexcept
+        {
+            Integer x;
+            Integer y;
+            Integer z;
+            return detail::tryExtractExactIntegerPoint(point, x, y, z) &&
+                   x > box.xMin && x < box.xMax &&
+                   y > box.yMin && y < box.yMax &&
+                   z > box.zMin && z < box.zMax;
         }
     }
 
@@ -589,7 +605,8 @@ namespace ember
         const std::vector<Polygon256> &childPolygons,
         SubdivisionRefState &outReference) const
     {
-        if (isPointInsideOrOnAABB(reference_.point, childBox))
+        const bool sourceReferenceIsStrictInterior = isPointStrictlyInsideAABB(reference_.point, childBox);
+        if (sourceReferenceIsStrictInterior)
         {
             bool onSurface = false;
             for (const Polygon256 &polygon : childPolygons)
@@ -623,6 +640,36 @@ namespace ember
         for (std::size_t candidateIndex = 0; candidateIndex < candidates.size(); ++candidateIndex)
         {
             const AABBPathCandidate &candidate = candidates[candidateIndex];
+            if (!sourceReferenceIsStrictInterior &&
+                candidate.path.empty() &&
+                areSamePlanePoint(candidate.targetPoint, reference_.point))
+            {
+                bool onSupportPlane = false;
+                for (const Polygon256 &polygon : childPolygons)
+                {
+                    if (candidate.targetPoint.classify(polygon.plane) == 0)
+                    {
+                        onSupportPlane = true;
+                        break;
+                    }
+                }
+
+                if (onSupportPlane)
+                {
+                    logTracingDebug(
+                        kBoolProblemChildReferenceScope,
+                        [this, candidateIndex]()
+                        {
+                            std::ostringstream message;
+                            message << "Skipped child reference candidate depth=" << depth_
+                                    << " candidate_index=" << candidateIndex
+                                    << " path_segments=0 reason=source_on_child_surface_plane.";
+                            return message.str();
+                        });
+                    continue;
+                }
+            }
+
             bool onSurface = false;
             for (const Polygon256 &polygon : childPolygons)
             {
@@ -649,7 +696,11 @@ namespace ember
             }
 
             WNV propagatedWNV;
-            const traceStatus status = detail::tracePathWNVTrusted(sourceRef, candidate.path, polygons_, propagatedWNV);
+            const traceStatus status = detail::tracePathWNVAllowSubdivisionClipCrossingTrusted(
+                sourceRef,
+                candidate.path,
+                polygons_,
+                propagatedWNV);
             logTracingDebug(
                 kBoolProblemChildReferenceScope,
                 [this, candidateIndex, &candidate, status]()

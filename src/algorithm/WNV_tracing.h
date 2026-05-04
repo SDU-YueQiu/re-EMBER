@@ -95,6 +95,18 @@ namespace ember
             WNV &targetWNV);
 
         /**
+         * @brief 在调用方已验证输入的前提下，允许 subdivision 裁剪边的单点横穿继续传播 WNV。
+         *
+         * @pre `polygons` 均为有效 polygon，且其 `WNTV` 维度与 `refpoint.wnv` 一致。
+         * @pre `path` 为空，或由有效线段组成并从 `refpoint.point` 连续连接到目标点。
+         */
+        traceStatus tracePathWNVAllowSubdivisionClipCrossingTrusted(
+            const refPoint &refpoint,
+            const Path &path,
+            const std::vector<Polygon256> &polygons,
+            WNV &targetWNV);
+
+        /**
          * @brief 在调用方已验证多边形集合和路径的前提下传播到曲面目标点。
          *
          * @pre `polygons` 均为有效 polygon，且其 `WNTV` 维度与 `refpoint.wnv` 一致。

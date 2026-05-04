@@ -201,6 +201,35 @@ void runMath256Tests()
 		assert(backGeometry.isValid());
 		assert(backGeometry.edgeCount() == 3);
 
+		ember::Polygon256 taggedFrontGeometry;
+		ember::Polygon256 taggedBackGeometry;
+		assert(ember::detail::clipLeafGeometryByPlaneTrusted(
+			poly,
+			splitter,
+			taggedFrontGeometry,
+			taggedBackGeometry,
+			ember::PolygonEdgeProvenance::SubdivisionClip));
+		assert(taggedFrontGeometry.isValid());
+		assert(taggedBackGeometry.isValid());
+		std::size_t taggedFrontClipEdges = 0;
+		for (const auto provenance : taggedFrontGeometry.edgeProvenances)
+		{
+			if (provenance == ember::PolygonEdgeProvenance::SubdivisionClip)
+			{
+				++taggedFrontClipEdges;
+			}
+		}
+		std::size_t taggedBackClipEdges = 0;
+		for (const auto provenance : taggedBackGeometry.edgeProvenances)
+		{
+			if (provenance == ember::PolygonEdgeProvenance::SubdivisionClip)
+			{
+				++taggedBackClipEdges;
+			}
+		}
+		assert(taggedFrontClipEdges == 1u);
+		assert(taggedBackClipEdges == 1u);
+
 		splitter = ember::Plane3i::fromPointNormal(Vec3i(1, 0, 3), Vec3i(-1, 1, 0));
 		assert(ember::clipLeafGeometryByPlane(poly, splitter, frontGeometry, backGeometry));
 
