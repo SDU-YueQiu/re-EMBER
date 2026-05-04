@@ -690,8 +690,8 @@ int main()
     using namespace ember::visual_test;
 
     SceneData scene;
-#ifdef KEMBER_SOURCE_DIR
-    const std::string sourceDir = KEMBER_SOURCE_DIR;
+#ifdef REEMBER_SOURCE_DIR
+    const std::string sourceDir = REEMBER_SOURCE_DIR;
     scene.workpiecePath = sourceDir + "/assets/visual_test/workpiece_block.obj";
     scene.toolPath = sourceDir + "/assets/visual_test/tool_box.obj";
 #else

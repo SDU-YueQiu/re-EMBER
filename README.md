@@ -1,6 +1,6 @@
-# kEmber
+# re-EMBER
 
-`kEmber` 是一个围绕 EMBER（Exact Mesh Booleans via Efficient & Robust Local Arrangements）论文复现的 C++17 原型仓库。当前目标是验证精确整数几何、局部编排、WNV/WNTV 分类和二元网格布尔流水线，而不是提供完整建模软件或通用网格修复器。
+`re-EMBER` 是一个围绕 EMBER（Exact Mesh Booleans via Efficient & Robust Local Arrangements）论文复现的 C++17 原型仓库。当前目标是验证精确整数几何、局部编排、WNV/WNTV 分类和二元网格布尔流水线，而不是提供完整建模软件或通用网格修复器。
 
 ## 当前状态
 
@@ -29,28 +29,28 @@ OBJ -> 多边形集合 -> BoolProblem -> SubdivisionSolver -> resultFragments ->
 
 ```powershell
 cmake -S . -B build
-cmake --build build --config Debug --target kEmber_tests
+cmake --build build --config Debug --target re-EMBER_tests
 ctest --test-dir build -C Debug --output-on-failure --timeout 60
-cmake --build build --config Debug --target kEmber
+cmake --build build --config Debug --target re-EMBER
 ```
 
 基础 CLI smoke：
 
 ```powershell
-build\Debug\kEmber.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\codex_boolean_smoke.obj --leaf-threshold 25
+build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\codex_boolean_smoke.obj --leaf-threshold 25
 ```
 
 I/O 中较慢的回归用环境变量开启：
 
 ```powershell
-$env:KEMBER_RUN_EXPENSIVE_IO_TESTS = '1'
-build\Debug\kEmber_tests.exe
+$env:REEMBER_RUN_EXPENSIVE_IO_TESTS = '1'
+build\Debug\re-EMBER_tests.exe
 ```
 
 ## 命令行用法
 
 ```powershell
-build\Debug\kEmber.exe --lhs <left.obj> --rhs <right.obj> --op union|intersection|difference --out <result.obj> [--scale <positive_integer>] [--leaf-threshold <positive_integer>]
+build\Debug\re-EMBER.exe --lhs <left.obj> --rhs <right.obj> --op union|intersection|difference --out <result.obj> [--scale <positive_integer>] [--leaf-threshold <positive_integer>]
 ```
 
 参数说明：

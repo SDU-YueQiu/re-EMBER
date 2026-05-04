@@ -31,7 +31,7 @@ namespace
     void printUsage()
     {
         std::cerr
-            << "Usage: kEmber --lhs <file.obj> --rhs <file.obj> "
+            << "Usage: re-EMBER --lhs <file.obj> --rhs <file.obj> "
             << "--op union|intersection|difference --out <result.obj> "
             << "[--scale <positive_integer>] [--leaf-threshold <positive_integer>]"
             << std::endl;

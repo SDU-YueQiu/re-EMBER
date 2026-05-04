@@ -22,8 +22,8 @@
 
 ```powershell
 cmake -S . -B build
-cmake --build build --config Debug --target kEmber_tests
+cmake --build build --config Debug --target re-EMBER_tests
 ctest --test-dir build -C Debug --output-on-failure --timeout 60
-cmake --build build --config Debug --target kEmber
-build\Debug\kEmber.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\codex_boolean_smoke.obj --leaf-threshold 25
+cmake --build build --config Debug --target re-EMBER
+build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\codex_boolean_smoke.obj --leaf-threshold 25
 ```
