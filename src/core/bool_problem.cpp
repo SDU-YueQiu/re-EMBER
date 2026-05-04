@@ -1,6 +1,6 @@
 /**
  * @file bool_problem.cpp
- * @brief Implements the public boolean-problem facade and input validation.
+ * @brief 实现公开布尔问题门面及输入校验。
  */
 #include "bool_problem.h"
 

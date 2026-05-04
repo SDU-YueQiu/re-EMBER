@@ -1,6 +1,6 @@
 /**
  * @file visual_test_pch.h
- * @brief Provides precompiled includes for the visual-test application.
+ * @brief 提供可视化测试程序的预编译包含文件。
  */
 #pragma once
 

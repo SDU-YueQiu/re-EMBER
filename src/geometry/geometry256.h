@@ -1,6 +1,6 @@
 /**
  * @file geometry256.h
- * @brief Declares exact 256-bit line, segment, and convex polygon primitives.
+ * @brief 声明精确 256 位线、线段和凸多边形 primitive。
  */
 #pragma once
 
@@ -42,7 +42,7 @@ namespace ember
         }
     };
 
-    // 法向要求：线段内为负，也即start和end平面法向相反向外
+    // 法向要求：线段内侧为负，也即起点和终点平面法向分别向外。
     struct Segment256
     {
         Plane3i start;
@@ -70,7 +70,7 @@ namespace ember
             if (!s.hasUniqueIntersection() || !e.hasUniqueIntersection())
                 return false;
 
-            //注意此处的处理是把法向错误和s e共面一起判断
+            // 注意：此处把法向错误和起终点共面一起判断。
             if ((s.classify(end) != -1) || (e.classify(start) != -1))
                 return false;
 
@@ -125,12 +125,12 @@ namespace ember
     /**
      * @brief 求线段和多边形的交点
      * 
-     * 并不区分严格内部，交在边上也行，但只能有一个交点，有一段重叠的返回false
+     * 并不区分严格内部，交在边上也行，但只能有一个交点；若存在一段重叠则返回 `false`。
      * 
      * @param seg 输入线段
      * @param poly 输入多边形
      * @param[out] outPoint 输出交点坐标（如果有交点）
-     * @return 如果有交点返回true，否则返回false
+     * @return 如果有交点返回 `true`，否则返回 `false`。
      * 
      * @todo 添加交在不同地方的不同返回状态
      */

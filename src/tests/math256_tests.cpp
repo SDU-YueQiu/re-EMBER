@@ -1,6 +1,6 @@
 /**
  * @file math256_tests.cpp
- * @brief Implements regression tests for exact integer geometry primitives.
+ * @brief 实现精确整数几何 primitive 的回归测试。
  */
 #include "math256_tests.h"
 
@@ -165,10 +165,10 @@ void runMath256Tests()
 			ember::Polygon256 incoming(
 				px,
 				std::vector<ember::Plane3i>{
-					ember::Plane3i::fromPointNormal(Vec3i(1, 0, 2), Vec3i(0, 1, 0)),   // y = 0
-					ember::Plane3i::fromPointNormal(Vec3i(1, 0, 2), Vec3i(0, 0, 1)),   // z = 2
-					ember::Plane3i::fromPointNormal(Vec3i(1, 1, 2), Vec3i(0, -1, 0)),  // y = 2
-					ember::Plane3i::fromPointNormal(Vec3i(1, 0, 4), Vec3i(0, 0, -1))}); // z = 4
+					ember::Plane3i::fromPointNormal(Vec3i(1, 0, 2), Vec3i(0, 1, 0)),   // 平面 y = 0。
+					ember::Plane3i::fromPointNormal(Vec3i(1, 0, 2), Vec3i(0, 0, 1)),   // 平面 z = 2。
+					ember::Plane3i::fromPointNormal(Vec3i(1, 1, 2), Vec3i(0, -1, 0)),  // 平面 y = 2。
+					ember::Plane3i::fromPointNormal(Vec3i(1, 0, 4), Vec3i(0, 0, -1))}); // 平面 z = 4。
 
 			assert(incoming.isValid());
 

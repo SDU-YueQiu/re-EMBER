@@ -1,6 +1,6 @@
 /**
  * @file plane_geometry256.h
- * @brief Defines exact integer planes and homogeneous plane-point primitives.
+ * @brief 定义精确整数平面和齐次平面点 primitive。
  */
 #pragma once
 
@@ -130,7 +130,7 @@ namespace ember
             return signum(dotPlane(s)) * signum(w);
         }
 
-        //该函数为精确相等
+        // 该函数比较齐次坐标四个分量是否完全一致。
         constexpr bool hasSameComponents(const HomPoint4i &rhs) const noexcept
         {
             return x == rhs.x && y == rhs.y && z == rhs.z && w == rhs.w;
@@ -170,9 +170,8 @@ namespace ember
     /**
      * @brief 使用当前固定宽度整数运算比较齐次点。
      *
-     * @warning This is not a general-purpose safe equality predicate for arbitrary
-     * homogeneous points. Cross multiplication can exceed the 256-bit budget; use it
-     * only when callers already know the operands are within a bounded construction.
+     * @warning 这不是任意齐次点的通用安全相等谓词。
+     * 交叉相乘可能超过 256 位预算；仅在调用方已知操作数来自有界构造时使用。
      */
     inline constexpr bool areSameHomPoint(const HomPoint4i &lhs, const HomPoint4i &rhs) noexcept
     {
@@ -231,7 +230,7 @@ namespace ember
         return !isZero(normalDeterminant(p, q, r));
     }
 
-    //该函数没有进行退化检查，注意使用hasUniqueIntersection确保不退化
+    // 该函数不做退化检查，调用前应使用 `hasUniqueIntersection()` 确认三平面有唯一交点。
     inline HomPoint4i intersectHomogeneous(const Plane3i &p, const Plane3i &q, const Plane3i &r) noexcept
     {
         const Integer x = determinant3x3(-p.d, p.b, p.c, -q.d, q.b, q.c, -r.d, r.b, r.c);

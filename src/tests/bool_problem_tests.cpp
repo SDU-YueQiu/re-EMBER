@@ -1,6 +1,6 @@
 /**
  * @file bool_problem_tests.cpp
- * @brief Implements regression tests for boolean solving and tracing behavior.
+ * @brief 实现布尔求解和路径追踪行为的回归测试。
  */
 #include "bool_problem_tests.h"
 

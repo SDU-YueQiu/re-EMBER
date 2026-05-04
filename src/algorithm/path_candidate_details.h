@@ -1,6 +1,6 @@
 /**
  * @file path_candidate_details.h
- * @brief Provides internal helpers for AABB and leaf-classification path candidates.
+ * @brief 提供 AABB 与 leaf 分类路径候选的内部辅助实现。
  */
 #pragma once
 
@@ -75,7 +75,7 @@ namespace ember
         }
 
         /**
-         * @brief 按给定轴顺序构造一条 Manhattan 风格的角点路径。
+         * @brief 按给定轴顺序构造一条曼哈顿风格的角点路径。
          */
         inline bool buildAxisAlignedCornerPath(
             const PlanePoint3i &startPoint,
@@ -338,7 +338,7 @@ namespace ember
         }
 
         /**
-         * @brief 按相邻边平面向内偏移的论文 fallback 构造内部点候选。
+         * @brief 按相邻边平面向内偏移的论文兜底策略构造内部点候选。
          */
         inline void appendInsetInteriorPointCandidates(const Polygon256 &polygon, std::vector<PlanePoint3i> &candidates)
         {
@@ -1366,7 +1366,7 @@ namespace ember
         }
 
         /**
-         * @brief 生成优先尝试的低成本 leaf 分类点候选。
+         * @brief 生成优先尝试的低成本叶子分类点候选。
          *
          * @pre `polygon` 已由阶段入口完成 `isValid()` 校验。
          */
@@ -1385,7 +1385,7 @@ namespace ember
         }
 
         /**
-         * @brief 在已验证 polygon 上生成严格内部分类点候选。
+         * @brief 在已验证多边形上生成严格内部分类点候选。
          *
          * @pre `polygon` 已由阶段入口完成 `isValid()` 校验。
          */
