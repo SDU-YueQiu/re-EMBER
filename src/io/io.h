@@ -1,6 +1,6 @@
 /**
  * @file io.h
- * @brief Declares OBJ mesh data and polygon-soup I/O APIs.
+ * @brief 声明 OBJ 网格数据和多边形集合 I/O API。
  */
 #pragma once
 
@@ -49,23 +49,23 @@ namespace ember
     };
 
     /**
-     * @brief OBJ polygon soup 构建策略。
+     * @brief OBJ 多边形集合构建策略。
      *
-     * 默认保持严格导入：每个 OBJ face 必须在量化后直接构造成一个合法 `Polygon256`。
+     * 默认保持严格导入：每个 OBJ 面必须在量化后直接构造成一个合法 `Polygon256`。
      */
     struct PolygonSoupBuildOptions
     {
         /**
-         * @brief 将量化后非共面的 n-gon face 按 OBJ 顶点顺序扇形三角化。
+         * @brief 将量化后非共面的 n 边面按 OBJ 顶点顺序扇形三角化。
          *
          * 该选项只处理“量化后非共面”这一类失败；重复点、退化、非严格凸等错误仍会失败。
-         * 已经共面的 n-gon 会原样保留为单个 `Polygon256`，不会被三角化。
+         * 已经共面的 n 边面会原样保留为单个 `Polygon256`，不会被三角化。
          */
         bool triangulateNonCoplanarFaces = false;
     };
 
     /**
-     * @brief 读取几何-only OBJ 数据。
+     * @brief 读取仅包含几何位置的 OBJ 数据。
      *
      * @param[in] path OBJ 文件路径。
      * @param[out] outMesh 成功时写入顶点和面索引。
@@ -93,7 +93,7 @@ namespace ember
         std::string &outError);
 
     /**
-     * @brief 将一个 OBJ 网格转换为 `Polygon256` polygon soup。
+     * @brief 将一个 OBJ 网格转换为 `Polygon256` 多边形集合。
      *
      * @param[in] mesh 输入 OBJ 数据。
      * @param[in] sharedScale 调用方为全部输入统一选定的量化尺度。
@@ -110,11 +110,11 @@ namespace ember
         std::string &outError);
 
     /**
-     * @brief 按指定策略将一个 OBJ 网格转换为 `Polygon256` polygon soup。
+     * @brief 按指定策略将一个 OBJ 网格转换为 `Polygon256` 多边形集合。
      *
      * @param[in] mesh 输入 OBJ 数据。
      * @param[in] sharedScale 调用方为全部输入统一选定的量化尺度。
-     * @param[in] options polygon soup 构建策略。
+     * @param[in] options 多边形集合构建策略。
      * @param[out] outPolygons 成功时写入转换后的凸多边形集合。
      * @param[out] outError 失败时写入可读错误信息。
      * @retval true 所有面都成功量化并构造成合法 `Polygon256`。
@@ -129,7 +129,7 @@ namespace ember
         std::string &outError);
 
     /**
-     * @brief 将布尔结果 polygon soup 直接导出为 OBJ `n-gon`。
+     * @brief 将布尔结果多边形集合直接导出为 OBJ n 边面。
      *
      * @param[in] fragments 待导出的结果面集合。
      * @param[in] path 输出 OBJ 路径。
@@ -138,7 +138,7 @@ namespace ember
      * @param[in] coordinateScale 将整数坐标反量化回 OBJ 坐标的共享尺度。
      * @retval true 导出成功。
      * @retval false 结果面无法恢复有序顶点，或输出文件无法写入。
-     * @note 当前导出保持 polygon soup 形态，不做三角化、拓扑缝合或 T-junction 恢复。
+     * @note 当前导出保持多边形集合形态，不做三角化、拓扑缝合或 T 形连接恢复。
      */
     bool writePolygonSoupObj(
         const std::vector<Polygon256> &fragments,
@@ -148,13 +148,13 @@ namespace ember
         std::uint64_t coordinateScale = 1);
 
     /**
-     * @brief 将 `Polygon256` polygon soup 转换为 OBJ 风格的 n-gon 网格。
+     * @brief 将 `Polygon256` 多边形集合转换为 OBJ 风格的 n 边面网格。
      *
      * 该函数按 `Polygon256` 的边平面顺序恢复每个面的有序顶点，并保留原始
-     * polygon soup 形态。
+     * 多边形集合形态。
      *
      * @param[in] fragments 待转换的结果面集合。
-     * @param[out] outMesh 成功时写入顶点和 n-gon 面索引。
+     * @param[out] outMesh 成功时写入顶点和 n 边面索引。
      * @param[out] outError 失败时写入可读错误信息。
      * @param[in] coordinateScale 将整数坐标反量化回 OBJ 坐标的共享尺度。
      * @retval true 转换成功。

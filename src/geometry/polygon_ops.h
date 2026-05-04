@@ -1,6 +1,6 @@
 /**
  * @file polygon_ops.h
- * @brief Provides inline polygon orientation and AABB clipping helpers.
+ * @brief 提供内联的多边形定向与 AABB 裁剪辅助函数。
  */
 #pragma once
 

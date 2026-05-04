@@ -1,6 +1,6 @@
 /**
  * @file geometry256.cpp
- * @brief Implements exact 256-bit line, segment, and polygon geometry operations.
+ * @brief 实现精确 256 位线、线段和多边形几何操作。
  */
 #include "geometry256.h"
 
@@ -98,7 +98,7 @@ namespace ember
             return;
         }
 
-        // TODO：为点添加更多构造函数
+        // 待办：为点添加更多构造函数。
         const PlanePoint3i startPoint(directionLine.p1, directionLine.p2, startPlane);
         const PlanePoint3i endPoint(directionLine.p1, directionLine.p2, endPlane);
         if (!startPoint.hasUniqueIntersection() || !endPoint.hasUniqueIntersection())
@@ -163,7 +163,7 @@ namespace ember
         std::vector<PlanePoint3i> vertices;
         vertices.reserve(n);
 
-        // 按约定: v_i = (plane, edge_i, edge_{i-1})
+        // 按约定：v_i = (plane, edge_i, edge_{i-1})。
         for (std::size_t i = 0; i < n; ++i)
         {
             // 顶点有效
@@ -173,13 +173,6 @@ namespace ember
             {
                 return false;
             }
-
-            // 顶点必须落在构造它的两条相邻边上
-            // 数学上是不可能出现这种情况的，这里是防御性编程，先禁用掉
-            // if (v.classify(edgePlanes[i]) != 0 || v.classify(edgePlanes[prev]) != 0)
-            // {
-            //     return false;
-            // }
 
             vertices.push_back(v);
         }

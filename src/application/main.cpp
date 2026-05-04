@@ -1,6 +1,6 @@
 /**
  * @file main.cpp
- * @brief Implements the command-line OBJ boolean application.
+ * @brief 实现基于 OBJ 的命令行布尔运算程序。
  */
 #include "core/bool_problem.h"
 #include "io/io.h"
@@ -190,7 +190,7 @@ int main(int argc, char **argv)
 
     try
     {
-        // 应用层只做三件事：OBJ -> polygon soup、驱动 BoolProblem、结果写回 OBJ。
+        // 应用层只做三件事：OBJ 转多边形集合、驱动 BoolProblem、结果写回 OBJ。
         ember::ObjMeshData lhsMesh;
         ember::ObjMeshData rhsMesh;
         std::string error;
@@ -237,7 +237,7 @@ int main(int argc, char **argv)
         problem.setOperands(lhsPolygons, rhsPolygons);
         problem.solve();
 
-        // 默认直接导出 OBJ n-gon；三角化和拓扑恢复属于调用方后处理。
+        // 默认直接导出 OBJ n 边面；三角化和拓扑恢复属于调用方后处理。
         std::size_t exportedFaces = 0;
         if (!ember::writePolygonSoupObj(problem.resultFragments(), options.outputPath, exportedFaces, error, sharedScale))
         {
