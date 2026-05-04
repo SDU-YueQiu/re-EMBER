@@ -438,7 +438,7 @@ namespace
 
     bool runExpensiveIoRegressionTests()
     {
-        const char *value = std::getenv("KEMBER_RUN_EXPENSIVE_IO_TESTS");
+        const char *value = std::getenv("REEMBER_RUN_EXPENSIVE_IO_TESTS");
         return value != nullptr && std::string(value) == "1";
     }
 }
