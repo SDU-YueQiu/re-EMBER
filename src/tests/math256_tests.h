@@ -1,6 +1,6 @@
 /**
  * @file math256_tests.h
- * @brief Declares the math and geometry test group entry point.
+ * @brief 声明数学与几何测试组入口。
  */
 #pragma once
 

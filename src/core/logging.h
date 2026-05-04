@@ -1,6 +1,6 @@
 /**
  * @file logging.h
- * @brief Declares logging levels, categories, and helper entry points.
+ * @brief 声明日志级别、类别和辅助入口。
  */
 #pragma once
 

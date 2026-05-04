@@ -1,6 +1,6 @@
 /**
  * @file bsp.h
- * @brief Declares the local BSP tree used to cut one base polygon by others.
+ * @brief 声明用其他多边形切分单个基底多边形的局部 BSP 树。
  */
 #include "geometry/geometry256.h"
 #include "geometry/clipping.h"
@@ -37,7 +37,7 @@ namespace ember
          * @brief 设置局部 BSP 的基底多边形。
          *
          * @param[in] polygon 当前局部 BSP 所对应的输入多边形。
-         * @param[in] orderKey 用于 overlap 去重的稳定顺序键。
+         * @param[in] orderKey 用于重叠区域去重的稳定顺序键。
          * @note 该操作会重置树结构，并以 `polygon` 作为初始唯一叶子。
          */
         void setBasePolygon(const Polygon256& polygon, std::size_t orderKey = 0);
@@ -55,14 +55,14 @@ namespace ember
          *
          * @param[in] polygon 待插入多边形。
          * @param[in] incomingOrder 待插入多边形的稳定顺序键。
-         * @pre `setBasePolygon()` 已设置有效 base polygon，且 `polygon.isValid()` 为真。
+         * @pre `setBasePolygon()` 已设置有效基底多边形，且 `polygon.isValid()` 为真。
          */
         void insertTrusted(const Polygon256& polygon, std::size_t incomingOrder = 0);
 
         /**
          * @brief 收集当前局部 BSP 的全部启用叶子几何。
          *
-         * @return 按树遍历顺序输出的 leaf polygon 集合。
+         * @return 按树遍历顺序输出的叶片多边形集合。
          */
         std::vector<Polygon256> collectLeafGeometries() const;
 
@@ -77,14 +77,14 @@ namespace ember
         bool contains(const PlanePoint3i& point) const noexcept;
 
     private:
-        //向node中递归插入以basepolygon.plane和insertPlane、v0、v1定义的线段
+        // 向节点中递归插入以基底多边形平面、切分平面、v0 和 v1 定义的线段。
         void addSegmentRecursive(BSPNode& node, const Plane3i& v0, const Plane3i& v1, const Plane3i& insertPlane);
         
-        //插入重叠多边形，会将polygon的所有边插入到bsp中
+        // 插入共面重叠多边形，会将该多边形的所有边插入到 BSP 中。
         void insertCoplanarPolygonEdges(const Polygon256& polygon);
         void disableOverlapLeaves(const Polygon256& polygon);
 
-        //递归检测每片叶子多边形的内部点在不在polygon中，在说明叶子多边形在polygon中，禁用掉
+        // 递归检测每片叶子多边形的内部点是否在指定多边形中；若在其中则禁用该叶片。
         static void disableOverlapLeavesRecursive(BSPNode* node, const Polygon256& polygon);
         static bool containsRecursive(const BSPNode* node, const PlanePoint3i& point) noexcept;
         static void collectLeafGeometriesRecursive(const BSPNode* node, std::vector<Polygon256>& outLeafGeometries);
