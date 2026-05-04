@@ -504,10 +504,7 @@ namespace ember
          */
         inline Plane3i makeCoordinatePlaneFromPoint(const PlanePoint3i &point, SplitAxis3i axis) noexcept
         {
-            Integer x;
-            Integer y;
-            Integer z;
-            if (!tryExtractExactIntegerPoint(point, x, y, z))
+            if (!point.hasUniqueIntersection() || isZero(point.x.w))
             {
                 return Plane3i();
             }
@@ -515,11 +512,11 @@ namespace ember
             switch (axis)
             {
             case SplitAxis3i::X:
-                return Plane3i(1, 0, 0, -x);
+                return primitivePlane(Plane3i(point.x.w, 0, 0, -point.x.x));
             case SplitAxis3i::Y:
-                return Plane3i(0, 1, 0, -y);
+                return primitivePlane(Plane3i(0, point.x.w, 0, -point.x.y));
             case SplitAxis3i::Z:
-                return Plane3i(0, 0, 1, -z);
+                return primitivePlane(Plane3i(0, 0, point.x.w, -point.x.z));
             }
 
             return Plane3i();
@@ -589,6 +586,58 @@ namespace ember
 
                 const PlanePoint3i nextPoint = makePointFromPlanes(currentCoordinatePlanes);
                 if (!nextPoint.hasUniqueIntersection() || !isPointInsideOrOnAABB(nextPoint, box))
+                {
+                    outPath.clear();
+                    return false;
+                }
+
+                Segment256 segment;
+                if (!buildAxisAlignedSegmentFromCoordinatePlanes(startCoordinatePlanes, currentCoordinatePlanes, axis, segment))
+                {
+                    outPath.clear();
+                    return false;
+                }
+
+                outPath.push_back(std::move(segment));
+                currentPoint = nextPoint;
+            }
+
+            return areSamePlanePoint(currentPoint, targetPoint);
+        }
+
+        /**
+         * @brief 构造不受某个 AABB 约束的轴对齐齐次坐标路径。
+         */
+        inline bool buildAxisAlignedFreeCoordinatePath(
+            const PlanePoint3i &startPoint,
+            const PlanePoint3i &targetPoint,
+            const std::vector<SplitAxis3i> &axisOrder,
+            std::vector<Segment256> &outPath)
+        {
+            std::array<Plane3i, 3> currentCoordinatePlanes = {
+                makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::X),
+                makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::Y),
+                makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::Z)};
+            const std::array<Plane3i, 3> targetCoordinatePlanes = {
+                makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::X),
+                makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Y),
+                makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Z)};
+
+            PlanePoint3i currentPoint = startPoint;
+            outPath.clear();
+            for (const SplitAxis3i axis : axisOrder)
+            {
+                const int axisIndex = axisOrderKey(axis);
+                if (areSamePlaneEquation(currentCoordinatePlanes[axisIndex], targetCoordinatePlanes[axisIndex]))
+                {
+                    continue;
+                }
+
+                const std::array<Plane3i, 3> startCoordinatePlanes = currentCoordinatePlanes;
+                currentCoordinatePlanes[axisIndex] = targetCoordinatePlanes[axisIndex];
+
+                const PlanePoint3i nextPoint = makePointFromPlanes(currentCoordinatePlanes);
+                if (!nextPoint.hasUniqueIntersection())
                 {
                     outPath.clear();
                     return false;
@@ -1445,11 +1494,85 @@ namespace ember
 
         const PlanePoint3i preferredTarget = projectPointToAABB(startPoint, targetBox);
 
+        auto appendCoordinatePathCandidates =
+            [&candidates, &startPoint](const PlanePoint3i &targetPoint)
+        {
+            if (!targetPoint.hasUniqueIntersection())
+            {
+                return;
+            }
+
+            const std::array<Plane3i, 3> startCoordinatePlanes = {
+                detail::makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::X),
+                detail::makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::Y),
+                detail::makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::Z)};
+            const std::array<Plane3i, 3> targetCoordinatePlanes = {
+                detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::X),
+                detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Y),
+                detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Z)};
+
+            std::vector<SplitAxis3i> changedAxes;
+            changedAxes.reserve(3);
+            if (!detail::areSamePlaneEquation(startCoordinatePlanes[0], targetCoordinatePlanes[0]))
+            {
+                changedAxes.push_back(SplitAxis3i::X);
+            }
+            if (!detail::areSamePlaneEquation(startCoordinatePlanes[1], targetCoordinatePlanes[1]))
+            {
+                changedAxes.push_back(SplitAxis3i::Y);
+            }
+            if (!detail::areSamePlaneEquation(startCoordinatePlanes[2], targetCoordinatePlanes[2]))
+            {
+                changedAxes.push_back(SplitAxis3i::Z);
+            }
+
+            if (changedAxes.empty())
+            {
+                candidates.push_back({targetPoint, {}});
+                return;
+            }
+
+            std::sort(
+                changedAxes.begin(),
+                changedAxes.end(),
+                [](SplitAxis3i lhs, SplitAxis3i rhs)
+                {
+                    return detail::axisOrderKey(lhs) < detail::axisOrderKey(rhs);
+                });
+
+            do
+            {
+                std::vector<Segment256> path;
+                if (detail::buildAxisAlignedFreeCoordinatePath(startPoint, targetPoint, changedAxes, path))
+                {
+                    candidates.push_back({targetPoint, std::move(path)});
+                }
+            } while (std::next_permutation(
+                changedAxes.begin(),
+                changedAxes.end(),
+                [](SplitAxis3i lhs, SplitAxis3i rhs)
+                {
+                    return detail::axisOrderKey(lhs) < detail::axisOrderKey(rhs);
+                }));
+        };
+
+        auto appendInteriorCenterCandidates =
+            [&appendCoordinatePathCandidates, &targetBox]()
+        {
+            const PlanePoint3i centerPoint(
+                Plane3i(2, 0, 0, -(targetBox.xMin + targetBox.xMax)),
+                Plane3i(0, 2, 0, -(targetBox.yMin + targetBox.yMax)),
+                Plane3i(0, 0, 2, -(targetBox.zMin + targetBox.zMax)));
+            appendCoordinatePathCandidates(centerPoint);
+        };
+
         Integer startX, startY, startZ;
         Integer preferredX, preferredY, preferredZ;
         if (!detail::tryExtractExactIntegerPoint(startPoint, startX, startY, startZ) ||
             !detail::tryExtractExactIntegerPoint(preferredTarget, preferredX, preferredY, preferredZ))
         {
+            appendCoordinatePathCandidates(preferredTarget);
+            appendInteriorCenterCandidates();
             return candidates;
         }
 
@@ -1620,6 +1743,7 @@ namespace ember
                 return lhs.path.size() < rhs.path.size();
             });
 
+        appendInteriorCenterCandidates();
         return candidates;
     }
 

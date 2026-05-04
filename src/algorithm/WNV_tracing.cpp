@@ -106,6 +106,13 @@ namespace ember
                     PlanePoint3i intersectPoint;
                     if (intersectionSegmentPolygon(seg, poly, intersectPoint))
                     {
+                        const detail::PolygonSurfaceLocation hitLocation =
+                            detail::classifyPolygonSurfacePointUnchecked(poly, intersectPoint);
+                        if (hitLocation != detail::PolygonSurfaceLocation::StrictInterior)
+                        {
+                            return PATH_INVALID;
+                        }
+
                         const int sigma = (pcs - pce) / 2;
                         addScaledWNTV(propagatedWNV, poly.WNTV, sigma);
                     }
