@@ -1,4 +1,8 @@
-#include "core/bool_problem.h"
+/**
+ * @file leaf_classifier.cpp
+ * @brief Implements leaf arrangement classification for the subdivision solver.
+ */
+#include "core/subdivision_solver.h"
 
 #include "algorithm/leaf_arrangement.h"
 #include "algorithm/path_candidates.h"
@@ -15,8 +19,8 @@ namespace ember
 {
     namespace
     {
-        constexpr const char *kBoolProblemLeafScope = "BoolProblem::solveLeafArrangement";
-        constexpr const char *kBoolProblemClassifyScope = "BoolProblem::classifyLeafFragmentsAndCollectResults";
+        constexpr const char *kBoolProblemLeafScope = "SubdivisionSolver::solveLeafArrangement";
+        constexpr const char *kBoolProblemClassifyScope = "SubdivisionSolver::classifyLeafFragmentsAndCollectResults";
 
         template <typename Builder>
         void logBoolDebug(const char *scope, Builder &&builder)
@@ -150,7 +154,7 @@ namespace ember
     }
 
     // 对叶子节点内的每个 polygon 建立局部 BSP，并收集启用的 fragment。
-    void BoolProblem::solveLeafArrangement()
+    void SubdivisionSolver::solveLeafArrangement()
     {
         leafFragments_.clear();
         classifiedFragments_.clear();
@@ -175,7 +179,7 @@ namespace ember
     }
 
     // 对每个 leaf fragment 追踪到严格内部点；分类失败属于不可恢复错误。
-    void BoolProblem::classifyLeafFragmentsAndCollectResults()
+    void SubdivisionSolver::classifyLeafFragmentsAndCollectResults()
     {
         resultFragments_.clear();
         classifiedFragments_.clear();
@@ -467,7 +471,7 @@ namespace ember
     }
 
     // 将 WNV 交给当前布尔运算的二元指示函数，返回内外状态。
-    BoolStatus BoolProblem::evaluateBooleanIndicator(const WNV &wnv) const noexcept
+    BoolStatus SubdivisionSolver::evaluateBooleanIndicator(const WNV &wnv) const noexcept
     {
         WNV tmp = wnv;
         switch (op_)

@@ -66,6 +66,7 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+/io_*.obj
 
 # 新加项
 out

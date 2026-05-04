@@ -1,3 +1,7 @@
+/**
+ * @file test_main.cpp
+ * @brief Runs the repository custom test groups and reports elapsed time.
+ */
 #include "bool_problem_tests.h"
 #include "io_tests.h"
 #include "math256_tests.h"

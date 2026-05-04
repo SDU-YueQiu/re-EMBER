@@ -1,3 +1,7 @@
+/**
+ * @file polygon_ops.h
+ * @brief Provides inline polygon orientation and AABB clipping helpers.
+ */
 #pragma once
 
 #include "geometry/aabb.h"

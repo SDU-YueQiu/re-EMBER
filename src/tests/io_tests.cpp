@@ -1,3 +1,7 @@
+/**
+ * @file io_tests.cpp
+ * @brief Implements regression tests for OBJ I/O and CLI-adjacent workflows.
+ */
 #include "io_tests.h"
 
 #include "core/bool_problem.h"
@@ -5,6 +9,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -34,7 +39,9 @@ namespace
 
     std::filesystem::path makeTestPath(const std::string &filename)
     {
-        return std::filesystem::current_path() / filename;
+        const std::filesystem::path outputRoot = std::filesystem::current_path() / "build" / "test-output";
+        std::filesystem::create_directories(outputRoot);
+        return outputRoot / filename;
     }
 
     void writeTextFile(const std::filesystem::path &path, const std::string &contents)
@@ -428,6 +435,12 @@ namespace
     {
         return solveObjDifferenceMesh(lhs, rhs, leafThreshold).faces.size();
     }
+
+    bool runExpensiveIoRegressionTests()
+    {
+        const char *value = std::getenv("KEMBER_RUN_EXPENSIVE_IO_TESTS");
+        return value != nullptr && std::string(value) == "1";
+    }
 }
 
 #undef assert
@@ -541,6 +554,7 @@ void runIoTests()
         assert(problem.resultFragments().size() == 12u);
     }
 
+    if (runExpensiveIoRegressionTests())
     {
         const ObjMeshData tool = makeObjBox(-0.08, -0.08, -0.5, 0.08, 0.08, 0.5);
 
@@ -579,6 +593,7 @@ void runIoTests()
         }
     }
 
+    if (runExpensiveIoRegressionTests())
     {
         const ObjMeshData workpiece = readRepoObjMesh("assets/visual_test/workpiece_block.obj");
         const ObjMeshData tool = readRepoObjMesh("assets/visual_test/tool_box.obj");

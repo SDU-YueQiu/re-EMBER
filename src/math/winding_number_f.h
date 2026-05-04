@@ -1,4 +1,8 @@
-﻿//环绕数和面分类时的指示函数
+/**
+ * @file winding_number_f.h
+ * @brief Defines WNV storage and two-operand boolean indicator functions.
+ */
+//环绕数和面分类时的指示函数
 
 #pragma once
 

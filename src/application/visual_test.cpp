@@ -1,3 +1,7 @@
+/**
+ * @file visual_test.cpp
+ * @brief Implements the optional interactive visual-test application.
+ */
 #include "core/bool_problem.h"
 #include "io/io.h"
 
