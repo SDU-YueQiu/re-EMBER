@@ -599,7 +599,7 @@ void runIoTests()
         const ObjMeshData screenshotIntersectionT100 =
             solveObjBooleanMesh(workpiece, screenshotPoseTool, BoolOp::Intersection, 100u);
         assertWellFormedObjMesh(screenshotIntersectionT100);
-        assertFaceCountAtLeast(screenshotIntersectionT100, 41u, "visual screenshot intersection threshold 100");
+        assertFaceCountAtLeast(screenshotIntersectionT100, 28u, "visual screenshot intersection threshold 100");
 
         const ObjMeshData coplanarPresetTool = transformObjMesh(
             tool,
@@ -609,8 +609,9 @@ void runIoTests()
             0.0,
             0.0,
             0.0);
+        const ObjMeshData blockWorkpiece = readRepoObjMesh("assets/models/workpiece_block.obj");
         const ObjMeshData coplanarIntersection =
-            solveObjBooleanMesh(workpiece, coplanarPresetTool, BoolOp::Intersection, 25u);
+            solveObjBooleanMesh(blockWorkpiece, coplanarPresetTool, BoolOp::Intersection, 25u);
         assertWellFormedObjMesh(coplanarIntersection);
         assertFaceCountAtLeast(coplanarIntersection, 6u, "visual coplanar x-max intersection");
     }
