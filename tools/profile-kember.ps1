@@ -9,8 +9,10 @@ param(
     [int]$Iterations = 3,
     [int]$TimeoutSeconds = 300,
     [int]$BuildTimeoutSeconds = 900,
+    [int]$ReportTimeoutSeconds = 120,
     [switch]$SkipBuild,
     [switch]$NoEtw,
+    [switch]$ResolveSymbols,
     [switch]$ForceStopExisting,
     [switch]$Help
 )
@@ -38,6 +40,8 @@ Notes:
   - Uses build\ only.
   - If -Lhs/-Rhs are omitted, the script tries common repo assets.
   - Use -NoEtw for timing-only runs.
+  - Xperf text reports are bounded by -ReportTimeoutSeconds.
+  - Use -ResolveSymbols only when you need symbol-server resolution.
   - Use -ForceStopExisting only if a stale ETW kernel logger blocks xperf.
 "@
 }
@@ -295,7 +299,9 @@ function Export-XperfReports {
         [string]$XperfPath,
         [string]$EtlPath,
         [string]$SymbolCache,
-        [string]$ReleaseDir
+        [string]$ReleaseDir,
+        [bool]$UseSymbols,
+        [int]$ReportTimeoutSec
     )
 
     if (-not $XperfPath) {
@@ -303,9 +309,14 @@ function Export-XperfReports {
         return
     }
 
-    New-Item -ItemType Directory -Force -Path $SymbolCache | Out-Null
-    $env:_NT_SYMBOL_PATH = ("{0};srv*{1}*https://msdl.microsoft.com/download/symbols" -f $ReleaseDir, $SymbolCache)
-    $env:_NT_SYMCACHE_PATH = $SymbolCache
+    if ($UseSymbols) {
+        New-Item -ItemType Directory -Force -Path $SymbolCache | Out-Null
+        $env:_NT_SYMBOL_PATH = ("{0};srv*{1}*https://msdl.microsoft.com/download/symbols" -f $ReleaseDir, $SymbolCache)
+        $env:_NT_SYMCACHE_PATH = $SymbolCache
+    }
+    else {
+        Write-Info "Skipping xperf symbol resolution. Re-run with -ResolveSymbols for symbol-server lookup."
+    }
 
     $profileOut = Join-Path $PerfRoot "xperf_profile_detail.txt"
     $profileErr = Join-Path $PerfRoot "xperf_profile_detail.err.txt"
@@ -316,10 +327,42 @@ function Export-XperfReports {
     $processCmdlineOut = Join-Path $PerfRoot "xperf_process_cmdline.txt"
     $processCmdlineErr = Join-Path $PerfRoot "xperf_process_cmdline.err.txt"
 
-    [void](Invoke-External $XperfPath @("-i", $EtlPath, "-symbols", "-o", $profileOut, "-a", "profile", "-detail") $null $profileErr 900 -IgnoreExit)
-    [void](Invoke-External $XperfPath @("-i", $EtlPath, "-symbols", "-o", $stackOut, "-a", "stack", "-process", "kEmber.exe", "-butterfly", "1") $null $stackErr 900 -IgnoreExit)
-    [void](Invoke-External $XperfPath @("-i", $EtlPath, "-o", $processOut, "-a", "process") $null $processErr 300 -IgnoreExit)
-    [void](Invoke-External $XperfPath @("-i", $EtlPath, "-o", $processCmdlineOut, "-a", "process", "-withcmdline") $null $processCmdlineErr 300 -IgnoreExit)
+    $symbolArg = @()
+    if ($UseSymbols) {
+        $symbolArg = @("-symbols")
+    }
+
+    $reports = @(
+        [pscustomobject]@{
+            Name = "xperf profile"
+            Args = @("-i", $EtlPath) + $symbolArg + @("-o", $profileOut, "-a", "profile", "-detail")
+            Stderr = $profileErr
+        },
+        [pscustomobject]@{
+            Name = "xperf stack"
+            Args = @("-i", $EtlPath) + $symbolArg + @("-o", $stackOut, "-a", "stack", "-process", "kEmber.exe", "-butterfly", "1")
+            Stderr = $stackErr
+        },
+        [pscustomobject]@{
+            Name = "xperf process"
+            Args = @("-i", $EtlPath, "-o", $processOut, "-a", "process")
+            Stderr = $processErr
+        },
+        [pscustomobject]@{
+            Name = "xperf process cmdline"
+            Args = @("-i", $EtlPath, "-o", $processCmdlineOut, "-a", "process", "-withcmdline")
+            Stderr = $processCmdlineErr
+        }
+    )
+
+    foreach ($report in $reports) {
+        try {
+            [void](Invoke-External $XperfPath $report.Args $null $report.Stderr $ReportTimeoutSec -IgnoreExit)
+        }
+        catch {
+            Write-Warning ("Skipping {0}: {1}" -f $report.Name, $_.Exception.Message)
+        }
+    }
 }
 
 function Invoke-EtwProfile {
@@ -414,7 +457,7 @@ function Invoke-EtwProfile {
     }
 
     if (Test-Path -LiteralPath $etlPath) {
-        Export-XperfReports $XperfPath $etlPath $symbolCache $releaseDir
+        Export-XperfReports $XperfPath $etlPath $symbolCache $releaseDir $ResolveSymbols.IsPresent $ReportTimeoutSeconds
     }
     else {
         Write-Info "ETW stop did not produce kember_cpu.etl."
