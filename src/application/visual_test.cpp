@@ -1,6 +1,6 @@
 /**
  * @file visual_test.cpp
- * @brief Implements the optional interactive visual-test application.
+ * @brief 实现可选的交互式可视化测试程序。
  */
 #include "core/bool_problem.h"
 #include "io/io.h"

@@ -1,6 +1,6 @@
 /**
  * @file math256.h
- * @brief Defines fixed-width integer vector and determinant math utilities.
+ * @brief 定义固定宽度整数向量和行列式数学工具。
  */
 #pragma once
 
@@ -12,7 +12,7 @@
 namespace ember
 {
     using Integer = slim::int256_t;
-    //using Integer = int;
+    // 可临时切换为 `int` 以排查小规模算例。
 
     inline constexpr int signum(const Integer& value) noexcept
     {

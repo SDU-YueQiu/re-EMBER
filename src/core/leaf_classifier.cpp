@@ -1,6 +1,6 @@
 /**
  * @file leaf_classifier.cpp
- * @brief Implements leaf arrangement classification for the subdivision solver.
+ * @brief 实现细分求解器的叶片编排分类。
  */
 #include "core/subdivision_solver.h"
 
@@ -153,7 +153,7 @@ namespace ember
         }
     }
 
-    // 对叶子节点内的每个 polygon 建立局部 BSP，并收集启用的 fragment。
+    // 对叶子节点内的每个多边形建立局部 BSP，并收集启用的片段。
     void SubdivisionSolver::solveLeafArrangement()
     {
         leafFragments_.clear();
@@ -178,7 +178,7 @@ namespace ember
             });
     }
 
-    // 对每个 leaf fragment 追踪到严格内部点；分类失败属于不可恢复错误。
+    // 对每个叶片片段追踪到严格内部点；分类失败属于不可恢复错误。
     void SubdivisionSolver::classifyLeafFragmentsAndCollectResults()
     {
         resultFragments_.clear();

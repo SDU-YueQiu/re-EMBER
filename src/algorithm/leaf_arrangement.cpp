@@ -1,6 +1,6 @@
 /**
  * @file leaf_arrangement.cpp
- * @brief Builds leaf-local BSP arrangements for polygon soups.
+ * @brief 为多边形集合构建叶子局部 BSP 编排。
  */
 #include "leaf_arrangement.h"
 

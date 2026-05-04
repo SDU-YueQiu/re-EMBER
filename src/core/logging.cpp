@@ -1,6 +1,6 @@
 /**
  * @file logging.cpp
- * @brief Implements lightweight logging configuration and emission helpers.
+ * @brief 实现轻量日志配置与发射辅助函数。
  */
 #include "logging.h"
 

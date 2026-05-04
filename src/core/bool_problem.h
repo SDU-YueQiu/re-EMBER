@@ -1,6 +1,6 @@
 /**
  * @file bool_problem.h
- * @brief Declares the public boolean-problem facade used by applications and tests.
+ * @brief 声明应用和测试使用的公开布尔问题门面。
  */
 #pragma once
 
@@ -23,23 +23,23 @@ namespace ember
     };
 
     /**
-     * @brief 已求解 leaf 节点的只读诊断摘要。
+     * @brief 已求解叶子节点的只读诊断摘要。
      *
      * 该类型只暴露调试和测试所需的结构信息，不暴露内部递归节点对象。
      */
     struct BoolLeafSummary
     {
-        std::size_t depth = 0;       ///< Leaf 在 subdivision 树中的深度。
-        std::size_t polygonCount = 0; ///< Leaf 局部 polygon soup 的大小。
-        AABB3i aabb;                ///< Leaf 局部 AABB。
-        bool discarded = false;      ///< 该 leaf 是否被求解流程丢弃。
+        std::size_t depth = 0;       ///< 叶子在细分树中的深度。
+        std::size_t polygonCount = 0; ///< 叶子局部多边形集合的大小。
+        AABB3i aabb;                ///< 叶子局部 AABB。
+        bool discarded = false;      ///< 该叶子是否被求解流程丢弃。
     };
 
     /**
      * @brief EMBER 顶层布尔问题门面。
      *
      * `BoolProblem` 只负责接收输入、保存布尔配置并暴露最终结果。
-     * subdivision、leaf arrangement 和 WNV 分类的运行时状态由内部 solver 持有。
+     * 空间细分、叶子局部编排和 WNV 分类的运行时状态由内部求解器持有。
      */
     class BoolProblem
     {
@@ -83,7 +83,7 @@ namespace ember
         void addPolygon(const Polygon256 &polygon);
 
         /**
-         * @brief 直接设置当前问题的 polygon soup。
+         * @brief 直接设置当前问题的多边形集合。
          *
          * @param[in] polygons 输入多边形集合。
          * @note 该接口假定调用方已经准备好每个多边形的 `WNTV`。
@@ -93,8 +93,8 @@ namespace ember
         /**
          * @brief 设置二元布尔的左右输入，并自动写入基础 WNTV。
          *
-         * @param[in] lhs 左操作数 polygon soup。
-         * @param[in] rhs 右操作数 polygon soup。
+         * @param[in] lhs 左操作数多边形集合。
+         * @param[in] rhs 右操作数多边形集合。
          * @note 当前按两维 WNV 约定写入：`lhs -> (1, 0)`，`rhs -> (0, 1)`。
          */
         void setOperands(const std::vector<Polygon256> &lhs, const std::vector<Polygon256> &rhs);
@@ -122,29 +122,29 @@ namespace ember
         bool isSolved() const noexcept;
 
         /**
-         * @brief 读取最终布尔结果 polygon soup。
+         * @brief 读取最终布尔结果多边形集合。
          *
          * @return 仅包含 `(OUT, IN)` 或 `(IN, OUT)` 过渡的结果面集合。
          */
         const std::vector<Polygon256> &resultFragments() const noexcept;
 
         /**
-         * @brief 读取最近一次求解产生的 leaf 诊断摘要。
+         * @brief 读取最近一次求解产生的叶子诊断摘要。
          *
-         * @return 每个未丢弃 leaf 的深度、polygon 数量和局部 AABB。
+         * @return 每个未丢弃叶子的深度、多边形数量和局部 AABB。
          */
         const std::vector<BoolLeafSummary> &leafSummaries() const noexcept;
 
     private:
         /**
-         * @brief 重置求解派生状态，保留输入 polygon soup 和配置。
+         * @brief 重置求解派生状态，保留输入多边形集合和配置。
          */
         void resetSolveState() noexcept;
 
         /**
-         * @brief 为一组输入 polygon 写入指定维度的基础 WNTV。
+         * @brief 为一组输入多边形写入指定维度的基础 WNTV。
          *
-         * @param[in,out] polygons 待标注的 polygon 集合。
+         * @param[in,out] polygons 待标注的多边形集合。
          * @param[in] dimension WNV/WNTV 总维度。
          * @param[in] hotIndex 当前集合对应的非零 WNTV 分量。
          */
@@ -153,7 +153,7 @@ namespace ember
         /// 当前布尔运算类型。
         BoolOp op_ = BoolOp::Intersection;
 
-        /// 叶子阶段停止继续细分的 polygon 数量阈值。
+        /// 叶子阶段停止继续细分的多边形数量阈值。
         std::size_t leafPolygonThreshold_ = 25;
 
         /// 当前问题是否已被判定为空。
@@ -162,13 +162,13 @@ namespace ember
         /// 当前问题是否已完成求解流程。
         bool solved_ = false;
 
-        /// 当前问题的输入 polygon soup。
+        /// 当前问题的输入多边形集合。
         std::vector<Polygon256> polygons_;
 
         /// 最近一次求解筛选出的布尔结果面。
         std::vector<Polygon256> resultFragments_;
 
-        /// 最近一次求解产生的 leaf 诊断摘要。
+        /// 最近一次求解产生的叶子诊断摘要。
         std::vector<BoolLeafSummary> leafSummaries_;
     };
 }

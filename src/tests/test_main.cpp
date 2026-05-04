@@ -1,6 +1,6 @@
 /**
  * @file test_main.cpp
- * @brief Runs the repository custom test groups and reports elapsed time.
+ * @brief 运行仓库自定义测试组并报告耗时。
  */
 #include "bool_problem_tests.h"
 #include "io_tests.h"
