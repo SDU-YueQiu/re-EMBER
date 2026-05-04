@@ -110,6 +110,11 @@ namespace ember
         bool shouldStopSubdivision() const noexcept;
 
         /**
+         * @brief 判断当前子问题的布尔指示函数是否已退化为常量。
+         */
+        bool shouldDiscardSubproblemEarly(BoolStatus &constantStatus) const noexcept;
+
+        /**
          * @brief 根据 AABB 切分创建子求解器节点。
          */
         bool createChildrenFromSplit(const AABBSplit3i &split);

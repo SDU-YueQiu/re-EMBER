@@ -85,6 +85,96 @@ namespace ember
 
             return dimension;
         }
+
+        struct BinaryWnvDomain
+        {
+            bool canBeZero = false;
+            bool canBeNonZero = false;
+        };
+
+        BoolStatus evaluateBinaryIndicatorState(BoolOp op, bool lhsNonZero, bool rhsNonZero) noexcept
+        {
+            switch (op)
+            {
+            case BoolOp::Union:
+                return (lhsNonZero || rhsNonZero) ? IN : OUT;
+            case BoolOp::Intersection:
+                return (lhsNonZero && rhsNonZero) ? IN : OUT;
+            case BoolOp::Difference:
+                return (lhsNonZero && !rhsNonZero) ? IN : OUT;
+            }
+
+            return OUT;
+        }
+
+        BinaryWnvDomain computeBinaryWnvDomain(
+            const WNV &referenceWnv,
+            const std::vector<Polygon256> &polygons,
+            std::size_t dimension) noexcept
+        {
+            BinaryWnvDomain domain;
+            for (const Polygon256 &polygon : polygons)
+            {
+                if (dimension < polygon.WNTV.size() && polygon.WNTV[dimension] != 0)
+                {
+                    domain.canBeZero = true;
+                    domain.canBeNonZero = true;
+                    return domain;
+                }
+            }
+
+            const bool isNonZero =
+                dimension < referenceWnv.size() &&
+                referenceWnv[dimension] != 0;
+            domain.canBeZero = !isNonZero;
+            domain.canBeNonZero = isNonZero;
+            return domain;
+        }
+
+        bool appendSplitChildPolygons(
+            const Polygon256 &polygon,
+            const Plane3i &splitPlane,
+            std::vector<Polygon256> &leftPolygons,
+            std::vector<Polygon256> &rightPolygons)
+        {
+            bool hasPositive = false;
+            bool hasNegative = false;
+            const std::size_t edgeCount = polygon.edgeCount();
+            for (std::size_t edgeIndex = 0; edgeIndex < edgeCount; ++edgeIndex)
+            {
+                const int side = getPolygonVertex(polygon, edgeIndex).classify(splitPlane);
+                if (side > 0)
+                {
+                    hasPositive = true;
+                }
+                else if (side < 0)
+                {
+                    hasNegative = true;
+                }
+            }
+
+            if (!hasPositive)
+            {
+                leftPolygons.push_back(polygon);
+                return true;
+            }
+            if (!hasNegative)
+            {
+                rightPolygons.push_back(polygon);
+                return true;
+            }
+
+            Polygon256 frontClipped;
+            Polygon256 backClipped;
+            if (!detail::clipLeafGeometryByPlaneTrusted(polygon, splitPlane, frontClipped, backClipped))
+            {
+                return false;
+            }
+
+            leftPolygons.push_back(std::move(backClipped));
+            rightPolygons.push_back(std::move(frontClipped));
+            return true;
+        }
     }
 
     SubdivisionSolver::SubdivisionSolver(
@@ -219,6 +309,27 @@ namespace ember
             return;
         }
 
+        BoolStatus earlyOutStatus = OUT;
+        if (shouldDiscardSubproblemEarly(earlyOutStatus))
+        {
+            discarded_ = true;
+            isLeaf_ = true;
+            solved_ = true;
+            logBoolInfo(
+                kBoolProblemSolveRecursiveScope,
+                [this, earlyOutStatus]()
+                {
+                    std::ostringstream message;
+                    message << "Discarded node depth=" << depth_
+                            << " polygon_count=" << polygons_.size()
+                            << " reason=indicator_constant_"
+                            << (earlyOutStatus == IN ? "in" : "out")
+                            << ".";
+                    return message.str();
+                });
+            return;
+        }
+
         if (shouldStopSubdivision())
         {
             isLeaf_ = true;
@@ -335,6 +446,49 @@ namespace ember
         return polygons_.size() <= leafPolygonThreshold_ || !hasSplittableAxis(aabb_);
     }
 
+    bool SubdivisionSolver::shouldDiscardSubproblemEarly(BoolStatus &constantStatus) const noexcept
+    {
+        if (reference_.wnv.size() < 2u)
+        {
+            return false;
+        }
+
+        const BinaryWnvDomain lhsDomain = computeBinaryWnvDomain(reference_.wnv, polygons_, 0u);
+        const BinaryWnvDomain rhsDomain = computeBinaryWnvDomain(reference_.wnv, polygons_, 1u);
+
+        bool hasStatus = false;
+        for (const bool lhsNonZero : {false, true})
+        {
+            if ((lhsNonZero && !lhsDomain.canBeNonZero) || (!lhsNonZero && !lhsDomain.canBeZero))
+            {
+                continue;
+            }
+
+            for (const bool rhsNonZero : {false, true})
+            {
+                if ((rhsNonZero && !rhsDomain.canBeNonZero) || (!rhsNonZero && !rhsDomain.canBeZero))
+                {
+                    continue;
+                }
+
+                const BoolStatus status = evaluateBinaryIndicatorState(op_, lhsNonZero, rhsNonZero);
+                if (!hasStatus)
+                {
+                    constantStatus = status;
+                    hasStatus = true;
+                    continue;
+                }
+
+                if (status != constantStatus)
+                {
+                    return false;
+                }
+            }
+        }
+
+        return hasStatus;
+    }
+
     // 裁剪当前多边形集合到左右子 AABB，并为每个非空子问题建立参考状态。
     bool SubdivisionSolver::createChildrenFromSplit(const AABBSplit3i &split)
     {
@@ -345,16 +499,9 @@ namespace ember
 
         for (const Polygon256 &polygon : polygons_)
         {
-            Polygon256 leftPolygon;
-            if (detail::clipPolygonToHalfSpace(polygon, split.splitPlane, true, leftPolygon))
+            if (!appendSplitChildPolygons(polygon, split.splitPlane, leftPolygons, rightPolygons))
             {
-                leftPolygons.push_back(std::move(leftPolygon));
-            }
-
-            Polygon256 rightPolygon;
-            if (detail::clipPolygonToHalfSpace(polygon, split.splitPlane, false, rightPolygon))
-            {
-                rightPolygons.push_back(std::move(rightPolygon));
+                return false;
             }
         }
 

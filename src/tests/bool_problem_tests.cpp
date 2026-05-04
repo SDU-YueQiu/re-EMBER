@@ -459,6 +459,21 @@ void runBoolProblemTests()
     }
 
     {
+        Polygon256 rhsOnlySurface = makeFaceYZ(0, -1, 1, -1, 1, 1);
+        rhsOnlySurface.WNTV = {0, 1};
+
+        ember::BoolProblem problem(2);
+        problem.setOperation(BoolOp::Difference);
+        problem.setPolygons({rhsOnlySurface});
+        problem.solve();
+
+        assert(problem.isSolved());
+        assert(problem.isDiscarded());
+        assert(problem.resultFragments().empty());
+        assert(problem.leafSummaries().empty());
+    }
+
+    {
         ember::BoolProblem problem(2);
         problem.setOperation(BoolOp::Difference);
         problem.setOperands(lhs, rhs);

@@ -11,6 +11,97 @@
 
 namespace ember
 {
+    namespace
+    {
+        constexpr const char *kIntersectionCarrierScope = "computePolygonIntersectionCarrier";
+
+        bool tryBuildIntersectionCarrierFromCuts(
+            const Polygon256& target,
+            const Polygon256& incoming,
+            const Plane3i& targetCut0,
+            const Plane3i& targetCut1,
+            const Plane3i& incomingCut0,
+            const Plane3i& incomingCut1,
+            detail::IntersectionCarrier& outCarrier)
+        {
+            const PlanePoint3i incomingPoint0(target.plane, incoming.plane, incomingCut0);
+            const PlanePoint3i incomingPoint1(target.plane, incoming.plane, incomingCut1);
+            if (!incomingPoint0.hasUniqueIntersection() || !incomingPoint1.hasUniqueIntersection())
+            {
+                emitLog(
+                    LogLevel::Debug,
+                    LogCategory::Geometry,
+                    kIntersectionCarrierScope,
+                    "Rejected polygon intersection carrier because the recovered line endpoints are not unique.");
+                return false;
+            }
+
+            const int side00 = incomingPoint0.classify(targetCut0);
+            const int side01 = incomingPoint0.classify(targetCut1);
+            const int side10 = incomingPoint1.classify(targetCut0);
+            const int side11 = incomingPoint1.classify(targetCut1);
+
+            if (side00 >= 0 && side10 >= 0)
+            {
+                return false;
+            }
+            if (side01 >= 0 && side11 >= 0)
+            {
+                return false;
+            }
+
+            outCarrier.splitPlane = incoming.plane;
+            outCarrier.v0 = targetCut0;
+            outCarrier.v1 = targetCut1;
+
+            if (side00 <= 0 && side10 <= 0)
+            {
+                if (side01 >= 0)
+                {
+                    outCarrier.v0 = incomingCut1;
+                }
+                else if (side11 >= 0)
+                {
+                    outCarrier.v0 = incomingCut0;
+                }
+                else
+                {
+                    outCarrier.v0 = incomingCut0;
+                    outCarrier.v1 = incomingCut1;
+                }
+            }
+            else if (side01 <= 0 && side11 <= 0)
+            {
+                if (side00 >= 0)
+                {
+                    outCarrier.v1 = incomingCut1;
+                }
+                else if (side10 >= 0)
+                {
+                    outCarrier.v1 = incomingCut0;
+                }
+                else
+                {
+                    emitLog(
+                        LogLevel::Debug,
+                        LogCategory::Geometry,
+                        kIntersectionCarrierScope,
+                        "Reached the unexpected side-assignment branch while trimming the overlap segment.");
+                }
+            }
+            else if (!((side00 < 0) == (side11 < 0) && (side10 < 0) == (side01 < 0)))
+            {
+                emitLog(
+                    LogLevel::Debug,
+                    LogCategory::Geometry,
+                    kIntersectionCarrierScope,
+                    "Rejected polygon intersection carrier because the side-consistency check failed.");
+                return false;
+            }
+
+            return true;
+        }
+    }
 
     bool computePolygonPlaneIntersection(
         const Polygon256& source,
@@ -151,8 +242,8 @@ namespace ember
             return false;
         }
 
-		Plane3i p0, p1;//源多边形上的交线边平面
-		Plane3i q0, q1;//新输入多边形上的交线边平面
+        Plane3i p0, p1;//源多边形上的交线边平面
+        Plane3i q0, q1;//新输入多边形上的交线边平面
         if (!computePolygonPlaneIntersection(target, incoming.plane, p0, p1))
         {
             return false;
@@ -162,81 +253,44 @@ namespace ember
             return false;
         }
 
-		PlanePoint3i vq0(target.plane, incoming.plane, q0);
-        PlanePoint3i vq1(target.plane, incoming.plane, q1);
-        if (!vq0.hasUniqueIntersection() || !vq1.hasUniqueIntersection())
+        detail::IntersectionCarrier carrier;
+        if (!tryBuildIntersectionCarrierFromCuts(target, incoming, p0, p1, q0, q1, carrier))
         {
-            emitLog(
-                LogLevel::Debug,
-                LogCategory::Geometry,
-                "computePolygonIntersectionCarrier",
-                "Rejected polygon intersection carrier because the recovered line endpoints are not unique.");
             return false;
         }
 
-		int side00 = vq0.classify(p0);
-		int side01 = vq0.classify(p1);
-		int side10 = vq1.classify(p0);
-		int side11 = vq1.classify(p1);
-
-        //边平面法向必须指向外侧
-        // vq0 和 vq1 都在 p 的外侧时，说明两段没有相交。
-        if (side00 >= 0 && side10 >= 0) {
-            return false;
-        }
-
-        if (side01 >= 0 && side11 >= 0) {
-            return false;
-        }
-
-        outSplitPlane = incoming.plane;
-        outV0 = p0;
-        outV1 = p1;
-
-        if (side00 <= 0 && side10 <= 0) {
-            if (side01 >= 0) {
-                outV0 = q1;
-            }
-            else if (side11 >= 0) {
-				outV0 = q0;
-            }
-            else
-            {
-                outV0 = q0;
-                outV1 = q1;
-            }
-        }
-        else if (side01 <= 0 && side11 <= 0)
-        {
-            if (side00 >= 0) {
-                outV1 = q1;
-            }
-            else if (side10 >= 0) {
-                outV1 = q0;
-            }
-            else
-            {
-                emitLog(
-                    LogLevel::Debug,
-                    LogCategory::Geometry,
-                    "computePolygonIntersectionCarrier",
-                    "Reached the unexpected side-assignment branch while trimming the overlap segment.");
-			}
-        }
-        else {
-
-            if (!((side00 < 0) == (side11 < 0) && (side10 < 0) == (side01 < 0)))
-            {
-                emitLog(
-                    LogLevel::Debug,
-                    LogCategory::Geometry,
-                    "computePolygonIntersectionCarrier",
-                    "Rejected polygon intersection carrier because the side-consistency check failed.");
-                return false;
-            }
-        }
-
+        outSplitPlane = carrier.splitPlane;
+        outV0 = carrier.v0;
+        outV1 = carrier.v1;
         return true;
+    }
+
+    bool detail::computeBidirectionalPolygonIntersectionCarriersTrusted(
+        const Polygon256& lhs,
+        const Polygon256& rhs,
+        IntersectionCarrier& outLhsCarrier,
+        IntersectionCarrier& outRhsCarrier)
+    {
+        if (arePlaneNormalsParallel(lhs.plane, rhs.plane))
+        {
+            return false;
+        }
+
+        Plane3i lhsCut0;
+        Plane3i lhsCut1;
+        Plane3i rhsCut0;
+        Plane3i rhsCut1;
+        if (!computePolygonPlaneIntersection(lhs, rhs.plane, lhsCut0, lhsCut1))
+        {
+            return false;
+        }
+        if (!computePolygonPlaneIntersection(rhs, lhs.plane, rhsCut0, rhsCut1))
+        {
+            return false;
+        }
+
+        return tryBuildIntersectionCarrierFromCuts(lhs, rhs, lhsCut0, lhsCut1, rhsCut0, rhsCut1, outLhsCarrier) &&
+               tryBuildIntersectionCarrierFromCuts(rhs, lhs, rhsCut0, rhsCut1, lhsCut0, lhsCut1, outRhsCarrier);
     }
 
     bool clipLeafGeometryByPlane(const Polygon256& source, const Plane3i& clipPlane, Polygon256& frontClipped, Polygon256& backClipped)
