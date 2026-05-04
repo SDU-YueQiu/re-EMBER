@@ -70,7 +70,8 @@ Testing/
 
 # 新加项
 out
-CLAUDE.md
+CLAUDE.
+.claude
 .vs
 EMBER-ToDoList.md
 .vscode
