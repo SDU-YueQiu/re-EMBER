@@ -12,7 +12,6 @@
 namespace ember
 {
     using Integer = slim::int256_t;
-    // 可临时切换为 `int` 以排查小规模算例。
 
     inline constexpr int signum(const Integer& value) noexcept
     {
