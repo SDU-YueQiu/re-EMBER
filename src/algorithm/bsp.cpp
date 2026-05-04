@@ -82,6 +82,11 @@ namespace ember
             return;
         }
 
+        insertCoplanarPolygonTrusted(polygon, incomingOrder);
+    }
+
+    void BSPTree::insertCoplanarPolygonTrusted(const Polygon256 &polygon, std::size_t incomingOrder)
+    {
         insertCoplanarPolygonEdges(polygon);
 
         if (baseOrderKey > incomingOrder)
