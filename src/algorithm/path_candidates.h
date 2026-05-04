@@ -323,11 +323,35 @@ namespace ember
                 }));
         }
 
+        appendInteriorCenterCandidates();
+
+        auto isStrictInteriorTarget = [&targetBox](const PlanePoint3i &point) -> bool
+        {
+            Integer x;
+            Integer y;
+            Integer z;
+            if (!detail::tryExtractExactIntegerPoint(point, x, y, z))
+            {
+                return false;
+            }
+
+            return x > targetBox.xMin && x < targetBox.xMax &&
+                   y > targetBox.yMin && y < targetBox.yMax &&
+                   z > targetBox.zMin && z < targetBox.zMax;
+        };
+
         std::stable_sort(
             candidates.begin(),
             candidates.end(),
-            [preferredX, preferredY, preferredZ](const AABBPathCandidate &lhs, const AABBPathCandidate &rhs)
+            [preferredX, preferredY, preferredZ, &isStrictInteriorTarget](const AABBPathCandidate &lhs, const AABBPathCandidate &rhs)
             {
+                const bool lhsInterior = isStrictInteriorTarget(lhs.targetPoint);
+                const bool rhsInterior = isStrictInteriorTarget(rhs.targetPoint);
+                if (lhsInterior != rhsInterior)
+                {
+                    return lhsInterior;
+                }
+
                 Integer lhsX, lhsY, lhsZ;
                 Integer rhsX, rhsY, rhsZ;
                 detail::tryExtractExactIntegerPoint(lhs.targetPoint, lhsX, lhsY, lhsZ);
@@ -363,7 +387,6 @@ namespace ember
                 return lhs.path.size() < rhs.path.size();
             });
 
-        appendInteriorCenterCandidates();
         return candidates;
     }
 

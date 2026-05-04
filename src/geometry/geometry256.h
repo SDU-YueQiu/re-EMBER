@@ -13,6 +13,12 @@
 
 namespace ember
 {
+    enum class PolygonEdgeProvenance
+    {
+        Regular,
+        SubdivisionClip
+    };
+
     struct Line256
     {
         Plane3i p1, p2;
@@ -84,16 +90,24 @@ namespace ember
 
         // 裁剪要求边平面法向必须指向多边形外侧
         std::vector<Plane3i> edgePlanes;
+        std::vector<PolygonEdgeProvenance> edgeProvenances;
 
         // 环绕数转换向量
         std::vector<int> WNTV;
 
         Polygon256() = default;
         Polygon256(const Plane3i &supportPlane, std::vector<Plane3i> edges);
+        Polygon256(
+            const Plane3i &supportPlane,
+            std::vector<Plane3i> edges,
+            std::vector<PolygonEdgeProvenance> provenances);
 
         // 该方法对法向不封闭
-        void addEdgePlane(const Plane3i &edge);
+        void addEdgePlane(
+            const Plane3i &edge,
+            PolygonEdgeProvenance provenance = PolygonEdgeProvenance::Regular);
         std::size_t edgeCount() const noexcept;
+        PolygonEdgeProvenance edgeProvenance(std::size_t edgeIndex) const noexcept;
 
         bool isValid() const noexcept;
 

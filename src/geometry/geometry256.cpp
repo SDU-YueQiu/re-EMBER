@@ -117,11 +117,25 @@ namespace ember
     }
 
     Polygon256::Polygon256(const Plane3i &supportPlane, std::vector<Plane3i> edges)
-        : plane(primitivePlane(supportPlane)), edgePlanes(std::move(edges))
+        : Polygon256(supportPlane, std::move(edges), {})
+    {
+    }
+
+    Polygon256::Polygon256(
+        const Plane3i &supportPlane,
+        std::vector<Plane3i> edges,
+        std::vector<PolygonEdgeProvenance> provenances)
+        : plane(primitivePlane(supportPlane)),
+          edgePlanes(std::move(edges)),
+          edgeProvenances(std::move(provenances))
     {
         for (Plane3i &edge : edgePlanes)
         {
             edge = primitivePlane(edge);
+        }
+        if (edgeProvenances.empty())
+        {
+            edgeProvenances.assign(edgePlanes.size(), PolygonEdgeProvenance::Regular);
         }
         orientPolygonEdgesOutward(plane, edgePlanes);
     }
@@ -132,9 +146,10 @@ namespace ember
         orientSegmentBoundsOutward(start, end, direction);
     }
 
-    void Polygon256::addEdgePlane(const Plane3i &edge)
+    void Polygon256::addEdgePlane(const Plane3i &edge, PolygonEdgeProvenance provenance)
     {
         edgePlanes.push_back(primitivePlane(edge));
+        edgeProvenances.push_back(provenance);
     }
 
     std::size_t Polygon256::edgeCount() const noexcept
@@ -142,11 +157,24 @@ namespace ember
         return edgePlanes.size();
     }
 
+    PolygonEdgeProvenance Polygon256::edgeProvenance(std::size_t edgeIndex) const noexcept
+    {
+        if (edgeIndex >= edgeProvenances.size())
+        {
+            return PolygonEdgeProvenance::Regular;
+        }
+        return edgeProvenances[edgeIndex];
+    }
+
     bool Polygon256::isValid() const noexcept
     {
         // >3边
         const std::size_t n = edgePlanes.size();
         if (n < 3)
+        {
+            return false;
+        }
+        if (edgeProvenances.size() != n)
         {
             return false;
         }

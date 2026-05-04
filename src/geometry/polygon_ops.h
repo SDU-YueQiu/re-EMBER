@@ -35,7 +35,12 @@ namespace ember
          *
          * @pre `source` 已满足 `Polygon256::isValid()`。
          */
-        inline bool clipPolygonToHalfSpace(const Polygon256 &source, const Plane3i &clipPlane, bool keepNonPositive, Polygon256 &outPolygon)
+        inline bool clipPolygonToHalfSpace(
+            const Polygon256 &source,
+            const Plane3i &clipPlane,
+            bool keepNonPositive,
+            Polygon256 &outPolygon,
+            PolygonEdgeProvenance insertedEdgeProvenance = PolygonEdgeProvenance::Regular)
         {
             const std::size_t n = source.edgeCount();
             bool hasPositive = false;
@@ -91,7 +96,12 @@ namespace ember
 
             Polygon256 frontClipped;
             Polygon256 backClipped;
-            if (!clipLeafGeometryByPlaneTrusted(source, clipPlane, frontClipped, backClipped))
+            if (!clipLeafGeometryByPlaneTrusted(
+                    source,
+                    clipPlane,
+                    frontClipped,
+                    backClipped,
+                    insertedEdgeProvenance))
             {
                 return false;
             }
@@ -127,11 +137,14 @@ namespace ember
     inline Polygon256 reversePolygonOrientation(const Polygon256 &polygon)
     {
         std::vector<Plane3i> reversedEdges = polygon.edgePlanes;
+        std::vector<PolygonEdgeProvenance> reversedProvenances = polygon.edgeProvenances;
         std::reverse(reversedEdges.begin(), reversedEdges.end());
+        std::reverse(reversedProvenances.begin(), reversedProvenances.end());
 
         Polygon256 reversedPolygon(
             Plane3i(-polygon.plane.a, -polygon.plane.b, -polygon.plane.c, -polygon.plane.d),
-            std::move(reversedEdges));
+            std::move(reversedEdges),
+            std::move(reversedProvenances));
         reversedPolygon.WNTV = polygon.WNTV;
         return reversedPolygon;
     }
