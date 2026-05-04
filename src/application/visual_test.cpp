@@ -26,6 +26,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -38,6 +39,47 @@ namespace ember::visual_test
     using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
     using SurfaceMesh = CGAL::Surface_mesh<Kernel::Point_3>;
     using NefPolyhedron = CGAL::Nef_polyhedron_3<Kernel>;
+
+    namespace
+    {
+        /**
+         * @brief 解析 visual-test 默认 OBJ 资源的仓库内路径。
+         * @param relativePath 相对仓库根目录的资源路径。
+         * @return 可直接传给 OBJ 读取器的路径字符串；若未命中任何候选，则退回原始相对路径。
+         */
+        std::string resolveDefaultAssetPath(const std::string &relativePath)
+        {
+#ifdef REEMBER_SOURCE_DIR
+            const std::filesystem::path sourceCandidate =
+                std::filesystem::path(REEMBER_SOURCE_DIR) / relativePath;
+            std::error_code error;
+            if (std::filesystem::exists(sourceCandidate, error))
+            {
+                return sourceCandidate.string();
+            }
+#endif
+
+            std::filesystem::path current = std::filesystem::current_path();
+            for (int depth = 0; depth < 8; ++depth)
+            {
+                const std::filesystem::path candidate = current / relativePath;
+                std::error_code error;
+                if (std::filesystem::exists(candidate, error))
+                {
+                    return candidate.string();
+                }
+
+                const std::filesystem::path parent = current.parent_path();
+                if (parent == current || parent.empty())
+                {
+                    break;
+                }
+                current = parent;
+            }
+
+            return relativePath;
+        }
+    }
     using Clock = std::chrono::steady_clock;
 
     inline constexpr std::size_t kLeafThreshold = 25;
@@ -690,14 +732,8 @@ int main()
     using namespace ember::visual_test;
 
     SceneData scene;
-#ifdef REEMBER_SOURCE_DIR
-    const std::string sourceDir = REEMBER_SOURCE_DIR;
-    scene.workpiecePath = sourceDir + "/assets/visual_test/workpiece_block.obj";
-    scene.toolPath = sourceDir + "/assets/visual_test/tool_box.obj";
-#else
-    scene.workpiecePath = "assets/visual_test/workpiece_block.obj";
-    scene.toolPath = "assets/visual_test/tool_box.obj";
-#endif
+    scene.workpiecePath = resolveDefaultAssetPath("assets/visual_test/workpiece_block.obj");
+    scene.toolPath = resolveDefaultAssetPath("assets/visual_test/tool_box.obj");
 
     std::string error;
     if (!ember::readObjMesh(scene.workpiecePath, scene.workpieceMesh, error))
