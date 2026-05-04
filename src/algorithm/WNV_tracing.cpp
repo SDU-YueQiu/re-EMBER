@@ -11,6 +11,12 @@ namespace ember
 {
     namespace
     {
+        enum class BoundaryPolicy
+        {
+            RejectAll,
+            AllowSubdivisionClipCrossing
+        };
+
         void addScaledWNTV(WNV &accumulator, const WNV &delta, int scale)
         {
             for (std::size_t i = 0; i < accumulator.size(); ++i)
@@ -24,13 +30,32 @@ namespace ember
             return lhs == rhs && (lhs == -1 || lhs == 1);
         }
 
+        bool isOppositeStrictSide(int lhs, int rhs) noexcept
+        {
+            return lhs == -rhs && (lhs == -1 || lhs == 1);
+        }
+
+        bool canTreatSubdivisionClipBoundaryHitAsCrossing(
+            BoundaryPolicy policy,
+            int pcs,
+            int pce,
+            const detail::PolygonBoundaryContact &boundaryContact,
+            const Polygon256 &poly) noexcept
+        {
+            return policy == BoundaryPolicy::AllowSubdivisionClipCrossing &&
+                   boundaryContact.type == detail::PolygonBoundaryContactType::BoundaryPointHit &&
+                   isOppositeStrictSide(pcs, pce) &&
+                   detail::areBoundaryContactEdgesSubdivisionClip(boundaryContact, poly);
+        }
+
         traceStatus tracePathWNVImpl(
             const refPoint &refpoint,
             const Path &path,
             const std::vector<Polygon256> &polygons,
             WNV &targetWNV,
             bool validatePolygons,
-            bool validatePath)
+            bool validatePath,
+            BoundaryPolicy boundaryPolicy)
         {
             if (validatePath)
             {
@@ -102,7 +127,10 @@ namespace ember
                         continue;
                     }
 
-                    if (detail::isSegmentTouchPolygonEdgeUnchecked(seg, poly))
+                    const detail::PolygonBoundaryContact boundaryContact =
+                        detail::classifySegmentPolygonBoundaryContactUnchecked(seg, poly);
+                    if (boundaryContact.type == detail::PolygonBoundaryContactType::EndpointOnBoundary ||
+                        boundaryContact.type == detail::PolygonBoundaryContactType::EdgeOverlap)
                     {
                         return PATH_INVALID;
                     }
@@ -112,13 +140,29 @@ namespace ember
                     {
                         const detail::PolygonSurfaceLocation hitLocation =
                             detail::classifyPolygonSurfacePointUnchecked(poly, intersectPoint);
-                        if (hitLocation != detail::PolygonSurfaceLocation::StrictInterior)
+                        if (hitLocation == detail::PolygonSurfaceLocation::Boundary)
+                        {
+                            if (!canTreatSubdivisionClipBoundaryHitAsCrossing(
+                                    boundaryPolicy,
+                                    pcs,
+                                    pce,
+                                    boundaryContact,
+                                    poly))
+                            {
+                                return PATH_INVALID;
+                            }
+                        }
+                        else if (hitLocation != detail::PolygonSurfaceLocation::StrictInterior)
                         {
                             return PATH_INVALID;
                         }
 
                         const int sigma = (pcs - pce) / 2;
                         addScaledWNTV(propagatedWNV, poly.WNTV, sigma);
+                    }
+                    else if (boundaryContact.type != detail::PolygonBoundaryContactType::None)
+                    {
+                        return PATH_INVALID;
                     }
 
                     pcs = pce;
@@ -275,7 +319,7 @@ namespace ember
 
     traceStatus tracePathWNV(const refPoint &refpoint, const Path &path, const std::vector<Polygon256> &polygons, WNV &targetWNV)
     {
-        return tracePathWNVImpl(refpoint, path, polygons, targetWNV, true, true);
+        return tracePathWNVImpl(refpoint, path, polygons, targetWNV, true, true, BoundaryPolicy::RejectAll);
     }
 
     traceStatus detail::tracePathWNVTrusted(
@@ -284,7 +328,23 @@ namespace ember
         const std::vector<Polygon256> &polygons,
         WNV &targetWNV)
     {
-        return tracePathWNVImpl(refpoint, path, polygons, targetWNV, false, false);
+        return tracePathWNVImpl(refpoint, path, polygons, targetWNV, false, false, BoundaryPolicy::RejectAll);
+    }
+
+    traceStatus detail::tracePathWNVAllowSubdivisionClipCrossingTrusted(
+        const refPoint &refpoint,
+        const Path &path,
+        const std::vector<Polygon256> &polygons,
+        WNV &targetWNV)
+    {
+        return tracePathWNVImpl(
+            refpoint,
+            path,
+            polygons,
+            targetWNV,
+            false,
+            false,
+            BoundaryPolicy::AllowSubdivisionClipCrossing);
     }
 
     traceStatus tracePathWNVToSurfacePoint(
