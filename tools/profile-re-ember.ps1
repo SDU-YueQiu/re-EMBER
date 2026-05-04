@@ -47,7 +47,7 @@ Outputs:
 Notes:
   - Uses build\ only.
   - If -Lhs/-Rhs are omitted, the script tries common repo assets.
-  - The default visual workload translates tool_box.obj to a known overlapping pose before timing intersection.
+  - The default visual workloads include one known-overlap intersection case and one visual-test default pose difference case.
   - Reuses the executable only when the requested configuration already exists.
   - Re-run with -ForceBuild to rebuild the requested configuration.
   - Use -NoEtw for timing-only runs.
@@ -283,6 +283,34 @@ function Ensure-ParentDirectory {
     }
 }
 
+function Read-ReEmberTimingMetrics {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw ("Missing timing metrics file: {0}" -f $Path)
+    }
+
+    $metrics = @{}
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.+?)\s*$') {
+            $metrics[$matches[1]] = [double]::Parse($matches[2], [System.Globalization.CultureInfo]::InvariantCulture)
+        }
+    }
+
+    foreach ($requiredKey in @("read_ms", "prepare_ms", "solve_ms", "export_ms")) {
+        if (-not $metrics.ContainsKey($requiredKey)) {
+            throw ("Timing metrics file is missing key '{0}': {1}" -f $requiredKey, $Path)
+        }
+    }
+
+    return [pscustomobject]@{
+        ReadMs = [math]::Round($metrics["read_ms"], 3)
+        PrepareMs = [math]::Round($metrics["prepare_ms"], 3)
+        SolveMs = [math]::Round($metrics["solve_ms"], 3)
+        ExportMs = [math]::Round($metrics["export_ms"], 3)
+    }
+}
+
 function Get-CMakeCacheValue {
     param(
         [string]$CachePath,
@@ -423,9 +451,11 @@ function Get-Workloads {
     }
 
     $visualToolSource = "assets\visual_test\tool_box.obj"
-    $visualToolDefaultPosePath = Join-Path $PerfRoot "visual_test_overlap_pose_tool.obj"
+    $visualToolOverlapPosePath = Join-Path $PerfRoot "visual_test_overlap_pose_tool.obj"
+    $visualToolUiDefaultPosePath = Join-Path $PerfRoot "visual_test_ui_default_pose_tool.obj"
     if (Test-Path -LiteralPath $visualToolSource) {
-        [void](Write-TranslatedObjCopy $visualToolSource $visualToolDefaultPosePath 0.5 0.2 0.35)
+        [void](Write-TranslatedObjCopy $visualToolSource $visualToolOverlapPosePath 0.5 0.2 0.35)
+        [void](Write-TranslatedObjCopy $visualToolSource $visualToolUiDefaultPosePath 0.5 0.5 0.35)
     }
 
     $defaults = @(
@@ -438,8 +468,14 @@ function Get-Workloads {
         [pscustomobject]@{
             Name = "visual_block_toolbox_overlap_intersection"
             Lhs = "assets\visual_test\workpiece_block.obj"
-            Rhs = $visualToolDefaultPosePath
+            Rhs = $visualToolOverlapPosePath
             Op = "intersection"
+        },
+        [pscustomobject]@{
+            Name = "visual_block_toolbox_visual_test_default_difference"
+            Lhs = "assets\visual_test\workpiece_block.obj"
+            Rhs = $visualToolUiDefaultPosePath
+            Op = "difference"
         }
     )
 
@@ -463,7 +499,8 @@ function Get-Workloads {
 function Get-ReEmberArguments {
     param(
         [object]$Workload,
-        [string]$OutputPath
+        [string]$OutputPath,
+        [string]$MetricsPath
     )
 
     return @(
@@ -471,7 +508,8 @@ function Get-ReEmberArguments {
         "--rhs", $Workload.Rhs,
         "--op", $Workload.Op,
         "--out", $OutputPath,
-        "--leaf-threshold", [string]$LeafThreshold
+        "--leaf-threshold", [string]$LeafThreshold,
+        "--timings-out", $MetricsPath
     )
 }
 
@@ -484,13 +522,28 @@ function Invoke-ReEmberWorkload {
 
     $stdoutPath = Join-Path $PerfRoot ("{0}_{1}.stdout.txt" -f $Tag, $Workload.Name)
     $stderrPath = Join-Path $PerfRoot ("{0}_{1}.stderr.txt" -f $Tag, $Workload.Name)
+    $metricsPath = Join-Path $PerfRoot ("{0}_{1}.metrics.txt" -f $Tag, $Workload.Name)
     $outPath = $Workload.Out
     if ($Tag -notlike "timing*") {
         $outPath = Join-Path $PerfRoot ("result_{0}_{1}.obj" -f $Tag, $Workload.Name)
     }
 
     Ensure-ParentDirectory $outPath
-    return Invoke-External $ExePath (Get-ReEmberArguments $Workload $outPath) $stdoutPath $stderrPath $TimeoutSeconds
+    $result = Invoke-External $ExePath (Get-ReEmberArguments $Workload $outPath $metricsPath) $stdoutPath $stderrPath $TimeoutSeconds
+    $metrics = Read-ReEmberTimingMetrics $metricsPath
+    return [pscustomobject]@{
+        FilePath = $result.FilePath
+        Arguments = $result.Arguments
+        ExitCode = $result.ExitCode
+        ElapsedMs = $result.ElapsedMs
+        StdoutPath = $result.StdoutPath
+        StderrPath = $result.StderrPath
+        MetricsPath = $metricsPath
+        ReadMs = $metrics.ReadMs
+        PrepareMs = $metrics.PrepareMs
+        SolveMs = $metrics.SolveMs
+        ExportMs = $metrics.ExportMs
+    }
 }
 
 function Export-XperfReports {
@@ -790,6 +843,10 @@ try {
                 workload = $workload.Name
                 iteration = $i
                 elapsed_ms = $result.ElapsedMs
+                read_ms = $result.ReadMs
+                prepare_ms = $result.PrepareMs
+                solve_ms = $result.SolveMs
+                export_ms = $result.ExportMs
                 exit_code = $result.ExitCode
                 lhs_faces = $workload.LhsFaces
                 rhs_faces = $workload.RhsFaces
@@ -797,6 +854,7 @@ try {
                 output = $(if (Test-Path -LiteralPath $workload.Out) { $workload.Out } else { $null })
                 stdout = $result.StdoutPath
                 stderr = $result.StderrPath
+                metrics = $result.MetricsPath
             })
         }
     }
@@ -813,10 +871,18 @@ try {
     $summaryLines.Add(("timings_csv={0}" -f $timingCsvPath))
     foreach ($group in ($timingRows | Group-Object workload)) {
         $elapsedValues = @($group.Group | ForEach-Object { [double]$_.elapsed_ms })
+        $readValues = @($group.Group | ForEach-Object { [double]$_.read_ms })
+        $prepareValues = @($group.Group | ForEach-Object { [double]$_.prepare_ms })
+        $solveValues = @($group.Group | ForEach-Object { [double]$_.solve_ms })
+        $exportValues = @($group.Group | ForEach-Object { [double]$_.export_ms })
         $summaryLines.Add(("workload={0}" -f $group.Name))
         $summaryLines.Add(("  min_ms={0}" -f ([math]::Round(($elapsedValues | Measure-Object -Minimum).Minimum, 3))))
         $summaryLines.Add(("  max_ms={0}" -f ([math]::Round(($elapsedValues | Measure-Object -Maximum).Maximum, 3))))
         $summaryLines.Add(("  avg_ms={0}" -f ([math]::Round(($elapsedValues | Measure-Object -Average).Average, 3))))
+        $summaryLines.Add(("  avg_read_ms={0}" -f ([math]::Round(($readValues | Measure-Object -Average).Average, 3))))
+        $summaryLines.Add(("  avg_prepare_ms={0}" -f ([math]::Round(($prepareValues | Measure-Object -Average).Average, 3))))
+        $summaryLines.Add(("  avg_solve_ms={0}" -f ([math]::Round(($solveValues | Measure-Object -Average).Average, 3))))
+        $summaryLines.Add(("  avg_export_ms={0}" -f ([math]::Round(($exportValues | Measure-Object -Average).Average, 3))))
     }
     if ($etwArtifacts) {
         $summaryLines.Add(("etl={0}" -f $etwArtifacts.EtlPath))

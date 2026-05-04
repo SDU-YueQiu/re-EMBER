@@ -5,9 +5,12 @@
 #include "core/bool_problem.h"
 #include "io/io.h"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -16,6 +19,7 @@
 namespace
 {
     using ember::BoolOp;
+    using Clock = std::chrono::steady_clock;
 
     // 命令行入口只负责组装两输入布尔任务，不扩展到表达式树或多输入场景。
     struct CliOptions
@@ -23,9 +27,18 @@ namespace
         std::string lhsPath;
         std::string rhsPath;
         std::string outputPath;
+        std::string timingsOutputPath;
         BoolOp operation = BoolOp::Intersection;
         std::optional<std::uint64_t> scale;
         std::size_t leafThreshold = 25;
+    };
+
+    struct CliTimings
+    {
+        double readMs = 0.0;
+        double prepareMs = 0.0;
+        double solveMs = 0.0;
+        double exportMs = 0.0;
     };
 
     void printUsage()
@@ -33,8 +46,39 @@ namespace
         std::cerr
             << "Usage: re-EMBER --lhs <file.obj> --rhs <file.obj> "
             << "--op union|intersection|difference --out <result.obj> "
-            << "[--scale <positive_integer>] [--leaf-threshold <positive_integer>]"
+            << "[--scale <positive_integer>] [--leaf-threshold <positive_integer>] "
+            << "[--timings-out <metrics.txt>]"
             << std::endl;
+    }
+
+    double elapsedMilliseconds(const Clock::time_point &start, const Clock::time_point &end)
+    {
+        return std::chrono::duration<double, std::milli>(end - start).count();
+    }
+
+    bool writeTimingMetrics(const std::string &path, const CliTimings &timings, std::string &outError)
+    {
+        outError.clear();
+
+        std::ofstream output(path, std::ios::trunc);
+        if (!output)
+        {
+            outError = "Failed to open timings output file: " + path;
+            return false;
+        }
+
+        output << std::fixed << std::setprecision(6)
+               << "read_ms=" << timings.readMs << '\n'
+               << "prepare_ms=" << timings.prepareMs << '\n'
+               << "solve_ms=" << timings.solveMs << '\n'
+               << "export_ms=" << timings.exportMs << '\n';
+        if (!output)
+        {
+            outError = "Failed to write timings output file: " + path;
+            return false;
+        }
+
+        return true;
     }
 
     // CLI 数值参数统一要求正整数，避免导入尺度和阈值出现 0 或负值。
@@ -90,7 +134,7 @@ namespace
         {
             const std::string arg(argv[i]);
             if (arg == "--lhs" || arg == "--rhs" || arg == "--op" || arg == "--out" ||
-                arg == "--scale" || arg == "--leaf-threshold")
+                arg == "--scale" || arg == "--leaf-threshold" || arg == "--timings-out")
             {
                 if (i + 1 >= argc)
                 {
@@ -110,6 +154,10 @@ namespace
                 else if (arg == "--out")
                 {
                     outOptions.outputPath = value;
+                }
+                else if (arg == "--timings-out")
+                {
+                    outOptions.timingsOutputPath = value;
                 }
                 else if (arg == "--op")
                 {
@@ -193,8 +241,10 @@ int main(int argc, char **argv)
         // 应用层只做三件事：OBJ 转多边形集合、驱动 BoolProblem、结果写回 OBJ。
         ember::ObjMeshData lhsMesh;
         ember::ObjMeshData rhsMesh;
+        CliTimings timings;
         std::string error;
 
+        const Clock::time_point readStart = Clock::now();
         if (!ember::readObjMesh(options.lhsPath, lhsMesh, error))
         {
             std::cerr << error << std::endl;
@@ -205,11 +255,14 @@ int main(int argc, char **argv)
             std::cerr << error << std::endl;
             return 1;
         }
+        const Clock::time_point readEnd = Clock::now();
+        timings.readMs = elapsedMilliseconds(readStart, readEnd);
 
         ember::QuantizeOptions quantizeOptions;
         quantizeOptions.explicitScale = options.scale;
 
         // 左右操作数必须进入同一个整数坐标系，否则后续精确谓词没有共同语义。
+        const Clock::time_point prepareStart = Clock::now();
         std::uint64_t sharedScale = 0;
         if (!ember::chooseSharedScale({lhsMesh, rhsMesh}, quantizeOptions, sharedScale, error))
         {
@@ -231,15 +284,31 @@ int main(int argc, char **argv)
             std::cerr << error << std::endl;
             return 1;
         }
+        const Clock::time_point prepareEnd = Clock::now();
+        timings.prepareMs = elapsedMilliseconds(prepareStart, prepareEnd);
 
         ember::BoolProblem problem(options.leafThreshold);
         problem.setOperation(options.operation);
         problem.setOperands(lhsPolygons, rhsPolygons);
+
+        const Clock::time_point solveStart = Clock::now();
         problem.solve();
+        const Clock::time_point solveEnd = Clock::now();
+        timings.solveMs = elapsedMilliseconds(solveStart, solveEnd);
 
         // 默认直接导出 OBJ n 边面；三角化和拓扑恢复属于调用方后处理。
+        const Clock::time_point exportStart = Clock::now();
         std::size_t exportedFaces = 0;
         if (!ember::writePolygonSoupObj(problem.resultFragments(), options.outputPath, exportedFaces, error, sharedScale))
+        {
+            std::cerr << error << std::endl;
+            return 1;
+        }
+        const Clock::time_point exportEnd = Clock::now();
+        timings.exportMs = elapsedMilliseconds(exportStart, exportEnd);
+
+        if (!options.timingsOutputPath.empty() &&
+            !writeTimingMetrics(options.timingsOutputPath, timings, error))
         {
             std::cerr << error << std::endl;
             return 1;
