@@ -47,6 +47,7 @@ Outputs:
 Notes:
   - Uses build\ only.
   - If -Lhs/-Rhs are omitted, the script tries common repo assets.
+  - The default visual workload translates tool_box.obj to a known overlapping pose before timing intersection.
   - Reuses the executable only when the requested configuration already exists.
   - Re-run with -ForceBuild to rebuild the requested configuration.
   - Use -NoEtw for timing-only runs.
@@ -118,6 +119,58 @@ function Count-ObjFaces {
     }
 
     return (Select-String -LiteralPath $Path -Pattern '^\s*f\s+' -ErrorAction Stop).Count
+}
+
+function Format-ObjScalar {
+    param([double]$Value)
+
+    return $Value.ToString("G17", [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Write-TranslatedObjCopy {
+    param(
+        [string]$SourcePath,
+        [string]$DestinationPath,
+        [double]$TranslateX,
+        [double]$TranslateY,
+        [double]$TranslateZ
+    )
+
+    if (-not (Test-Path -LiteralPath $SourcePath)) {
+        throw ("Cannot translate missing OBJ: {0}" -f $SourcePath)
+    }
+
+    Ensure-ParentDirectory $DestinationPath
+
+    $vertexPattern = '^(?<prefix>\s*v\s+)(?<x>[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)' +
+                     '(?<sep1>\s+)(?<y>[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)' +
+                     '(?<sep2>\s+)(?<z>[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)(?<suffix>\s*(?:#.*)?)$'
+
+    $translatedLines = New-Object System.Collections.Generic.List[string]
+    foreach ($line in Get-Content -LiteralPath $SourcePath) {
+        $match = [System.Text.RegularExpressions.Regex]::Match($line, $vertexPattern)
+        if (-not $match.Success) {
+            $translatedLines.Add($line)
+            continue
+        }
+
+        $x = [double]::Parse($match.Groups["x"].Value, [System.Globalization.CultureInfo]::InvariantCulture) + $TranslateX
+        $y = [double]::Parse($match.Groups["y"].Value, [System.Globalization.CultureInfo]::InvariantCulture) + $TranslateY
+        $z = [double]::Parse($match.Groups["z"].Value, [System.Globalization.CultureInfo]::InvariantCulture) + $TranslateZ
+
+        $translatedLines.Add(
+            ("{0}{1}{2}{3}{4}{5}{6}" -f
+                $match.Groups["prefix"].Value,
+                (Format-ObjScalar $x),
+                $match.Groups["sep1"].Value,
+                (Format-ObjScalar $y),
+                $match.Groups["sep2"].Value,
+                (Format-ObjScalar $z),
+                $match.Groups["suffix"].Value))
+    }
+
+    Set-Content -LiteralPath $DestinationPath -Value $translatedLines -Encoding UTF8
+    return $DestinationPath
 }
 
 function Join-CommandLine {
@@ -369,6 +422,12 @@ function Get-Workloads {
         return $items
     }
 
+    $visualToolSource = "assets\visual_test\tool_box.obj"
+    $visualToolDefaultPosePath = Join-Path $PerfRoot "visual_test_overlap_pose_tool.obj"
+    if (Test-Path -LiteralPath $visualToolSource) {
+        [void](Write-TranslatedObjCopy $visualToolSource $visualToolDefaultPosePath 0.5 0.2 0.35)
+    }
+
     $defaults = @(
         [pscustomobject]@{
             Name = "icosphere80_toolbox_difference"
@@ -377,9 +436,9 @@ function Get-Workloads {
             Op = "difference"
         },
         [pscustomobject]@{
-            Name = "visual_block_toolbox_intersection"
+            Name = "visual_block_toolbox_overlap_intersection"
             Lhs = "assets\visual_test\workpiece_block.obj"
-            Rhs = "assets\visual_test\tool_box.obj"
+            Rhs = $visualToolDefaultPosePath
             Op = "intersection"
         }
     )
