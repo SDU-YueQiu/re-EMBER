@@ -1,6 +1,6 @@
 /**
  * @file WNV_tracing.cpp
- * @brief Implements WNV propagation along validated tracing paths.
+ * @brief 实现沿已验证路径传播 WNV 的流程。
  */
 #include "WNV_tracing.h"
 #include "algorithm/tracing_geometry.h"

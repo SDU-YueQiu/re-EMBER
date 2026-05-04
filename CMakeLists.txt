@@ -1,4 +1,4 @@
-# Builds the kEmber library, CLI, optional visual test, and custom tests.
+# 构建 kEmber 库、命令行程序、可选可视化测试程序和自定义测试。
 cmake_minimum_required(VERSION 3.24)
 
 if(NOT DEFINED CMAKE_TOOLCHAIN_FILE AND DEFINED ENV{VCPKG_ROOT})

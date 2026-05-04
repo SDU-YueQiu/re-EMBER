@@ -1,6 +1,6 @@
 /**
  * @file leaf_arrangement.h
- * @brief Declares leaf arrangement construction for subdivision leaves.
+ * @brief 声明细分叶子节点的局部编排构造入口。
  */
 #pragma once
 

@@ -1,6 +1,6 @@
 /**
  * @file bsp.cpp
- * @brief Implements local BSP insertion and leaf collection for polygon arrangements.
+ * @brief 实现局部 BSP 插入和多边形编排的叶片收集。
  */
 #include "bsp.h"
 
@@ -18,8 +18,8 @@ namespace ember
 
     bool areCoplanarPolygons(const Polygon256 &lhs, const Polygon256 &rhs) noexcept
     {
-        // 因为直接公式判断的精度未测试，所以先用这种查顶点在不在两面上的别扭实现
-        // TODO：有性能问题再改
+        // 因为直接公式判断的精度未测试，所以先用这种查顶点是否落在两面上的实现。
+        // 待办：如果这里成为性能瓶颈，再改成直接公式判断。
 
         if (!arePlaneNormalsParallel(lhs.plane, rhs.plane))
         {
@@ -120,7 +120,7 @@ namespace ember
             Polygon256 frontGeometry;
             Polygon256 backGeometry;
 
-            // 分割时用平面，对线段端点v0 v1(p0 p1)的分类讨论在进入叶节点之前就进行
+            // 分割时使用平面；线段端点 v0/v1（p0/p1）的分类讨论在进入叶节点前完成。
             if (!detail::clipLeafGeometryByPlaneTrusted(node.leafGeometry, insertPlane, frontGeometry, backGeometry))
             {
                 return;
@@ -262,7 +262,7 @@ namespace ember
 
         if (node->isLeaf)
         {
-            // TODO：多线程隐患
+            // 待办：如果后续并行化，需要重新处理这里的收集写入。
             if (!node->disabled)
             {
                 outLeafGeometries.push_back(node->leafGeometry);

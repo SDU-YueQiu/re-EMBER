@@ -1,6 +1,6 @@
 /**
  * @file subdivision_solver.h
- * @brief Declares the internal subdivision solver used by BoolProblem.
+ * @brief 声明 BoolProblem 使用的内部细分求解器。
  */
 #pragma once
 
@@ -32,10 +32,10 @@ namespace ember
     };
 
     /**
-     * @brief Internal recursive solver for subdivision, local arrangement, and WNV classification.
+     * @brief 负责细分、局部编排和 WNV 分类的内部递归求解器。
      *
-     * Public callers use `BoolProblem`; this class owns the temporary node tree and
-     * keeps those recursive details out of the public API.
+     * 公开调用方只使用 `BoolProblem`；该类独占临时节点树，
+     * 避免递归细节泄露到公共 API。
      */
     class SubdivisionSolver
     {
@@ -51,22 +51,22 @@ namespace ember
         SubdivisionSolver &operator=(SubdivisionSolver &&) noexcept = default;
 
         /**
-         * @brief Run root initialization and recursive subdivision.
+         * @brief 执行根节点初始化和递归细分。
          */
         void solve();
 
         /**
-         * @brief Return whether the solved subtree contains no active output.
+         * @brief 返回已求解子树是否没有活跃输出。
          */
         bool isDiscarded() const noexcept;
 
         /**
-         * @brief Return the result fragments collected from this subtree.
+         * @brief 返回从当前子树收集到的结果片段。
          */
         const std::vector<Polygon256> &resultFragments() const noexcept;
 
         /**
-         * @brief Return leaf diagnostics collected from this subtree.
+         * @brief 返回从当前子树收集到的叶子诊断信息。
          */
         const std::vector<BoolLeafSummary> &leafSummaries() const noexcept;
 
@@ -80,42 +80,42 @@ namespace ember
             SubdivisionRefState reference);
 
         /**
-         * @brief Reset runtime state derived by a previous solve.
+         * @brief 重置上一次求解派生出的运行时状态。
          */
         void resetSolveState() noexcept;
 
         /**
-         * @brief Initialize the root reference point and zero WNV.
+         * @brief 初始化根节点参考点和零 WNV。
          */
         void initializeRootReference();
 
         /**
-         * @brief Recursively subdivide this node and classify leaves.
+         * @brief 递归细分当前节点并分类叶子节点。
          */
         void solveRecursive();
 
         /**
-         * @brief Build local BSP arrangements for the current leaf node.
+         * @brief 为当前叶子节点构建局部 BSP 编排。
          */
         void solveLeafArrangement();
 
         /**
-         * @brief Classify leaf fragments and collect boolean-result faces.
+         * @brief 分类叶片片段并收集布尔结果面。
          */
         void classifyLeafFragmentsAndCollectResults();
 
         /**
-         * @brief Return whether this node should stop subdivision.
+         * @brief 返回当前节点是否应停止继续细分。
          */
         bool shouldStopSubdivision() const noexcept;
 
         /**
-         * @brief Create child solver nodes from an AABB split.
+         * @brief 根据 AABB 切分创建子求解器节点。
          */
         bool createChildrenFromSplit(const AABBSplit3i &split);
 
         /**
-         * @brief Propagate or rebuild a reference point for a child AABB.
+         * @brief 为子 AABB 传播或重建参考点。
          */
         bool makeChildReference(
             const AABB3i &childBox,
@@ -123,12 +123,12 @@ namespace ember
             SubdivisionRefState &outReference) const;
 
         /**
-         * @brief Evaluate the configured boolean indicator for a WNV.
+         * @brief 对一个 WNV 计算当前配置的布尔指示函数。
          */
         BoolStatus evaluateBooleanIndicator(const WNV &wnv) const noexcept;
 
         /**
-         * @brief Append non-discarded leaf summaries from this subtree.
+         * @brief 追加当前子树中未丢弃的叶子摘要。
          */
         void collectLeafSummaries(std::vector<BoolLeafSummary> &outSummaries) const;
 

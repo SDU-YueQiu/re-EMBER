@@ -1,6 +1,6 @@
 /**
  * @file io_tests.cpp
- * @brief Implements regression tests for OBJ I/O and CLI-adjacent workflows.
+ * @brief 实现 OBJ I/O 和 CLI 相邻流程的回归测试。
  */
 #include "io_tests.h"
 

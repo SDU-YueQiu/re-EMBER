@@ -1,6 +1,6 @@
 /**
  * @file tracing_geometry.h
- * @brief Defines geometry predicates shared by WNV tracing and path diagnostics.
+ * @brief 定义 WNV 追踪和路径诊断共享的几何谓词。
  */
 #pragma once
 

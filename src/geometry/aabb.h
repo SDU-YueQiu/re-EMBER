@@ -1,6 +1,6 @@
 /**
  * @file aabb.h
- * @brief Defines integer AABB helpers and midpoint split operations.
+ * @brief 定义整数 AABB 辅助类型和中点切分操作。
  */
 #pragma once
 

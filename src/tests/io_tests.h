@@ -1,6 +1,6 @@
 /**
  * @file io_tests.h
- * @brief Declares the I/O test group entry point.
+ * @brief 声明 I/O 测试组入口。
  */
 #pragma once
 

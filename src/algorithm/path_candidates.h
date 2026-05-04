@@ -1,6 +1,6 @@
 /**
  * @file path_candidates.h
- * @brief Declares public candidate types and enumeration entry points for tracing paths.
+ * @brief 声明路径追踪候选的公开类型与枚举入口。
  */
 #pragma once
 
@@ -28,12 +28,12 @@ namespace ember
 
 
     /**
-     * @brief 枚举以目标 fragment 支撑平面法向作为最后一段的分类路径候选。
+     * @brief 枚举以目标片段支撑平面法向作为最后一段的分类路径候选。
      *
      * @tparam CandidateVisitor 接收 `LeafClassificationPathCandidate` 的回调；返回 `false` 表示停止枚举。
      * @param[in] referencePoint 当前叶子子问题的局部参考点。
-     * @param[in] targetPoints 已生成的 leaf polygon 严格内部点。
-     * @param[in] surfacePlane 待分类 fragment 的支撑平面。
+     * @param[in] targetPoints 已生成的叶子多边形严格内部点。
+     * @param[in] surfacePlane 待分类片段的支撑平面。
      * @param[in] box 当前叶子子问题的 AABB。
      * @param[in,out] visitor 候选路径访问器。
      * @return 实际枚举出的候选路径数量。
@@ -368,10 +368,10 @@ namespace ember
     }
 
     /**
-     * @brief 为 leaf polygon 生成严格内部分类点候选。
+     * @brief 为叶子多边形生成严格内部分类点候选。
      *
-     * @param[in] polygon 待分类的 leaf polygon。
-     * @return 先返回论文中的重心舍入探测线命中点，再返回确定性向内偏移 fallback 点。
+     * @param[in] polygon 待分类的叶子多边形。
+     * @return 先返回论文中的重心舍入探测线命中点，再返回确定性向内偏移兜底点。
      */
     inline std::vector<PlanePoint3i> enumerateLeafClassificationPointCandidates(const Polygon256 &polygon)
     {
@@ -388,12 +388,12 @@ namespace ember
      *
      * @tparam CandidateVisitor 接收 `LeafClassificationPathCandidate` 的回调；返回 `false` 表示停止枚举。
      * @param[in] referencePoint 当前叶子子问题的局部参考点。
-     * @param[in] targetPoints 已生成的 leaf polygon 严格内部点。
+     * @param[in] targetPoints 已生成的叶子多边形严格内部点。
      * @param[in] box 当前叶子子问题的 AABB。
      * @param[in,out] visitor 候选路径访问器。
      * @return 实际枚举出的候选路径数量。
      *
-     * @pre `targetPoints` 已由 leaf 分类点生成阶段保证为严格内部点。
+     * @pre `targetPoints` 已由叶子分类点生成阶段保证为严格内部点。
      */
     template <typename CandidateVisitor>
     inline std::size_t enumerateLeafClassificationFastPathCandidatesFromPoints(
@@ -515,7 +515,7 @@ namespace ember
      *
      * @tparam CandidateVisitor 接收 `LeafClassificationPathCandidate` 的回调；返回 `false` 表示停止枚举。
      * @param[in] referencePoint 当前叶子子问题的局部参考点。
-     * @param[in] targetPoints 已生成的 leaf polygon 严格内部点。
+     * @param[in] targetPoints 已生成的叶子多边形严格内部点。
      * @param[in] box 当前叶子子问题的 AABB。
      * @param[in,out] visitor 候选路径访问器。
      * @return 实际枚举出的候选路径数量。
@@ -594,14 +594,14 @@ namespace ember
     }
 
     /**
-     * @brief 先桥接到 AABB 严格内部点，再枚举 leaf 分类路径候选。
+     * @brief 先桥接到 AABB 严格内部点，再枚举叶子分类路径候选。
      *
-     * 这些候选保留原有 clean-crossing 判定，只在常规轴对齐路径贴着 cell/split 边界失效后提供
+     * 这些候选保留原有干净穿越判定，只在常规轴对齐路径贴着网格或切分边界失效后提供
      * 少量确定性绕行路径。
      *
      * @tparam CandidateVisitor 接收 `LeafClassificationPathCandidate` 的回调；返回 `false` 表示停止枚举。
      * @param[in] referencePoint 当前叶子子问题的局部参考点。
-     * @param[in] targetPoints 已生成的 leaf polygon 严格内部点。
+     * @param[in] targetPoints 已生成的叶子多边形严格内部点。
      * @param[in] box 当前叶子子问题的 AABB。
      * @param[in,out] visitor 候选路径访问器。
      * @return 实际枚举出的候选路径数量。
@@ -744,14 +744,14 @@ namespace ember
     }
 
     /**
-     * @brief 枚举从局部参考点到 leaf polygon 内部点的全部分类路径候选。
+     * @brief 枚举从局部参考点到叶子多边形内部点的全部分类路径候选。
      *
      * @param[in] referencePoint 当前叶子子问题的局部参考点。
-     * @param[in] polygon 待分类的 leaf polygon。
+     * @param[in] polygon 待分类的叶子多边形。
      * @param[in] box 当前叶子子问题的 AABB。
      * @return 快速候选在前，兜底候选在后。
      *
-     * @note 热路径应直接使用 from-points 的快速/兜底接口，避免成功路径预先构造全量兜底候选。
+     * @note 热路径应直接使用基于已生成点的快速/兜底接口，避免成功路径预先构造全量兜底候选。
      */
     inline std::vector<LeafClassificationPathCandidate> enumerateLeafClassificationPathCandidates(
         const PlanePoint3i &referencePoint,

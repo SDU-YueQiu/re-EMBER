@@ -1,6 +1,6 @@
 /**
  * @file io.cpp
- * @brief Implements OBJ import, quantization, polygon-soup construction, and export.
+ * @brief 实现 OBJ 导入、量化、多边形集合构建和导出。
  */
 #include "io.h"
 
@@ -122,7 +122,7 @@ namespace ember
             return false;
         }
 
-        // 量化后仍需保证所有顶点严格共面，否则不能安全构造 plane-based polygon。
+        // 量化后仍需保证所有顶点严格共面，否则不能安全构造基于平面的多边形。
         bool isVertexOnPlane(const Vec3i &vertex, const Plane3i &plane) noexcept
         {
             return isZero(dot(vertex, plane.normal()) + plane.d);
@@ -636,7 +636,7 @@ namespace ember
         std::size_t triangulatedNonCoplanarFaceCount = 0;
         for (std::size_t faceIndex = 0; faceIndex < mesh.faces.size(); ++faceIndex)
         {
-            // 每个 OBJ face 都必须在量化后独立满足：无重复点、可定支撑平面、全体共面、严格凸。
+        // 每个 OBJ 面都必须在量化后独立满足：无重复点、可定支撑平面、全体共面、严格凸。
             const std::vector<std::size_t> &face = mesh.faces[faceIndex];
 
             std::vector<Vec3i> faceVertices;
@@ -744,7 +744,7 @@ namespace ember
                 "Failed to open OBJ output file for writing: " + path);
         }
 
-        // 默认保持 polygon soup 形态：写顶点，再逐面写 OBJ n-gon。
+        // 默认保持多边形集合形态：写顶点，再逐面写 OBJ n 边面。
         output << "# Ember exact polygon soup export\n";
         for (const PlanePoint3i &vertex : recovered.uniqueVertices)
         {

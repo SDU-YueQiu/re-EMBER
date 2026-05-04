@@ -1,6 +1,6 @@
 /**
  * @file subdivision_solver.cpp
- * @brief Implements recursive spatial subdivision and child-reference propagation.
+ * @brief 实现递归空间细分与子节点参考点传播。
  */
 #include "core/subdivision_solver.h"
 
@@ -335,7 +335,7 @@ namespace ember
         return polygons_.size() <= leafPolygonThreshold_ || !hasSplittableAxis(aabb_);
     }
 
-    // 裁剪当前 polygon soup 到左右子 AABB，并为每个非空子问题建立参考状态。
+    // 裁剪当前多边形集合到左右子 AABB，并为每个非空子问题建立参考状态。
     bool SubdivisionSolver::createChildrenFromSplit(const AABBSplit3i &split)
     {
         std::vector<Polygon256> leftPolygons;
