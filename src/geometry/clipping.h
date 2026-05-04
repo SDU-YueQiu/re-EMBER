@@ -24,6 +24,16 @@ namespace ember
     namespace detail
     {
         /**
+         * @brief 描述单侧 BSP 插入所需的交线载体。
+         */
+        struct IntersectionCarrier
+        {
+            Plane3i splitPlane;
+            Plane3i v0;
+            Plane3i v1;
+        };
+
+        /**
          * @brief 在调用方已验证两个 polygon 的前提下计算交线载体。
          *
          * @pre `target` 与 `incoming` 均满足 `Polygon256::isValid()`。
@@ -34,6 +44,17 @@ namespace ember
             Plane3i& outSplitPlane,
             Plane3i& outV0,
             Plane3i& outV1);
+
+        /**
+         * @brief 一次计算一对多边形在两个方向上的交线载体。
+         *
+         * @pre `lhs` 与 `rhs` 均满足 `Polygon256::isValid()`。
+         */
+        bool computeBidirectionalPolygonIntersectionCarriersTrusted(
+            const Polygon256& lhs,
+            const Polygon256& rhs,
+            IntersectionCarrier& outLhsCarrier,
+            IntersectionCarrier& outRhsCarrier);
 
         /**
          * @brief 在调用方已验证 source polygon 的前提下按平面切分叶片几何。

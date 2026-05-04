@@ -60,6 +60,15 @@ namespace ember
         void insertTrusted(const Polygon256& polygon, std::size_t incomingOrder = 0);
 
         /**
+         * @brief 插入已确认与基底多边形共面的多边形。
+         *
+         * @param[in] polygon 待插入的共面多边形。
+         * @param[in] incomingOrder 待插入多边形的稳定顺序键。
+         * @pre `polygon` 与当前基底多边形支撑平面共面。
+         */
+        void insertCoplanarPolygonTrusted(const Polygon256& polygon, std::size_t incomingOrder = 0);
+
+        /**
          * @brief 收集当前局部 BSP 的全部启用叶子几何。
          *
          * @return 按树遍历顺序输出的叶片多边形集合。
