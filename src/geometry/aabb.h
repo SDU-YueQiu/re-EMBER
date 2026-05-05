@@ -289,6 +289,62 @@ namespace ember
         return isValidAABB(box) && detail::chooseLongestSplittableAxis(box, axis);
     }
 
+    /**
+     * @brief 按指定轴和整数坐标切分 AABB。
+     *
+     * @param[in] box 待切分的 AABB。
+     * @param[in] axis 切分轴。
+     * @param[in] coordinate 切分坐标，必须严格位于 `box` 对应轴范围内部。
+     * @param[out] outSplit 成功时写入左右子 AABB 和切分平面。
+     * @return 切分合法并成功构造时返回 `true`。
+     */
+    inline bool splitAABBAtCoordinate(
+        const AABB3i &box,
+        SplitAxis3i axis,
+        const Integer &coordinate,
+        AABBSplit3i &outSplit)
+    {
+        outSplit = AABBSplit3i();
+        if (!isValidAABB(box))
+        {
+            return false;
+        }
+
+        AABB3i left = box;
+        AABB3i right = box;
+        Plane3i splitPlane;
+
+        switch (axis)
+        {
+        case SplitAxis3i::X:
+            if (coordinate <= box.xMin || coordinate >= box.xMax) return false;
+            left.xMax = coordinate;
+            right.xMin = coordinate;
+            splitPlane = Plane3i(1, 0, 0, -coordinate);
+            break;
+        case SplitAxis3i::Y:
+            if (coordinate <= box.yMin || coordinate >= box.yMax) return false;
+            left.yMax = coordinate;
+            right.yMin = coordinate;
+            splitPlane = Plane3i(0, 1, 0, -coordinate);
+            break;
+        case SplitAxis3i::Z:
+            if (coordinate <= box.zMin || coordinate >= box.zMax) return false;
+            left.zMax = coordinate;
+            right.zMin = coordinate;
+            splitPlane = Plane3i(0, 0, 1, -coordinate);
+            break;
+        }
+
+        outSplit.left = left;
+        outSplit.right = right;
+        outSplit.splitPlane = splitPlane;
+        outSplit.axis = axis;
+        outSplit.coordinate = coordinate;
+        outSplit.valid = true;
+        return true;
+    }
+
     inline bool splitAABBAtMidpoint(const AABB3i &box, AABBSplit3i &outSplit)
     {
         outSplit = AABBSplit3i();
@@ -304,43 +360,21 @@ namespace ember
         }
 
         const Integer two = 2;
-        AABB3i left = box;
-        AABB3i right = box;
-        Plane3i splitPlane;
         Integer coordinate = 0;
-
         switch (axis)
         {
         case SplitAxis3i::X:
             coordinate = floorDiv(box.xMin + box.xMax, two);
-            if (coordinate <= box.xMin || coordinate >= box.xMax) return false;
-            left.xMax = coordinate;
-            right.xMin = coordinate;
-            splitPlane = Plane3i(1, 0, 0, -coordinate);
             break;
         case SplitAxis3i::Y:
             coordinate = floorDiv(box.yMin + box.yMax, two);
-            if (coordinate <= box.yMin || coordinate >= box.yMax) return false;
-            left.yMax = coordinate;
-            right.yMin = coordinate;
-            splitPlane = Plane3i(0, 1, 0, -coordinate);
             break;
         case SplitAxis3i::Z:
             coordinate = floorDiv(box.zMin + box.zMax, two);
-            if (coordinate <= box.zMin || coordinate >= box.zMax) return false;
-            left.zMax = coordinate;
-            right.zMin = coordinate;
-            splitPlane = Plane3i(0, 0, 1, -coordinate);
             break;
         }
 
-        outSplit.left = left;
-        outSplit.right = right;
-        outSplit.splitPlane = splitPlane;
-        outSplit.axis = axis;
-        outSplit.coordinate = coordinate;
-        outSplit.valid = true;
-        return true;
+        return splitAABBAtCoordinate(box, axis, coordinate, outSplit);
     }
 
     inline PlanePoint3i projectPointToAABB(const PlanePoint3i &point, const AABB3i &box)

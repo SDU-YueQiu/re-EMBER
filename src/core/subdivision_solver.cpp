@@ -86,6 +86,41 @@ namespace ember
             return dimension;
         }
 
+        Integer axisMinimum(const AABB3i &box, SplitAxis3i axis) noexcept
+        {
+            switch (axis)
+            {
+            case SplitAxis3i::X:
+                return box.xMin;
+            case SplitAxis3i::Y:
+                return box.yMin;
+            case SplitAxis3i::Z:
+                return box.zMin;
+            }
+
+            return 0;
+        }
+
+        Integer axisMaximum(const AABB3i &box, SplitAxis3i axis) noexcept
+        {
+            switch (axis)
+            {
+            case SplitAxis3i::X:
+                return box.xMax;
+            case SplitAxis3i::Y:
+                return box.yMax;
+            case SplitAxis3i::Z:
+                return box.zMax;
+            }
+
+            return 0;
+        }
+
+        Integer axisMidpoint(const AABB3i &box, SplitAxis3i axis) noexcept
+        {
+            return floorDiv(axisMinimum(box, axis) + axisMaximum(box, axis), Integer(2));
+        }
+
         struct BinaryWnvDomain
         {
             bool canBeZero = false;
@@ -129,6 +164,450 @@ namespace ember
             domain.canBeZero = !isNonZero;
             domain.canBeNonZero = isNonZero;
             return domain;
+        }
+
+        // 二元布尔只依赖前两维 WNV；这里用零/非零可达域保守判断 indicator 是否恒定。
+        bool tryEvaluateConstantBinaryIndicator(
+            BoolOp op,
+            const WNV &referenceWnv,
+            const std::vector<Polygon256> &polygons,
+            BoolStatus &constantStatus) noexcept
+        {
+            if (referenceWnv.size() < 2u)
+            {
+                return false;
+            }
+
+            const BinaryWnvDomain lhsDomain = computeBinaryWnvDomain(referenceWnv, polygons, 0u);
+            const BinaryWnvDomain rhsDomain = computeBinaryWnvDomain(referenceWnv, polygons, 1u);
+
+            bool hasStatus = false;
+            for (const bool lhsNonZero : {false, true})
+            {
+                if ((lhsNonZero && !lhsDomain.canBeNonZero) || (!lhsNonZero && !lhsDomain.canBeZero))
+                {
+                    continue;
+                }
+
+                for (const bool rhsNonZero : {false, true})
+                {
+                    if ((rhsNonZero && !rhsDomain.canBeNonZero) || (!rhsNonZero && !rhsDomain.canBeZero))
+                    {
+                        continue;
+                    }
+
+                    const BoolStatus status = evaluateBinaryIndicatorState(op, lhsNonZero, rhsNonZero);
+                    if (!hasStatus)
+                    {
+                        constantStatus = status;
+                        hasStatus = true;
+                        continue;
+                    }
+
+                    if (status != constantStatus)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return hasStatus;
+        }
+
+        bool appendPolygonBoundsToAABB(AABB3i &box, const Polygon256 &polygon) noexcept
+        {
+            bool hasVertex = false;
+            const std::size_t vertexCount = polygon.edgePlanes.size();
+            for (std::size_t i = 0; i < vertexCount; ++i)
+            {
+                const std::size_t prev = (i == 0) ? (vertexCount - 1u) : (i - 1u);
+                const HomPoint4i vertex =
+                    intersectHomogeneous(polygon.plane, polygon.edgePlanes[i], polygon.edgePlanes[prev]);
+                if (isZero(vertex.w))
+                {
+                    continue;
+                }
+
+                const Integer fx = floorDiv(vertex.x, vertex.w);
+                const Integer cx = ceilDiv(vertex.x, vertex.w);
+                const Integer fy = floorDiv(vertex.y, vertex.w);
+                const Integer cy = ceilDiv(vertex.y, vertex.w);
+                const Integer fz = floorDiv(vertex.z, vertex.w);
+                const Integer cz = ceilDiv(vertex.z, vertex.w);
+
+                if (!box.valid)
+                {
+                    box.xMin = fx;
+                    box.xMax = cx;
+                    box.yMin = fy;
+                    box.yMax = cy;
+                    box.zMin = fz;
+                    box.zMax = cz;
+                    box.valid = true;
+                }
+                else
+                {
+                    if (fx < box.xMin) box.xMin = fx;
+                    if (cx > box.xMax) box.xMax = cx;
+                    if (fy < box.yMin) box.yMin = fy;
+                    if (cy > box.yMax) box.yMax = cy;
+                    if (fz < box.zMin) box.zMin = fz;
+                    if (cz > box.zMax) box.zMax = cz;
+                }
+
+                hasVertex = true;
+            }
+
+            return hasVertex;
+        }
+
+        void appendAABBToAABB(AABB3i &box, const AABB3i &source) noexcept
+        {
+            if (!isValidAABB(source))
+            {
+                return;
+            }
+
+            if (!box.valid)
+            {
+                box = source;
+                return;
+            }
+
+            if (source.xMin < box.xMin) box.xMin = source.xMin;
+            if (source.xMax > box.xMax) box.xMax = source.xMax;
+            if (source.yMin < box.yMin) box.yMin = source.yMin;
+            if (source.yMax > box.yMax) box.yMax = source.yMax;
+            if (source.zMin < box.zMin) box.zMin = source.zMin;
+            if (source.zMax > box.zMax) box.zMax = source.zMax;
+        }
+
+        struct WntvSubdivisionGroup
+        {
+            WNV wntv;
+            AABB3i box;
+            Integer centerCount = 0;
+            Integer sumCenterX = 0;
+            Integer sumCenterY = 0;
+            Integer sumCenterZ = 0;
+            Integer centerX = 0;
+            Integer centerY = 0;
+            Integer centerZ = 0;
+            std::size_t polygonCount = 0;
+        };
+
+        Integer groupCenterCoordinate(const WntvSubdivisionGroup &group, SplitAxis3i axis) noexcept
+        {
+            switch (axis)
+            {
+            case SplitAxis3i::X:
+                return group.centerX;
+            case SplitAxis3i::Y:
+                return group.centerY;
+            case SplitAxis3i::Z:
+                return group.centerZ;
+            }
+
+            return 0;
+        }
+
+        bool buildWntvSubdivisionGroups(
+            const std::vector<Polygon256> &polygons,
+            std::vector<WntvSubdivisionGroup> &groups)
+        {
+            groups.clear();
+            for (const Polygon256 &polygon : polygons)
+            {
+                auto it = std::find_if(
+                    groups.begin(),
+                    groups.end(),
+                    [&polygon](const WntvSubdivisionGroup &group)
+                    {
+                        return group.wntv == polygon.WNTV;
+                    });
+                if (it == groups.end())
+                {
+                    WntvSubdivisionGroup group;
+                    group.wntv = polygon.WNTV;
+                    groups.push_back(std::move(group));
+                    it = groups.end() - 1;
+                }
+
+                AABB3i polygonBox;
+                if (!appendPolygonBoundsToAABB(polygonBox, polygon))
+                {
+                    return false;
+                }
+                appendAABBToAABB(it->box, polygonBox);
+                it->sumCenterX += axisMidpoint(polygonBox, SplitAxis3i::X);
+                it->sumCenterY += axisMidpoint(polygonBox, SplitAxis3i::Y);
+                it->sumCenterZ += axisMidpoint(polygonBox, SplitAxis3i::Z);
+                ++it->centerCount;
+                ++it->polygonCount;
+            }
+
+            for (WntvSubdivisionGroup &group : groups)
+            {
+                if (!isValidAABB(group.box) || group.polygonCount == 0 || group.centerCount <= 0)
+                {
+                    return false;
+                }
+
+                group.centerX = floorDiv(group.sumCenterX, group.centerCount);
+                group.centerY = floorDiv(group.sumCenterY, group.centerCount);
+                group.centerZ = floorDiv(group.sumCenterZ, group.centerCount);
+            }
+
+            return true;
+        }
+
+        bool considerWntvSeparationCandidate(
+            const AABB3i &box,
+            SplitAxis3i axis,
+            const Integer &centerCoordinate,
+            const AABB3i &otherBox,
+            bool &hasBestCandidate,
+            Integer &bestDistance,
+            AABBSplit3i &bestSplit)
+        {
+            Integer coordinate = 0;
+            Integer distance = 0;
+            const Integer otherMin = axisMinimum(otherBox, axis);
+            const Integer otherMax = axisMaximum(otherBox, axis);
+
+            if (centerCoordinate < otherMin)
+            {
+                coordinate = otherMin - 1;
+                distance = otherMin - centerCoordinate;
+            }
+            else if (centerCoordinate > otherMax)
+            {
+                coordinate = otherMax + 1;
+                distance = centerCoordinate - otherMax;
+            }
+            else
+            {
+                return false;
+            }
+
+            AABBSplit3i candidate;
+            if (!splitAABBAtCoordinate(box, axis, coordinate, candidate))
+            {
+                return false;
+            }
+
+            if (!hasBestCandidate || distance > bestDistance)
+            {
+                hasBestCandidate = true;
+                bestDistance = distance;
+                bestSplit = candidate;
+            }
+
+            return true;
+        }
+
+        // 论文 4.5.3 策略：优先选能把某个 WNTV 类整体隔到单侧的轴向切分面。
+        bool chooseWntvAwareSplit(
+            const std::vector<Polygon256> &polygons,
+            const AABB3i &box,
+            AABBSplit3i &outSplit)
+        {
+            std::vector<WntvSubdivisionGroup> groups;
+            if (!buildWntvSubdivisionGroups(polygons, groups) || groups.size() < 2u)
+            {
+                return false;
+            }
+
+            bool hasCandidate = false;
+            Integer bestDistance = 0;
+            AABBSplit3i bestSplit;
+            for (std::size_t centerGroupIndex = 0; centerGroupIndex < groups.size(); ++centerGroupIndex)
+            {
+                const WntvSubdivisionGroup &centerGroup = groups[centerGroupIndex];
+                for (std::size_t otherGroupIndex = 0; otherGroupIndex < groups.size(); ++otherGroupIndex)
+                {
+                    if (centerGroupIndex == otherGroupIndex)
+                    {
+                        continue;
+                    }
+
+                    const WntvSubdivisionGroup &otherGroup = groups[otherGroupIndex];
+                    for (const SplitAxis3i axis : {SplitAxis3i::X, SplitAxis3i::Y, SplitAxis3i::Z})
+                    {
+                        considerWntvSeparationCandidate(
+                            box,
+                            axis,
+                            groupCenterCoordinate(centerGroup, axis),
+                            otherGroup.box,
+                            hasCandidate,
+                            bestDistance,
+                            bestSplit);
+                    }
+                }
+            }
+
+            if (!hasCandidate)
+            {
+                return false;
+            }
+
+            outSplit = bestSplit;
+            return true;
+        }
+
+        struct PolygonCenterSplitStats
+        {
+            bool valid = false;
+            Integer count = 0;
+            Integer sumX = 0;
+            Integer sumY = 0;
+            Integer sumZ = 0;
+            Integer minX = 0;
+            Integer maxX = 0;
+            Integer minY = 0;
+            Integer maxY = 0;
+            Integer minZ = 0;
+            Integer maxZ = 0;
+        };
+
+        void appendCenterCoordinate(
+            const Integer &coordinate,
+            Integer &minCoordinate,
+            Integer &maxCoordinate,
+            bool initialize)
+        {
+            if (initialize)
+            {
+                minCoordinate = coordinate;
+                maxCoordinate = coordinate;
+                return;
+            }
+
+            if (coordinate < minCoordinate) minCoordinate = coordinate;
+            if (coordinate > maxCoordinate) maxCoordinate = coordinate;
+        }
+
+        bool computePolygonCenterSplitStats(
+            const std::vector<Polygon256> &polygons,
+            PolygonCenterSplitStats &stats)
+        {
+            stats = PolygonCenterSplitStats();
+            for (const Polygon256 &polygon : polygons)
+            {
+                AABB3i polygonBox;
+                if (!appendPolygonBoundsToAABB(polygonBox, polygon) || !isValidAABB(polygonBox))
+                {
+                    return false;
+                }
+
+                const Integer centerX = axisMidpoint(polygonBox, SplitAxis3i::X);
+                const Integer centerY = axisMidpoint(polygonBox, SplitAxis3i::Y);
+                const Integer centerZ = axisMidpoint(polygonBox, SplitAxis3i::Z);
+                const bool initialize = !stats.valid;
+                appendCenterCoordinate(centerX, stats.minX, stats.maxX, initialize);
+                appendCenterCoordinate(centerY, stats.minY, stats.maxY, initialize);
+                appendCenterCoordinate(centerZ, stats.minZ, stats.maxZ, initialize);
+                stats.sumX += centerX;
+                stats.sumY += centerY;
+                stats.sumZ += centerZ;
+                ++stats.count;
+                stats.valid = true;
+            }
+
+            return stats.valid && stats.count > 0;
+        }
+
+        Integer centerRange(const PolygonCenterSplitStats &stats, SplitAxis3i axis) noexcept
+        {
+            switch (axis)
+            {
+            case SplitAxis3i::X:
+                return stats.maxX - stats.minX;
+            case SplitAxis3i::Y:
+                return stats.maxY - stats.minY;
+            case SplitAxis3i::Z:
+                return stats.maxZ - stats.minZ;
+            }
+
+            return 0;
+        }
+
+        Integer averageCenterCoordinate(const PolygonCenterSplitStats &stats, SplitAxis3i axis) noexcept
+        {
+            switch (axis)
+            {
+            case SplitAxis3i::X:
+                return floorDiv(stats.sumX, stats.count);
+            case SplitAxis3i::Y:
+                return floorDiv(stats.sumY, stats.count);
+            case SplitAxis3i::Z:
+                return floorDiv(stats.sumZ, stats.count);
+            }
+
+            return 0;
+        }
+
+        // 无 WNTV 分离候选时，用多边形中心范围近似最大方差轴，再按平均中心切分。
+        bool chooseCenterRangeSplit(
+            const std::vector<Polygon256> &polygons,
+            const AABB3i &box,
+            AABBSplit3i &outSplit)
+        {
+            PolygonCenterSplitStats stats;
+            if (!computePolygonCenterSplitStats(polygons, stats))
+            {
+                return false;
+            }
+
+            bool hasCandidate = false;
+            Integer bestRange = 0;
+            AABBSplit3i bestSplit;
+            for (const SplitAxis3i axis : {SplitAxis3i::X, SplitAxis3i::Y, SplitAxis3i::Z})
+            {
+                const Integer range = centerRange(stats, axis);
+                if (range <= 1)
+                {
+                    continue;
+                }
+
+                AABBSplit3i candidate;
+                if (!splitAABBAtCoordinate(box, axis, averageCenterCoordinate(stats, axis), candidate))
+                {
+                    continue;
+                }
+
+                if (!hasCandidate || range > bestRange)
+                {
+                    hasCandidate = true;
+                    bestRange = range;
+                    bestSplit = candidate;
+                }
+            }
+
+            if (!hasCandidate)
+            {
+                return false;
+            }
+
+            outSplit = bestSplit;
+            return true;
+        }
+
+        bool chooseSubdivisionSplit(
+            const std::vector<Polygon256> &polygons,
+            const AABB3i &box,
+            AABBSplit3i &outSplit)
+        {
+            if (chooseWntvAwareSplit(polygons, box, outSplit))
+            {
+                return true;
+            }
+            if (chooseCenterRangeSplit(polygons, box, outSplit))
+            {
+                return true;
+            }
+
+            return splitAABBAtMidpoint(box, outSplit);
         }
 
         bool appendSplitChildPolygons(
@@ -367,7 +846,7 @@ namespace ember
         }
 
         AABBSplit3i split;
-        if (!splitAABBAtMidpoint(aabb_, split))
+        if (!chooseSubdivisionSplit(polygons_, aabb_, split))
         {
             isLeaf_ = true;
             logBoolInfo(
@@ -464,45 +943,7 @@ namespace ember
 
     bool SubdivisionSolver::shouldDiscardSubproblemEarly(BoolStatus &constantStatus) const noexcept
     {
-        if (reference_.wnv.size() < 2u)
-        {
-            return false;
-        }
-
-        const BinaryWnvDomain lhsDomain = computeBinaryWnvDomain(reference_.wnv, polygons_, 0u);
-        const BinaryWnvDomain rhsDomain = computeBinaryWnvDomain(reference_.wnv, polygons_, 1u);
-
-        bool hasStatus = false;
-        for (const bool lhsNonZero : {false, true})
-        {
-            if ((lhsNonZero && !lhsDomain.canBeNonZero) || (!lhsNonZero && !lhsDomain.canBeZero))
-            {
-                continue;
-            }
-
-            for (const bool rhsNonZero : {false, true})
-            {
-                if ((rhsNonZero && !rhsDomain.canBeNonZero) || (!rhsNonZero && !rhsDomain.canBeZero))
-                {
-                    continue;
-                }
-
-                const BoolStatus status = evaluateBinaryIndicatorState(op_, lhsNonZero, rhsNonZero);
-                if (!hasStatus)
-                {
-                    constantStatus = status;
-                    hasStatus = true;
-                    continue;
-                }
-
-                if (status != constantStatus)
-                {
-                    return false;
-                }
-            }
-        }
-
-        return hasStatus;
+        return tryEvaluateConstantBinaryIndicator(op_, reference_.wnv, polygons_, constantStatus);
     }
 
     // 裁剪当前多边形集合到左右子 AABB，并为每个非空子问题建立参考状态。
@@ -562,7 +1003,32 @@ namespace ember
             throw std::runtime_error(message.str());
         }
 
-        if (!leftPolygons.empty())
+        auto shouldCreateChild =
+            [this](const char *side, const std::vector<Polygon256> &childPolygons, const SubdivisionRefState &childReference)
+            {
+                BoolStatus constantStatus = OUT;
+                if (!tryEvaluateConstantBinaryIndicator(op_, childReference.wnv, childPolygons, constantStatus))
+                {
+                    return true;
+                }
+
+                logBoolInfo(
+                    kBoolProblemChildrenScope,
+                    [this, side, &childPolygons, constantStatus]()
+                    {
+                        std::ostringstream message;
+                        message << "Discarded child node depth=" << (depth_ + 1u)
+                                << " side=" << side
+                                << " polygon_count=" << childPolygons.size()
+                                << " reason=indicator_constant_"
+                                << (constantStatus == IN ? "in" : "out")
+                                << ".";
+                        return message.str();
+                    });
+                return false;
+            };
+
+        if (!leftPolygons.empty() && shouldCreateChild("left", leftPolygons, leftReference))
         {
             leftChild_.reset(new SubdivisionSolver(
                 op_,
@@ -573,7 +1039,7 @@ namespace ember
                 std::move(leftReference)));
         }
 
-        if (!rightPolygons.empty())
+        if (!rightPolygons.empty() && shouldCreateChild("right", rightPolygons, rightReference))
         {
             rightChild_.reset(new SubdivisionSolver(
                 op_,
