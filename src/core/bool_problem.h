@@ -31,8 +31,37 @@ namespace ember
     {
         std::size_t depth = 0;       ///< 叶子在细分树中的深度。
         std::size_t polygonCount = 0; ///< 叶子局部多边形集合的大小。
-        AABB3i aabb;                ///< 叶子局部 AABB。
+        AABB3i aabb;                 ///< 叶子局部 AABB。
         bool discarded = false;      ///< 该叶子是否被求解流程丢弃。
+    };
+
+    /**
+     * @brief 最近一次求解的高层统计信息。
+     */
+    struct BoolSolveMetrics
+    {
+        std::size_t inputPolygonCount = 0;              ///< 输入多边形总数。
+        std::size_t nodeCount = 0;                      ///< 递归节点总数。
+        std::size_t internalNodeCount = 0;              ///< 发生进一步细分的节点数。
+        std::size_t leafNodeCount = 0;                  ///< 叶节点数。
+        std::size_t discardedNodeCount = 0;             ///< 被丢弃的节点数。
+        std::size_t maxDepth = 0;                       ///< 递归树最大深度。
+        std::size_t totalPolygonCount = 0;              ///< 访问到的节点多边形数量累计值。
+        std::size_t leafFragmentCount = 0;              ///< 所有活跃叶子的叶片片段数累计值。
+        std::size_t classifiedFragmentCount = 0;        ///< 所有活跃叶子的已分类片段数累计值。
+        std::size_t resultFragmentCount = 0;            ///< 最终结果片段数。
+        std::size_t constantDiscardCount = 0;           ///< 由常量布尔指示函数直接剪枝的节点数。
+        std::size_t leafThresholdStopCount = 0;         ///< 因叶子阈值停止细分的节点数。
+        std::size_t aabbNotSplittableStopCount = 0;      ///< 因 AABB 不可再切分停止细分的节点数。
+        std::size_t splitFailureStopCount = 0;          ///< 因切分候选失败停止细分的节点数。
+        std::size_t wntvAwareSplitCount = 0;            ///< 命中 WNTV 感知切分的次数。
+        std::size_t centerRangeSplitCount = 0;          ///< 命中中心范围切分的次数。
+        std::size_t midpointSplitCount = 0;             ///< 回退到中点切分的次数。
+        std::size_t childReferenceReuseCount = 0;       ///< 直接复用子参考点的次数。
+        std::size_t childReferenceTraceCount = 0;       ///< 通过路径追踪传播子参考点的次数。
+        std::size_t singleOperandLeafBspSkipCount = 0;  ///< 单操作数叶子跳过局部 BSP 的次数。
+        std::size_t singleOperandClassificationReuseCount = 0; ///< 单操作数叶子复用分类结果的次数。
+        std::size_t leafBspBuildCount = 0;              ///< 真实执行局部 BSP 构建的次数。
     };
 
     /**
@@ -157,6 +186,11 @@ namespace ember
          */
         const std::vector<BoolLeafSummary> &leafSummaries() const noexcept;
 
+        /**
+         * @brief 读取最近一次求解的高层统计信息。
+         */
+        const BoolSolveMetrics &solveMetrics() const noexcept;
+
     private:
         /**
          * @brief 重置求解派生状态，保留输入多边形集合和配置。
@@ -198,5 +232,8 @@ namespace ember
 
         /// 最近一次求解产生的叶子诊断摘要。
         std::vector<BoolLeafSummary> leafSummaries_;
+
+        /// 最近一次求解的高层统计信息。
+        BoolSolveMetrics solveMetrics_;
     };
 }

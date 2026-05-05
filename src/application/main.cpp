@@ -42,6 +42,7 @@ namespace
         double prepareMs = 0.0;
         double solveMs = 0.0;
         double exportMs = 0.0;
+        ember::BoolSolveMetrics solveMetrics;
     };
 
     void printUsage()
@@ -79,7 +80,29 @@ namespace
                << "read_ms=" << timings.readMs << '\n'
                << "prepare_ms=" << timings.prepareMs << '\n'
                << "solve_ms=" << timings.solveMs << '\n'
-               << "export_ms=" << timings.exportMs << '\n';
+               << "export_ms=" << timings.exportMs << '\n'
+               << "input_polygons=" << timings.solveMetrics.inputPolygonCount << '\n'
+               << "node_count=" << timings.solveMetrics.nodeCount << '\n'
+               << "internal_node_count=" << timings.solveMetrics.internalNodeCount << '\n'
+               << "leaf_node_count=" << timings.solveMetrics.leafNodeCount << '\n'
+               << "discarded_node_count=" << timings.solveMetrics.discardedNodeCount << '\n'
+               << "max_depth=" << timings.solveMetrics.maxDepth << '\n'
+               << "total_polygon_count=" << timings.solveMetrics.totalPolygonCount << '\n'
+               << "leaf_fragment_count=" << timings.solveMetrics.leafFragmentCount << '\n'
+               << "classified_fragment_count=" << timings.solveMetrics.classifiedFragmentCount << '\n'
+               << "result_fragment_count=" << timings.solveMetrics.resultFragmentCount << '\n'
+               << "constant_discard_count=" << timings.solveMetrics.constantDiscardCount << '\n'
+               << "leaf_threshold_stop_count=" << timings.solveMetrics.leafThresholdStopCount << '\n'
+               << "aabb_not_splittable_stop_count=" << timings.solveMetrics.aabbNotSplittableStopCount << '\n'
+               << "split_failure_stop_count=" << timings.solveMetrics.splitFailureStopCount << '\n'
+               << "wntv_aware_split_count=" << timings.solveMetrics.wntvAwareSplitCount << '\n'
+               << "center_range_split_count=" << timings.solveMetrics.centerRangeSplitCount << '\n'
+               << "midpoint_split_count=" << timings.solveMetrics.midpointSplitCount << '\n'
+               << "child_reference_reuse_count=" << timings.solveMetrics.childReferenceReuseCount << '\n'
+               << "child_reference_trace_count=" << timings.solveMetrics.childReferenceTraceCount << '\n'
+               << "single_operand_leaf_bsp_skip_count=" << timings.solveMetrics.singleOperandLeafBspSkipCount << '\n'
+               << "single_operand_classification_reuse_count=" << timings.solveMetrics.singleOperandClassificationReuseCount << '\n'
+               << "leaf_bsp_build_count=" << timings.solveMetrics.leafBspBuildCount << '\n';
         if (!output)
         {
             outError = "Failed to write timings output file: " + path;
@@ -338,6 +361,7 @@ int main(int argc, char **argv)
         problem.solve();
         const Clock::time_point solveEnd = Clock::now();
         timings.solveMs = elapsedMilliseconds(solveStart, solveEnd);
+        timings.solveMetrics = problem.solveMetrics();
 
         // 默认直接导出 OBJ n 边面；三角化和拓扑恢复属于调用方后处理。
         const Clock::time_point exportStart = Clock::now();
@@ -364,6 +388,14 @@ int main(int argc, char **argv)
             << " scale=" << sharedScale
             << " lhs_polygons=" << lhsPolygons.size()
             << " rhs_polygons=" << rhsPolygons.size()
+            << " node_count=" << timings.solveMetrics.nodeCount
+            << " leaf_nodes=" << timings.solveMetrics.leafNodeCount
+            << " discarded_nodes=" << timings.solveMetrics.discardedNodeCount
+            << " max_depth=" << timings.solveMetrics.maxDepth
+            << " constant_discards=" << timings.solveMetrics.constantDiscardCount
+            << " wntv_splits=" << timings.solveMetrics.wntvAwareSplitCount
+            << " center_splits=" << timings.solveMetrics.centerRangeSplitCount
+            << " midpoint_splits=" << timings.solveMetrics.midpointSplitCount
             << " result_fragments=" << problem.resultFragments().size()
             << " exported_faces=" << exportedFaces
             << std::endl;
