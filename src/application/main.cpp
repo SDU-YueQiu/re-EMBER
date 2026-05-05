@@ -167,6 +167,8 @@ namespace
                << "child_reference_trace_count=" << timings.solveMetrics.childReferenceTraceCount << '\n'
                << "child_reference_candidate_count=" << timings.solveMetrics.childReferenceCandidateCount << '\n'
                << "child_reference_candidate_tried_count=" << timings.solveMetrics.childReferenceCandidateTriedCount << '\n'
+               << "single_operand_assumption_stop_count=" << timings.solveMetrics.singleOperandAssumptionStopCount << '\n'
+               << "single_operand_assumption_fallback_count=" << timings.solveMetrics.singleOperandAssumptionFallbackCount << '\n'
                << "single_operand_leaf_bsp_skip_count=" << timings.solveMetrics.singleOperandLeafBspSkipCount << '\n'
                << "single_operand_classification_reuse_count=" << timings.solveMetrics.singleOperandClassificationReuseCount << '\n'
                << "leaf_bsp_build_count=" << timings.solveMetrics.leafBspBuildCount << '\n'
@@ -503,6 +505,8 @@ int main(int argc, char **argv)
             << " discarded_nodes=" << timings.solveMetrics.discardedNodeCount
             << " max_depth=" << timings.solveMetrics.maxDepth
             << " constant_discards=" << timings.solveMetrics.constantDiscardCount
+            << " single_operand_stops=" << timings.solveMetrics.singleOperandAssumptionStopCount
+            << " single_operand_fallbacks=" << timings.solveMetrics.singleOperandAssumptionFallbackCount
             << " wntv_splits=" << timings.solveMetrics.wntvAwareSplitCount
             << " center_splits=" << timings.solveMetrics.centerRangeSplitCount
             << " midpoint_splits=" << timings.solveMetrics.midpointSplitCount

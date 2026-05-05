@@ -875,6 +875,12 @@ namespace ember
             return;
         }
 
+        if (trySolveSingleOperandAssumptionLeaf())
+        {
+            solved_ = true;
+            return;
+        }
+
         if (shouldStopSubdivision())
         {
             if (polygons_.size() <= leafPolygonThreshold_)
@@ -1019,7 +1025,7 @@ namespace ember
         return tryEvaluateConstantBinaryIndicator(op_, reference_.wnv, polygons_, constantStatus);
     }
 
-    bool SubdivisionSolver::tryGetSingleOperandLeafAssumptions(BoolOperandAssumptions &outAssumptions) const noexcept
+    bool SubdivisionSolver::tryGetSingleOperandAssumptions(BoolOperandAssumptions &outAssumptions) const noexcept
     {
         if (polygons_.empty())
         {
@@ -1413,6 +1419,8 @@ namespace ember
         outMetrics.childReferenceTraceCount += solveMetrics_.childReferenceTraceCount;
         outMetrics.childReferenceCandidateCount += solveMetrics_.childReferenceCandidateCount;
         outMetrics.childReferenceCandidateTriedCount += solveMetrics_.childReferenceCandidateTriedCount;
+        outMetrics.singleOperandAssumptionStopCount += solveMetrics_.singleOperandAssumptionStopCount;
+        outMetrics.singleOperandAssumptionFallbackCount += solveMetrics_.singleOperandAssumptionFallbackCount;
         outMetrics.singleOperandLeafBspSkipCount += solveMetrics_.singleOperandLeafBspSkipCount;
         outMetrics.singleOperandClassificationReuseCount += solveMetrics_.singleOperandClassificationReuseCount;
         outMetrics.leafBspBuildCount += solveMetrics_.leafBspBuildCount;

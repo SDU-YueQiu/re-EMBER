@@ -793,6 +793,8 @@ function New-TimingRow {
         child_reference_trace_count = [math]::Round((Get-Metric $metrics "child_reference_trace_count"), 0)
         child_reference_candidate_count = [math]::Round((Get-Metric $metrics "child_reference_candidate_count"), 0)
         child_reference_candidate_tried_count = [math]::Round((Get-Metric $metrics "child_reference_candidate_tried_count"), 0)
+        single_operand_assumption_stop_count = [math]::Round((Get-Metric $metrics "single_operand_assumption_stop_count"), 0)
+        single_operand_assumption_fallback_count = [math]::Round((Get-Metric $metrics "single_operand_assumption_fallback_count"), 0)
         single_operand_leaf_bsp_skip_count = [math]::Round((Get-Metric $metrics "single_operand_leaf_bsp_skip_count"), 0)
         single_operand_classification_reuse_count = [math]::Round((Get-Metric $metrics "single_operand_classification_reuse_count"), 0)
         leaf_bsp_build_count = [math]::Round((Get-Metric $metrics "leaf_bsp_build_count"), 0)
