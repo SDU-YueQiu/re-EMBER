@@ -11,6 +11,7 @@ param(
     [int]$BuildTimeoutSeconds = 900,
     [int]$ReportTimeoutSeconds = 120,
     [int]$TracyPort = 8086,
+    [int]$TracyAttachWaitMilliseconds = 1500,
     [string]$TracyToolRoot,
     [switch]$SkipBuild,
     [switch]$ForceBuild,
@@ -21,6 +22,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$TracyPortWasExplicit = $PSBoundParameters.ContainsKey("TracyPort")
 
 function Show-Help {
     @"
@@ -42,6 +44,8 @@ Notes:
   - Tracy profiling is the default path and requires REEMBER_ENABLE_TRACY=ON.
   - When -SkipBuild is not specified, the script configures build\ with -DREEMBER_ENABLE_TRACY=ON.
   - Install the required tools with: vcpkg install tracy[cli-tools]:x64-windows
+  - The script auto-selects a bindable Tracy port when the default port is reserved on the local machine.
+  - The script sets REEMBER_TRACY_WAIT_MS before timed work so tracy-capture can attach without polluting read/prepare/solve/export timings.
   - Use -NoTracy only for timing-only runs without zone capture.
   - OBJ workloads are assumed to satisfy NSI/NNC input assumptions by default.
   - Use -NoInputAssumptions only when profiling intentionally invalid or adversarial OBJ inputs.
@@ -168,6 +172,7 @@ function Invoke-External {
         [string]$StdoutPath,
         [string]$StderrPath,
         [int]$TimeoutSec,
+        [hashtable]$EnvironmentVariables,
         [switch]$IgnoreExit
     )
 
@@ -180,6 +185,11 @@ function Invoke-External {
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
     $startInfo.Arguments = Join-CommandLine $Arguments
+    if ($EnvironmentVariables) {
+        foreach ($entry in $EnvironmentVariables.GetEnumerator()) {
+            $startInfo.Environment[$entry.Key] = [string]$entry.Value
+        }
+    }
 
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo = $startInfo
@@ -241,6 +251,63 @@ function Resolve-OutputPath {
     }
 
     return (Join-Path $RepoRoot $Path)
+}
+
+function Test-TcpLoopbackBindable {
+    param([int]$Port)
+
+    $listener = $null
+    try {
+        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $Port)
+        $listener.Start()
+        return $true
+    }
+    catch {
+        return $false
+    }
+    finally {
+        if ($listener) {
+            $listener.Stop()
+        }
+    }
+}
+
+function Get-EphemeralTcpPort {
+    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+    try {
+        $listener.Start()
+        return $listener.LocalEndpoint.Port
+    }
+    finally {
+        $listener.Stop()
+    }
+}
+
+function Resolve-TracyPort {
+    param(
+        [int]$PreferredPort,
+        [bool]$WasExplicit
+    )
+
+    if ($WasExplicit) {
+        if (-not (Test-TcpLoopbackBindable $PreferredPort)) {
+            throw ("Requested -TracyPort {0} is not bindable on 127.0.0.1. Choose another port." -f $PreferredPort)
+        }
+        return $PreferredPort
+    }
+
+    for ($candidate = $PreferredPort; $candidate -lt ($PreferredPort + 200); ++$candidate) {
+        if (Test-TcpLoopbackBindable $candidate) {
+            if ($candidate -ne $PreferredPort) {
+                Write-Info ("Default Tracy port {0} is unavailable; using {1} instead." -f $PreferredPort, $candidate)
+            }
+            return $candidate
+        }
+    }
+
+    $fallbackPort = Get-EphemeralTcpPort
+    Write-Info ("Default Tracy port window near {0} is unavailable; using ephemeral port {1}." -f $PreferredPort, $fallbackPort)
+    return $fallbackPort
 }
 
 function Read-ReEmberTimingMetrics {
@@ -540,7 +607,17 @@ function Invoke-ReEmberWorkload {
     }
 
     Ensure-ParentDirectory $outPath
-    $result = Invoke-External $ExePath (Get-ReEmberArguments $Workload $outPath $metricsPath) $stdoutPath $stderrPath $TimeoutSeconds
+    $environment = $null
+    if (-not $NoTracy) {
+        $environment = @{
+            REEMBER_TRACY_WAIT_MS = [string]$TracyAttachWaitMilliseconds
+            TRACY_PORT = [string]$script:ResolvedTracyPort
+            TRACY_ONLY_LOCALHOST = "1"
+            TRACY_ONLY_IPV4 = "1"
+            TRACY_NO_BROADCAST = "1"
+        }
+    }
+    $result = Invoke-External $ExePath (Get-ReEmberArguments $Workload $outPath $metricsPath) $stdoutPath $stderrPath $TimeoutSeconds $environment
     $metrics = Read-ReEmberTimingMetrics $metricsPath
 
     return [pscustomobject]@{
@@ -559,6 +636,7 @@ function Start-TracyCaptureProcess {
     param(
         [string]$CapturePath,
         [string]$TracePath,
+        [int]$CaptureSeconds,
         [string]$StdoutPath,
         [string]$StderrPath
     )
@@ -566,9 +644,10 @@ function Start-TracyCaptureProcess {
     Ensure-ParentDirectory $TracePath
     $arguments = @(
         "-a", "127.0.0.1",
-        "-p", [string]$TracyPort,
+        "-p", [string]$script:ResolvedTracyPort,
         "-o", $TracePath,
-        "-f"
+        "-f",
+        "-s", [string]$CaptureSeconds
     )
 
     Write-Info ("EXEC: {0} {1}" -f $CapturePath, ($arguments -join " "))
@@ -592,7 +671,17 @@ function Start-TracyCaptureProcess {
         StdoutPath = $StdoutPath
         StderrPath = $StderrPath
         TracePath = $TracePath
+        CaptureSeconds = $CaptureSeconds
     }
+}
+
+function Write-TracyCaptureLogs {
+    param([object]$Capture)
+
+    $stdout = $Capture.StdoutTask.GetAwaiter().GetResult()
+    $stderr = $Capture.StderrTask.GetAwaiter().GetResult()
+    Set-Content -LiteralPath $Capture.StdoutPath -Value $stdout -Encoding UTF8
+    Set-Content -LiteralPath $Capture.StderrPath -Value $stderr -Encoding UTF8
 }
 
 function Stop-TracyCaptureProcess {
@@ -603,20 +692,20 @@ function Stop-TracyCaptureProcess {
     }
 
     $process = $Capture.Process
-    if (-not $process.WaitForExit($ReportTimeoutSeconds * 1000)) {
+    $waitSeconds = [math]::Max($ReportTimeoutSeconds, $Capture.CaptureSeconds + 5)
+    if (-not $process.WaitForExit($waitSeconds * 1000)) {
         try {
             $process.Kill($true)
         }
         catch {
             $process.Kill()
         }
-        throw ("Timed out waiting for tracy-capture to finish. Check {0} and {1}." -f $Capture.StdoutPath, $Capture.StderrPath)
+        $process.WaitForExit()
+        Write-TracyCaptureLogs $Capture
+        throw ("Timed out waiting for tracy-capture to finish after {0}s. Check {1} and {2}." -f $waitSeconds, $Capture.StdoutPath, $Capture.StderrPath)
     }
 
-    $stdout = $Capture.StdoutTask.GetAwaiter().GetResult()
-    $stderr = $Capture.StderrTask.GetAwaiter().GetResult()
-    Set-Content -LiteralPath $Capture.StdoutPath -Value $stdout -Encoding UTF8
-    Set-Content -LiteralPath $Capture.StderrPath -Value $stderr -Encoding UTF8
+    Write-TracyCaptureLogs $Capture
 
     if ($process.ExitCode -ne 0) {
         throw ("tracy-capture failed with exit code {0}. Check {1}." -f $process.ExitCode, $Capture.StderrPath)
@@ -638,7 +727,8 @@ function Invoke-TracyCapturedWorkload {
     $tracePath = Join-Path $TraceRoot ("{0}_{1}.tracy" -f $Tag, $Workload.Name)
     $captureStdout = Join-Path $PerfRoot ("{0}_{1}.tracy-capture.stdout.txt" -f $Tag, $Workload.Name)
     $captureStderr = Join-Path $PerfRoot ("{0}_{1}.tracy-capture.stderr.txt" -f $Tag, $Workload.Name)
-    $capture = Start-TracyCaptureProcess $CapturePath $tracePath $captureStdout $captureStderr
+    $captureSeconds = [math]::Max(30, [math]::Ceiling(($TimeoutSeconds + ($TracyAttachWaitMilliseconds / 1000.0) + 10)))
+    $capture = Start-TracyCaptureProcess $CapturePath $tracePath $captureSeconds $captureStdout $captureStderr
     Start-Sleep -Milliseconds 300
 
     try {
@@ -760,7 +850,7 @@ function Export-TracyZones {
     $zoneRows | Export-Csv -LiteralPath $zonesCsvPath -NoTypeInformation -Encoding UTF8
     return [pscustomobject]@{
         Path = $zonesCsvPath
-        Rows = @($zoneRows)
+        Rows = $zoneRows.ToArray()
     }
 }
 
@@ -989,6 +1079,12 @@ try {
         throw "The build tree is not configured with REEMBER_ENABLE_TRACY=ON. Re-run without -SkipBuild or configure build\ manually."
     }
 
+    $script:ResolvedTracyPort = $null
+    if (-not $NoTracy) {
+        $script:ResolvedTracyPort = Resolve-TracyPort -PreferredPort $TracyPort -WasExplicit $TracyPortWasExplicit
+        Write-Info ("Using Tracy port {0}" -f $script:ResolvedTracyPort)
+    }
+
     if ((-not $SkipBuild) -or $ForceBuild) {
         Invoke-CMakeBuild
     }
@@ -1019,7 +1115,7 @@ try {
         iterations = $Iterations
         timeoutSeconds = $TimeoutSeconds
         tracyEnabled = (-not $NoTracy)
-        tracyPort = $TracyPort
+        tracyPort = $script:ResolvedTracyPort
         tracyCapture = $tracyCapturePath
         tracyCsvExport = $tracyCsvExportPath
         inputAssumptionsEnabled = (-not $NoInputAssumptions)
