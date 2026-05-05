@@ -22,7 +22,7 @@ endif()
 
 option(REEMBER_ENABLE_EIGEN "Link Eigen3 from vcpkg" OFF)
 option(REEMBER_ENABLE_CGAL "Link CGAL from vcpkg" OFF)
-option(REEMBER_BUILD_VISUAL_TEST "Build the libigl-based visual-test target" OFF)
+option(REEMBER_BUILD_VISUAL_TEST "Build the libigl-based visual-test target" ON)
 
 find_package(spdlog CONFIG REQUIRED)
 find_package(tinyobjloader CONFIG REQUIRED)

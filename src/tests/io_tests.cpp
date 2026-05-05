@@ -411,6 +411,9 @@ namespace
 
         ember::BoolProblem problem(leafThreshold);
         problem.setOperation(operation);
+        problem.setOperandAssumptions(
+            ember::BoolOperandAssumptions{true, true},
+            ember::BoolOperandAssumptions{true, true});
         problem.setOperands(lhsPolygons, rhsPolygons);
         problem.solve();
         if (!problem.isSolved())
@@ -549,6 +552,9 @@ void runIoTests()
 
         ember::BoolProblem problem(25);
         problem.setOperation(BoolOp::Difference);
+        problem.setOperandAssumptions(
+            ember::BoolOperandAssumptions{true, true},
+            ember::BoolOperandAssumptions{true, true});
         problem.setOperands(lhsPolygons, rhsPolygons);
         problem.solve();
         assert(problem.resultFragments().size() == 12u);
@@ -687,6 +693,9 @@ void runIoTests()
 
         ember::BoolProblem problem(25);
         problem.setOperation(BoolOp::Difference);
+        problem.setOperandAssumptions(
+            ember::BoolOperandAssumptions{true, true},
+            ember::BoolOperandAssumptions{true, true});
         problem.setOperands(lhsPolygons, rhsPolygons);
         problem.solve();
 
@@ -962,6 +971,9 @@ void runIoTests()
 
         ember::BoolProblem problem(2);
         problem.setOperation(BoolOp::Union);
+        problem.setOperandAssumptions(
+            ember::BoolOperandAssumptions{true, true},
+            ember::BoolOperandAssumptions{true, true});
         problem.setOperands(lhs, rhs);
         problem.solve();
         assert(problem.isSolved());
@@ -1022,6 +1034,9 @@ void runIoTests()
 
         ember::BoolProblem problem(25);
         problem.setOperation(BoolOp::Union);
+        problem.setOperandAssumptions(
+            ember::BoolOperandAssumptions{true, true},
+            ember::BoolOperandAssumptions{true, true});
         problem.setOperands(lhsPolygons, rhsPolygons);
         problem.solve();
         assert(problem.resultFragments().size() == 14u);
