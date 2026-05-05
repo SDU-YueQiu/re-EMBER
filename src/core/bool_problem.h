@@ -61,6 +61,8 @@ namespace ember
         std::size_t childReferenceTraceCount = 0;       ///< 通过路径追踪传播子参考点的次数。
         std::size_t childReferenceCandidateCount = 0;   ///< 子参考点传播阶段生成的候选总数。
         std::size_t childReferenceCandidateTriedCount = 0; ///< 子参考点传播阶段实际尝试追踪的候选数。
+        std::size_t singleOperandAssumptionStopCount = 0; ///< NSI/NNC 单操作数假设提前停止细分的次数。
+        std::size_t singleOperandAssumptionFallbackCount = 0; ///< NSI/NNC 单操作数提前停止探测失败并回退细分的次数。
         std::size_t singleOperandLeafBspSkipCount = 0;  ///< 单操作数叶子跳过局部 BSP 的次数。
         std::size_t singleOperandClassificationReuseCount = 0; ///< 单操作数叶子复用分类结果的次数。
         std::size_t leafBspBuildCount = 0;              ///< 真实执行局部 BSP 构建的次数。
@@ -123,7 +125,7 @@ namespace ember
         void setLeafPolygonThreshold(std::size_t threshold) noexcept;
 
         /**
-         * @brief 设置左右操作数可用于 4.5.1 快路径的输入假设。
+         * @brief 设置左右操作数可用于 4.5.x 快路径与单操作数 early-stop 的输入假设。
          *
          * @param[in] lhsAssumptions 左操作数假设，对应 WNTV `{1, 0}`。
          * @param[in] rhsAssumptions 右操作数假设，对应 WNTV `{0, 1}`。

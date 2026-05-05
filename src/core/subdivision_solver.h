@@ -114,6 +114,11 @@ namespace ember
         void classifyLeafFragmentsAndCollectResults();
 
         /**
+         * @brief 尝试用 NSI/NNC 单操作数假设提前把当前节点作为叶子求解。
+         */
+        bool trySolveSingleOperandAssumptionLeaf();
+
+        /**
          * @brief 返回当前节点是否应停止继续细分。
          */
         bool shouldStopSubdivision() const noexcept;
@@ -124,9 +129,14 @@ namespace ember
         bool shouldDiscardSubproblemEarly(BoolStatus &constantStatus) const noexcept;
 
         /**
-         * @brief 若当前叶子只含一个二元操作数 WNTV 类，返回该类假设配置。
+         * @brief 若当前节点只含一个二元操作数 WNTV 类，返回该类假设配置。
          */
-        bool tryGetSingleOperandLeafAssumptions(BoolOperandAssumptions &outAssumptions) const noexcept;
+        bool tryGetSingleOperandAssumptions(BoolOperandAssumptions &outAssumptions) const noexcept;
+
+        /**
+         * @brief 分类叶片片段并收集结果，可选择在分类失败时回退。
+         */
+        bool classifyLeafFragmentsAndCollectResults(bool allowRetryFallback);
 
         /**
          * @brief 根据 AABB 切分创建子求解器节点。
