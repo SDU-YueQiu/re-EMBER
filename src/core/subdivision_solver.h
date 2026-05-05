@@ -72,6 +72,11 @@ namespace ember
          */
         const std::vector<BoolLeafSummary> &leafSummaries() const noexcept;
 
+        /**
+         * @brief 返回最近一次求解的高层统计信息。
+         */
+        const BoolSolveMetrics &solveMetrics() const noexcept;
+
     private:
         SubdivisionSolver(
             BoolOp op,
@@ -134,7 +139,7 @@ namespace ember
         bool makeChildReference(
             const AABB3i &childBox,
             const std::vector<Polygon256> &childPolygons,
-            SubdivisionRefState &outReference) const;
+            SubdivisionRefState &outReference);
 
         /**
          * @brief 对一个 WNV 计算当前配置的布尔指示函数。
@@ -145,6 +150,11 @@ namespace ember
          * @brief 追加当前子树中未丢弃的叶子摘要。
          */
         void collectLeafSummaries(std::vector<BoolLeafSummary> &outSummaries) const;
+
+        /**
+         * @brief 递归收集当前子树的高层统计信息。
+         */
+        void collectSolveMetrics(BoolSolveMetrics &outMetrics) const;
 
         BoolOp op_ = BoolOp::Intersection;
         std::size_t leafPolygonThreshold_ = 25;
@@ -162,6 +172,7 @@ namespace ember
         std::vector<ClassifiedFragment> classifiedFragments_;
         std::vector<Polygon256> resultFragments_;
         std::vector<BoolLeafSummary> leafSummaries_;
+        BoolSolveMetrics solveMetrics_;
         std::unique_ptr<SubdivisionSolver> leftChild_;
         std::unique_ptr<SubdivisionSolver> rightChild_;
     };

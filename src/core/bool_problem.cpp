@@ -202,6 +202,7 @@ namespace ember
         discarded_ = solver.isDiscarded();
         resultFragments_ = solver.resultFragments();
         leafSummaries_ = solver.leafSummaries();
+        solveMetrics_ = solver.solveMetrics();
         solved_ = true;
 
         logBoolInfo(
@@ -236,12 +237,18 @@ namespace ember
         return leafSummaries_;
     }
 
+    const BoolSolveMetrics &BoolProblem::solveMetrics() const noexcept
+    {
+        return solveMetrics_;
+    }
+
     void BoolProblem::resetSolveState() noexcept
     {
         discarded_ = false;
         solved_ = false;
         resultFragments_.clear();
         leafSummaries_.clear();
+        solveMetrics_ = BoolSolveMetrics();
     }
 
     void BoolProblem::assignOperandWNTV(std::vector<Polygon256> &polygons, std::size_t dimension, std::size_t hotIndex)

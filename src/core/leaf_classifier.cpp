@@ -166,6 +166,7 @@ namespace ember
         BoolOperandAssumptions assumptions;
         if (tryGetSingleOperandLeafAssumptions(assumptions) && assumptions.noSelfIntersections)
         {
+            ++solveMetrics_.singleOperandLeafBspSkipCount;
             leafFragments_ = polygons_;
             logBoolDebug(
                 kBoolProblemLeafScope,
@@ -182,6 +183,7 @@ namespace ember
             return;
         }
 
+        ++solveMetrics_.leafBspBuildCount;
         leafFragments_ = buildLeafArrangement(polygons_);
 
         logBoolDebug(
@@ -222,6 +224,7 @@ namespace ember
             Polygon256 &fragment = leafFragments_[fragmentIndex];
             if (reuseSingleOperandClassification && hasReusableClassification)
             {
+                ++solveMetrics_.singleOperandClassificationReuseCount;
                 classifiedFragments_.push_back(ClassifiedFragment{fragment, reusableFrontWNV, reusableBackWNV});
                 const ClassifiedFragment &classifiedFragment = classifiedFragments_.back();
                 const BoolStatus frontStatus = evaluateBooleanIndicator(classifiedFragment.frontWNV);

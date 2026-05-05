@@ -547,6 +547,13 @@ namespace ember
             return 0;
         }
 
+        enum class SubdivisionSplitStrategy
+        {
+            WntvAware,
+            CenterRange,
+            Midpoint
+        };
+
         // 无 WNTV 分离候选时，用多边形中心范围近似最大方差轴，再按平均中心切分。
         bool chooseCenterRangeSplit(
             const std::vector<Polygon256> &polygons,
@@ -596,18 +603,27 @@ namespace ember
         bool chooseSubdivisionSplit(
             const std::vector<Polygon256> &polygons,
             const AABB3i &box,
-            AABBSplit3i &outSplit)
+            AABBSplit3i &outSplit,
+            SubdivisionSplitStrategy &outStrategy)
         {
             if (chooseWntvAwareSplit(polygons, box, outSplit))
             {
+                outStrategy = SubdivisionSplitStrategy::WntvAware;
                 return true;
             }
             if (chooseCenterRangeSplit(polygons, box, outSplit))
             {
+                outStrategy = SubdivisionSplitStrategy::CenterRange;
                 return true;
             }
 
-            return splitAABBAtMidpoint(box, outSplit);
+            if (splitAABBAtMidpoint(box, outSplit))
+            {
+                outStrategy = SubdivisionSplitStrategy::Midpoint;
+                return true;
+            }
+
+            return false;
         }
 
         bool appendSplitChildPolygons(
@@ -709,6 +725,7 @@ namespace ember
     void SubdivisionSolver::solve()
     {
         resetSolveState();
+        solveMetrics_.inputPolygonCount = polygons_.size();
         if (polygons_.empty())
         {
             discarded_ = true;
@@ -738,6 +755,11 @@ namespace ember
         solveRecursive();
         leafSummaries_.clear();
         collectLeafSummaries(leafSummaries_);
+        BoolSolveMetrics aggregatedMetrics;
+        aggregatedMetrics.inputPolygonCount = polygons_.size();
+        aggregatedMetrics.resultFragmentCount = resultFragments_.size();
+        collectSolveMetrics(aggregatedMetrics);
+        solveMetrics_ = aggregatedMetrics;
     }
 
     bool SubdivisionSolver::isDiscarded() const noexcept
@@ -755,6 +777,11 @@ namespace ember
         return leafSummaries_;
     }
 
+    const BoolSolveMetrics &SubdivisionSolver::solveMetrics() const noexcept
+    {
+        return solveMetrics_;
+    }
+
     void SubdivisionSolver::resetSolveState() noexcept
     {
         depth_ = 0;
@@ -768,6 +795,7 @@ namespace ember
         classifiedFragments_.clear();
         resultFragments_.clear();
         leafSummaries_.clear();
+        solveMetrics_ = BoolSolveMetrics();
         leftChild_.reset();
         rightChild_.reset();
     }
@@ -815,6 +843,7 @@ namespace ember
         BoolStatus earlyOutStatus = OUT;
         if (shouldDiscardSubproblemEarly(earlyOutStatus))
         {
+            ++solveMetrics_.constantDiscardCount;
             discarded_ = true;
             isLeaf_ = true;
             solved_ = true;
@@ -835,6 +864,14 @@ namespace ember
 
         if (shouldStopSubdivision())
         {
+            if (polygons_.size() <= leafPolygonThreshold_)
+            {
+                ++solveMetrics_.leafThresholdStopCount;
+            }
+            else
+            {
+                ++solveMetrics_.aabbNotSplittableStopCount;
+            }
             isLeaf_ = true;
             logBoolInfo(
                 kBoolProblemSolveRecursiveScope,
@@ -854,8 +891,10 @@ namespace ember
         }
 
         AABBSplit3i split;
-        if (!chooseSubdivisionSplit(polygons_, aabb_, split))
+        SubdivisionSplitStrategy splitStrategy = SubdivisionSplitStrategy::Midpoint;
+        if (!chooseSubdivisionSplit(polygons_, aabb_, split, splitStrategy))
         {
+            ++solveMetrics_.splitFailureStopCount;
             isLeaf_ = true;
             logBoolInfo(
                 kBoolProblemSolveRecursiveScope,
@@ -871,6 +910,19 @@ namespace ember
             classifyLeafFragmentsAndCollectResults();
             solved_ = true;
             return;
+        }
+
+        switch (splitStrategy)
+        {
+        case SubdivisionSplitStrategy::WntvAware:
+            ++solveMetrics_.wntvAwareSplitCount;
+            break;
+        case SubdivisionSplitStrategy::CenterRange:
+            ++solveMetrics_.centerRangeSplitCount;
+            break;
+        case SubdivisionSplitStrategy::Midpoint:
+            ++solveMetrics_.midpointSplitCount;
+            break;
         }
 
         logBoolDebug(
@@ -1055,6 +1107,7 @@ namespace ember
                     return true;
                 }
 
+                ++solveMetrics_.constantDiscardCount;
                 logBoolInfo(
                     kBoolProblemChildrenScope,
                     [this, side, &childPolygons, constantStatus]()
@@ -1116,7 +1169,7 @@ namespace ember
     bool SubdivisionSolver::makeChildReference(
         const AABB3i &childBox,
         const std::vector<Polygon256> &childPolygons,
-        SubdivisionRefState &outReference) const
+        SubdivisionRefState &outReference)
     {
         const bool sourceReferenceIsStrictInterior = isPointStrictlyInsideAABB(reference_.point, childBox);
         if (sourceReferenceIsStrictInterior)
@@ -1133,6 +1186,7 @@ namespace ember
 
             if (!onSurface)
             {
+                ++solveMetrics_.childReferenceReuseCount;
                 outReference = reference_;
                 logTracingDebug(
                     kBoolProblemChildReferenceScope,
@@ -1228,6 +1282,7 @@ namespace ember
                 });
             if (status == SUCCESS)
             {
+                ++solveMetrics_.childReferenceTraceCount;
                 outReference.point = candidate.targetPoint;
                 outReference.wnv = std::move(propagatedWNV);
                 return true;
@@ -1274,6 +1329,47 @@ namespace ember
         if (rightChild_)
         {
             rightChild_->collectLeafSummaries(outSummaries);
+        }
+    }
+
+    void SubdivisionSolver::collectSolveMetrics(BoolSolveMetrics &outMetrics) const
+    {
+        outMetrics.constantDiscardCount += solveMetrics_.constantDiscardCount;
+        outMetrics.leafThresholdStopCount += solveMetrics_.leafThresholdStopCount;
+        outMetrics.aabbNotSplittableStopCount += solveMetrics_.aabbNotSplittableStopCount;
+        outMetrics.splitFailureStopCount += solveMetrics_.splitFailureStopCount;
+        outMetrics.wntvAwareSplitCount += solveMetrics_.wntvAwareSplitCount;
+        outMetrics.centerRangeSplitCount += solveMetrics_.centerRangeSplitCount;
+        outMetrics.midpointSplitCount += solveMetrics_.midpointSplitCount;
+        outMetrics.childReferenceReuseCount += solveMetrics_.childReferenceReuseCount;
+        outMetrics.childReferenceTraceCount += solveMetrics_.childReferenceTraceCount;
+        outMetrics.singleOperandLeafBspSkipCount += solveMetrics_.singleOperandLeafBspSkipCount;
+        outMetrics.singleOperandClassificationReuseCount += solveMetrics_.singleOperandClassificationReuseCount;
+        outMetrics.leafBspBuildCount += solveMetrics_.leafBspBuildCount;
+        ++outMetrics.nodeCount;
+        outMetrics.totalPolygonCount += polygons_.size();
+        outMetrics.maxDepth = std::max(outMetrics.maxDepth, depth_);
+        if (discarded_)
+        {
+            ++outMetrics.discardedNodeCount;
+        }
+
+        if (isLeaf_)
+        {
+            ++outMetrics.leafNodeCount;
+            outMetrics.leafFragmentCount += leafFragments_.size();
+            outMetrics.classifiedFragmentCount += classifiedFragments_.size();
+            return;
+        }
+
+        ++outMetrics.internalNodeCount;
+        if (leftChild_)
+        {
+            leftChild_->collectSolveMetrics(outMetrics);
+        }
+        if (rightChild_)
+        {
+            rightChild_->collectSolveMetrics(outMetrics);
         }
     }
 }
