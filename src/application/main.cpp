@@ -3,6 +3,7 @@
  * @brief 实现基于 OBJ 的命令行布尔运算程序。
  */
 #include "core/bool_problem.h"
+#include "core/perf_tracing.h"
 #include "io/io.h"
 
 #include <chrono>
@@ -42,6 +43,12 @@ namespace
         double prepareMs = 0.0;
         double solveMs = 0.0;
         double exportMs = 0.0;
+        std::size_t lhsInputFaces = 0;
+        std::size_t rhsInputFaces = 0;
+        std::uint64_t sharedScale = 0;
+        std::size_t lhsPolygonCount = 0;
+        std::size_t rhsPolygonCount = 0;
+        std::size_t exportedFaces = 0;
         ember::BoolSolveMetrics solveMetrics;
     };
 
@@ -81,6 +88,12 @@ namespace
                << "prepare_ms=" << timings.prepareMs << '\n'
                << "solve_ms=" << timings.solveMs << '\n'
                << "export_ms=" << timings.exportMs << '\n'
+               << "lhs_input_faces=" << timings.lhsInputFaces << '\n'
+               << "rhs_input_faces=" << timings.rhsInputFaces << '\n'
+               << "shared_scale=" << timings.sharedScale << '\n'
+               << "lhs_polygons=" << timings.lhsPolygonCount << '\n'
+               << "rhs_polygons=" << timings.rhsPolygonCount << '\n'
+               << "exported_faces=" << timings.exportedFaces << '\n'
                << "input_polygons=" << timings.solveMetrics.inputPolygonCount << '\n'
                << "node_count=" << timings.solveMetrics.nodeCount << '\n'
                << "internal_node_count=" << timings.solveMetrics.internalNodeCount << '\n'
@@ -302,6 +315,8 @@ namespace
 
 int main(int argc, char **argv)
 {
+    REEMBER_PROFILE_ZONE("re-EMBER::main");
+
     CliOptions options;
     if (!parseArgs(argc, argv, options))
     {
@@ -318,18 +333,23 @@ int main(int argc, char **argv)
         std::string error;
 
         const Clock::time_point readStart = Clock::now();
-        if (!ember::readObjMesh(options.lhsPath, lhsMesh, error))
         {
-            std::cerr << error << std::endl;
-            return 1;
-        }
-        if (!ember::readObjMesh(options.rhsPath, rhsMesh, error))
-        {
-            std::cerr << error << std::endl;
-            return 1;
+            REEMBER_PROFILE_ZONE("re-EMBER::read_obj");
+            if (!ember::readObjMesh(options.lhsPath, lhsMesh, error))
+            {
+                std::cerr << error << std::endl;
+                return 1;
+            }
+            if (!ember::readObjMesh(options.rhsPath, rhsMesh, error))
+            {
+                std::cerr << error << std::endl;
+                return 1;
+            }
         }
         const Clock::time_point readEnd = Clock::now();
         timings.readMs = elapsedMilliseconds(readStart, readEnd);
+        timings.lhsInputFaces = lhsMesh.faces.size();
+        timings.rhsInputFaces = rhsMesh.faces.size();
 
         ember::QuantizeOptions quantizeOptions;
         quantizeOptions.explicitScale = options.scale;
@@ -337,36 +357,50 @@ int main(int argc, char **argv)
         // 左右操作数必须进入同一个整数坐标系，否则后续精确谓词没有共同语义。
         const Clock::time_point prepareStart = Clock::now();
         std::uint64_t sharedScale = 0;
-        if (!ember::chooseSharedScale({lhsMesh, rhsMesh}, quantizeOptions, sharedScale, error))
-        {
-            std::cerr << error << std::endl;
-            return 1;
-        }
-
         std::vector<ember::Polygon256> lhsPolygons;
         std::vector<ember::Polygon256> rhsPolygons;
-        ember::PolygonSoupBuildOptions buildOptions;
-        buildOptions.triangulateNonCoplanarFaces = true;
-        if (!ember::buildPolygonSoup(lhsMesh, sharedScale, buildOptions, lhsPolygons, error))
         {
-            std::cerr << error << std::endl;
-            return 1;
+            REEMBER_PROFILE_ZONE("re-EMBER::prepare_polygons");
+            if (!ember::chooseSharedScale({lhsMesh, rhsMesh}, quantizeOptions, sharedScale, error))
+            {
+                std::cerr << error << std::endl;
+                return 1;
+            }
+
+            ember::PolygonSoupBuildOptions buildOptions;
+            buildOptions.triangulateNonCoplanarFaces = true;
+            if (!ember::buildPolygonSoup(lhsMesh, sharedScale, buildOptions, lhsPolygons, error))
+            {
+                std::cerr << error << std::endl;
+                return 1;
+            }
+            if (!ember::buildPolygonSoup(rhsMesh, sharedScale, buildOptions, rhsPolygons, error))
+            {
+                std::cerr << error << std::endl;
+                return 1;
+            }
+
+            timings.sharedScale = sharedScale;
+            timings.lhsPolygonCount = lhsPolygons.size();
+            timings.rhsPolygonCount = rhsPolygons.size();
         }
-        if (!ember::buildPolygonSoup(rhsMesh, sharedScale, buildOptions, rhsPolygons, error))
+
+        ember::BoolProblem problem(options.leafThreshold);
         {
-            std::cerr << error << std::endl;
-            return 1;
+            REEMBER_PROFILE_ZONE("re-EMBER::prepare_problem");
+            problem.setOperation(options.operation);
+            problem.setOperandAssumptions(options.lhsAssumptions, options.rhsAssumptions);
+            problem.setOperands(lhsPolygons, rhsPolygons);
         }
+
         const Clock::time_point prepareEnd = Clock::now();
         timings.prepareMs = elapsedMilliseconds(prepareStart, prepareEnd);
 
-        ember::BoolProblem problem(options.leafThreshold);
-        problem.setOperation(options.operation);
-        problem.setOperandAssumptions(options.lhsAssumptions, options.rhsAssumptions);
-        problem.setOperands(lhsPolygons, rhsPolygons);
-
         const Clock::time_point solveStart = Clock::now();
-        problem.solve();
+        {
+            REEMBER_PROFILE_ZONE("re-EMBER::solve_bool_problem");
+            problem.solve();
+        }
         const Clock::time_point solveEnd = Clock::now();
         timings.solveMs = elapsedMilliseconds(solveStart, solveEnd);
         timings.solveMetrics = problem.solveMetrics();
@@ -374,13 +408,17 @@ int main(int argc, char **argv)
         // 默认直接导出 OBJ n 边面；三角化和拓扑恢复属于调用方后处理。
         const Clock::time_point exportStart = Clock::now();
         std::size_t exportedFaces = 0;
-        if (!ember::writePolygonSoupObj(problem.resultFragments(), options.outputPath, exportedFaces, error, sharedScale))
         {
-            std::cerr << error << std::endl;
-            return 1;
+            REEMBER_PROFILE_ZONE("re-EMBER::export_obj");
+            if (!ember::writePolygonSoupObj(problem.resultFragments(), options.outputPath, exportedFaces, error, sharedScale))
+            {
+                std::cerr << error << std::endl;
+                return 1;
+            }
         }
         const Clock::time_point exportEnd = Clock::now();
         timings.exportMs = elapsedMilliseconds(exportStart, exportEnd);
+        timings.exportedFaces = exportedFaces;
 
         if (!options.timingsOutputPath.empty() &&
             !writeTimingMetrics(options.timingsOutputPath, timings, error))
@@ -410,6 +448,8 @@ int main(int argc, char **argv)
             << " result_fragments=" << problem.resultFragments().size()
             << " exported_faces=" << exportedFaces
             << std::endl;
+
+        REEMBER_PROFILE_FRAME("re-EMBER workload");
 
         return 0;
     }

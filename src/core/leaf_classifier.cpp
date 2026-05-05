@@ -8,6 +8,7 @@
 #include "algorithm/path_candidates.h"
 #include "algorithm/WNV_tracing.h"
 #include "core/logging.h"
+#include "core/perf_tracing.h"
 #include "geometry/polygon_ops.h"
 
 #include <sstream>
@@ -156,6 +157,8 @@ namespace ember
     // 对叶子节点内的每个多边形建立局部 BSP，并收集启用的片段。
     void SubdivisionSolver::solveLeafArrangement()
     {
+        REEMBER_PROFILE_ZONE("SubdivisionSolver::solveLeafArrangement");
+
         leafFragments_.clear();
         classifiedFragments_.clear();
         if (discarded_ || polygons_.empty())
@@ -202,6 +205,8 @@ namespace ember
     // 对每个叶片片段追踪到严格内部点；分类失败属于不可恢复错误。
     void SubdivisionSolver::classifyLeafFragmentsAndCollectResults()
     {
+        REEMBER_PROFILE_ZONE("SubdivisionSolver::classifyLeafFragmentsAndCollectResults");
+
         resultFragments_.clear();
         classifiedFragments_.clear();
         if (discarded_ || leafFragments_.empty())
@@ -252,6 +257,8 @@ namespace ember
             auto traceCandidate =
                 [&](const LeafClassificationPathCandidate &candidate, const char *candidateLayer, std::size_t candidateIndex)
                 {
+                    REEMBER_PROFILE_ZONE("LeafClassification::traceCandidate");
+
                     ++solveMetrics_.leafClassificationTraceAttemptCount;
                     WNV frontWNV;
                     WNV backWNV;
@@ -303,6 +310,8 @@ namespace ember
             auto attemptPointCandidates =
                 [&](const std::vector<PlanePoint3i> &pointCandidates) -> bool
                 {
+                    REEMBER_PROFILE_ZONE("LeafClassification::attemptPointCandidates");
+
                     pointCandidateCount += pointCandidates.size();
                     solveMetrics_.leafClassificationPointCandidateCount += pointCandidates.size();
 

@@ -5,6 +5,7 @@
 #include "bsp.h"
 
 #include "core/logging.h"
+#include "core/perf_tracing.h"
 
 #include <stdexcept>
 
@@ -46,6 +47,8 @@ namespace ember
 
     void BSPTree::setBasePolygon(const Polygon256 &polygon, std::size_t orderKey)
     {
+        REEMBER_PROFILE_ZONE("BSPTree::setBasePolygon");
+
         basePolygon = polygon;
         baseOrderKey = orderKey;
         root = std::make_unique<BSPNode>(basePolygon);
@@ -53,6 +56,8 @@ namespace ember
 
     void BSPTree::insert(const Polygon256 &polygon, std::size_t incomingOrder)
     {
+        REEMBER_PROFILE_ZONE("BSPTree::insert");
+
         if (!polygon.isValid())
         {
             throw std::runtime_error("BSPTree::insert received an invalid incoming polygon.");
@@ -68,6 +73,8 @@ namespace ember
 
     void BSPTree::insertTrusted(const Polygon256 &polygon, std::size_t incomingOrder)
     {
+        REEMBER_PROFILE_ZONE("BSPTree::insertTrusted");
+
         Plane3i segmentPlane;
         Plane3i v0;
         Plane3i v1;
@@ -87,6 +94,8 @@ namespace ember
 
     void BSPTree::insertCoplanarPolygonTrusted(const Polygon256 &polygon, std::size_t incomingOrder)
     {
+        REEMBER_PROFILE_ZONE("BSPTree::insertCoplanarPolygonTrusted");
+
         insertCoplanarPolygonEdges(polygon);
 
         if (baseOrderKey > incomingOrder)
@@ -97,6 +106,8 @@ namespace ember
 
     void BSPTree::addSegment(const Plane3i &v0, const Plane3i &v1, const Plane3i &splitPlane)
     {
+        REEMBER_PROFILE_ZONE("BSPTree::addSegment");
+
         if (!root)
         {
             throw std::runtime_error("BSPTree::addSegment called before a base polygon was set.");
@@ -112,6 +123,8 @@ namespace ember
 
     std::vector<Polygon256> BSPTree::collectLeafGeometries() const
     {
+        REEMBER_PROFILE_ZONE("BSPTree::collectLeafGeometries");
+
         std::vector<Polygon256> leafGeometries;
         collectLeafGeometriesRecursive(root.get(), leafGeometries);
         return leafGeometries;
@@ -119,6 +132,7 @@ namespace ember
 
     void BSPTree::addSegmentRecursive(BSPNode &node, const Plane3i &v0, const Plane3i &v1, const Plane3i &insertPlane)
     {
+        REEMBER_PROFILE_ZONE("BSPTree::addSegmentRecursive");
 
         if (node.isLeaf)
         {

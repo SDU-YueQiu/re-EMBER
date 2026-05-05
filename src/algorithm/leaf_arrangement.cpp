@@ -5,6 +5,7 @@
 #include "leaf_arrangement.h"
 
 #include "algorithm/bsp.h"
+#include "core/perf_tracing.h"
 
 #include <iterator>
 
@@ -80,6 +81,8 @@ namespace ember
 
     std::vector<Polygon256> buildLeafArrangement(const std::vector<Polygon256> &polygons)
     {
+        REEMBER_PROFILE_ZONE("buildLeafArrangement");
+
         std::vector<Polygon256> fragments;
         const std::size_t polygonCount = polygons.size();
         if (polygonCount < 8u)
