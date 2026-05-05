@@ -450,6 +450,9 @@ namespace ember::visual_test
 
             ember::BoolProblem problem(ui.leafThreshold);
             problem.setOperation(ui.operation);
+            problem.setOperandAssumptions(
+                ember::BoolOperandAssumptions{true, true},
+                ember::BoolOperandAssumptions{true, true});
             problem.setOperands(scene.workpiecePolygons, toolPolygons);
 
             const Clock::time_point solveStart = Clock::now();
