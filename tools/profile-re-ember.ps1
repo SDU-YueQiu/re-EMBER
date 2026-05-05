@@ -1,23 +1,21 @@
-﻿# 对 re-EMBER 命令行运行进行性能采样，并把耗时与 ETW 产物写入 build\perf。
+# Capture re-EMBER CLI workloads with Tracy and write reports under build\perf.
 param(
     [string]$Lhs,
     [string]$Rhs,
-    [ValidateSet("union", "intersection", "difference")]
-    [string]$Op = "difference",
+    [ValidateSet("union", "intersection", "difference")][string]$Op = "difference",
     [string]$Out,
-    [ValidateSet("Debug", "Release", "RelWithDebInfo", "MinSizeRel")]
-    [string]$Configuration = "RelWithDebInfo",
+    [ValidateSet("Debug", "Release", "RelWithDebInfo", "MinSizeRel")][string]$Configuration = "RelWithDebInfo",
     [int]$LeafThreshold = 25,
     [int]$Iterations = 3,
     [int]$TimeoutSeconds = 300,
     [int]$BuildTimeoutSeconds = 900,
     [int]$ReportTimeoutSeconds = 120,
+    [int]$TracyPort = 8086,
+    [string]$TracyToolRoot,
     [switch]$SkipBuild,
     [switch]$ForceBuild,
-    [switch]$NoEtw,
+    [switch]$NoTracy,
     [switch]$NoInputAssumptions,
-    [switch]$ResolveSymbols,
-    [switch]$ForceStopExisting,
     [switch]$Help
 )
 
@@ -30,32 +28,23 @@ Usage:
   powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1
   powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Lhs <lhs.obj> -Rhs <rhs.obj> -Op difference
 
-Recommended:
-  Run from an elevated PowerShell if you want ETW CPU stacks.
-  Default build config is RelWithDebInfo for better ETW symbol quality.
-
 Outputs:
   build\perf\run_<timestamp>\profile.log
   build\perf\run_<timestamp>\manifest.json
   build\perf\run_<timestamp>\timings.csv
+  build\perf\run_<timestamp>\tracy_traces\*.tracy
+  build\perf\run_<timestamp>\tracy_zones.csv
+  build\perf\run_<timestamp>\report.md
   build\perf\run_<timestamp>\summary.txt
-  build\perf\run_<timestamp>\xperf_profile_detail.txt
-  build\perf\run_<timestamp>\xperf_stack_butterfly.txt
-  build\perf\run_<timestamp>\xperf_process.txt
-  build\perf\run_<timestamp>\xperf_process_cmdline.txt
-  build\perf\run_<timestamp>\reember_cpu.etl
 
 Notes:
   - Uses build\ only.
-  - If -Lhs/-Rhs are omitted, the script tries common repo assets.
-  - The default visual workloads include one known-overlap intersection case and one visual-test default pose difference case.
-  - Reuses the executable only when the requested configuration already exists.
-  - Re-run with -ForceBuild to rebuild the requested configuration.
-  - Use -NoEtw for timing-only runs.
+  - Tracy profiling is the default path and requires REEMBER_ENABLE_TRACY=ON.
+  - When -SkipBuild is not specified, the script configures build\ with -DREEMBER_ENABLE_TRACY=ON.
+  - Install the required tools with: vcpkg install tracy[cli-tools]:x64-windows
+  - Use -NoTracy only for timing-only runs without zone capture.
   - OBJ workloads are assumed to satisfy NSI/NNC input assumptions by default.
   - Use -NoInputAssumptions only when profiling intentionally invalid or adversarial OBJ inputs.
-  - ETW uses xperf only. If ETW prerequisites are missing, the script fails instead of silently falling back.
-  - Use -ResolveSymbols only when you need symbol-server lookup in addition to local PDB resolution.
 "@
 }
 
@@ -70,48 +59,25 @@ Set-Location -LiteralPath $RepoRoot
 $BuildRoot = Join-Path $RepoRoot "build"
 $RunStamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $PerfRoot = Join-Path $RepoRoot ("build\perf\run_{0}" -f $RunStamp)
+$TraceRoot = Join-Path $PerfRoot "tracy_traces"
 New-Item -ItemType Directory -Force -Path $PerfRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $TraceRoot | Out-Null
 
 $TranscriptPath = Join-Path $PerfRoot "profile.log"
 $TranscriptStarted = $false
 
 function Write-Info {
     param([string]$Message)
-    $line = "[profile-re-ember] {0}" -f $Message
-    Write-Host $line
+    Write-Host ("[profile-re-ember] {0}" -f $Message)
 }
 
-function Test-IsAdministrator {
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-}
+function Ensure-ParentDirectory {
+    param([string]$Path)
 
-function Get-CommandPath {
-    param([string]$Name)
-
-    $command = Get-Command $Name -ErrorAction SilentlyContinue
-    if ($command) {
-        return $command.Source
+    $parent = Split-Path -Parent $Path
+    if ($parent) {
+        New-Item -ItemType Directory -Force -Path $parent | Out-Null
     }
-
-    if ($Name -ieq "xperf.exe") {
-        $knownPaths = @()
-        if (${env:ProgramFiles(x86)}) {
-            $knownPaths += (Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\Windows Performance Toolkit\xperf.exe")
-        }
-        if ($env:ProgramFiles) {
-            $knownPaths += (Join-Path $env:ProgramFiles "Windows Kits\10\Windows Performance Toolkit\xperf.exe")
-        }
-
-        foreach ($path in $knownPaths) {
-            if (Test-Path -LiteralPath $path) {
-                return $path
-            }
-        }
-    }
-
-    return $null
 }
 
 function Count-ObjFaces {
@@ -277,15 +243,6 @@ function Resolve-OutputPath {
     return (Join-Path $RepoRoot $Path)
 }
 
-function Ensure-ParentDirectory {
-    param([string]$Path)
-
-    $parent = Split-Path -Parent $Path
-    if ($parent) {
-        New-Item -ItemType Directory -Force -Path $parent | Out-Null
-    }
-}
-
 function Read-ReEmberTimingMetrics {
     param([string]$Path)
 
@@ -306,42 +263,21 @@ function Read-ReEmberTimingMetrics {
         }
     }
 
-    return [pscustomobject]@{
-        ReadMs = [math]::Round($metrics["read_ms"], 3)
-        PrepareMs = [math]::Round($metrics["prepare_ms"], 3)
-        SolveMs = [math]::Round($metrics["solve_ms"], 3)
-        ExportMs = [math]::Round($metrics["export_ms"], 3)
-        InputPolygons = $(if ($metrics.ContainsKey("input_polygons")) { [math]::Round($metrics["input_polygons"], 0) } else { 0 })
-        NodeCount = $(if ($metrics.ContainsKey("node_count")) { [math]::Round($metrics["node_count"], 0) } else { 0 })
-        InternalNodeCount = $(if ($metrics.ContainsKey("internal_node_count")) { [math]::Round($metrics["internal_node_count"], 0) } else { 0 })
-        LeafNodeCount = $(if ($metrics.ContainsKey("leaf_node_count")) { [math]::Round($metrics["leaf_node_count"], 0) } else { 0 })
-        DiscardedNodeCount = $(if ($metrics.ContainsKey("discarded_node_count")) { [math]::Round($metrics["discarded_node_count"], 0) } else { 0 })
-        MaxDepth = $(if ($metrics.ContainsKey("max_depth")) { [math]::Round($metrics["max_depth"], 0) } else { 0 })
-        TotalPolygonCount = $(if ($metrics.ContainsKey("total_polygon_count")) { [math]::Round($metrics["total_polygon_count"], 0) } else { 0 })
-        LeafFragmentCount = $(if ($metrics.ContainsKey("leaf_fragment_count")) { [math]::Round($metrics["leaf_fragment_count"], 0) } else { 0 })
-        ClassifiedFragmentCount = $(if ($metrics.ContainsKey("classified_fragment_count")) { [math]::Round($metrics["classified_fragment_count"], 0) } else { 0 })
-        ResultFragmentCount = $(if ($metrics.ContainsKey("result_fragment_count")) { [math]::Round($metrics["result_fragment_count"], 0) } else { 0 })
-        ConstantDiscardCount = $(if ($metrics.ContainsKey("constant_discard_count")) { [math]::Round($metrics["constant_discard_count"], 0) } else { 0 })
-        LeafThresholdStopCount = $(if ($metrics.ContainsKey("leaf_threshold_stop_count")) { [math]::Round($metrics["leaf_threshold_stop_count"], 0) } else { 0 })
-        AabbNotSplittableStopCount = $(if ($metrics.ContainsKey("aabb_not_splittable_stop_count")) { [math]::Round($metrics["aabb_not_splittable_stop_count"], 0) } else { 0 })
-        SplitFailureStopCount = $(if ($metrics.ContainsKey("split_failure_stop_count")) { [math]::Round($metrics["split_failure_stop_count"], 0) } else { 0 })
-        WntvAwareSplitCount = $(if ($metrics.ContainsKey("wntv_aware_split_count")) { [math]::Round($metrics["wntv_aware_split_count"], 0) } else { 0 })
-        CenterRangeSplitCount = $(if ($metrics.ContainsKey("center_range_split_count")) { [math]::Round($metrics["center_range_split_count"], 0) } else { 0 })
-        MidpointSplitCount = $(if ($metrics.ContainsKey("midpoint_split_count")) { [math]::Round($metrics["midpoint_split_count"], 0) } else { 0 })
-        ChildReferenceReuseCount = $(if ($metrics.ContainsKey("child_reference_reuse_count")) { [math]::Round($metrics["child_reference_reuse_count"], 0) } else { 0 })
-        ChildReferenceTraceCount = $(if ($metrics.ContainsKey("child_reference_trace_count")) { [math]::Round($metrics["child_reference_trace_count"], 0) } else { 0 })
-        ChildReferenceCandidateCount = $(if ($metrics.ContainsKey("child_reference_candidate_count")) { [math]::Round($metrics["child_reference_candidate_count"], 0) } else { 0 })
-        ChildReferenceCandidateTriedCount = $(if ($metrics.ContainsKey("child_reference_candidate_tried_count")) { [math]::Round($metrics["child_reference_candidate_tried_count"], 0) } else { 0 })
-        SingleOperandLeafBspSkipCount = $(if ($metrics.ContainsKey("single_operand_leaf_bsp_skip_count")) { [math]::Round($metrics["single_operand_leaf_bsp_skip_count"], 0) } else { 0 })
-        SingleOperandClassificationReuseCount = $(if ($metrics.ContainsKey("single_operand_classification_reuse_count")) { [math]::Round($metrics["single_operand_classification_reuse_count"], 0) } else { 0 })
-        LeafBspBuildCount = $(if ($metrics.ContainsKey("leaf_bsp_build_count")) { [math]::Round($metrics["leaf_bsp_build_count"], 0) } else { 0 })
-        LeafClassificationPointCandidateCount = $(if ($metrics.ContainsKey("leaf_classification_point_candidate_count")) { [math]::Round($metrics["leaf_classification_point_candidate_count"], 0) } else { 0 })
-        LeafClassificationTraceAttemptCount = $(if ($metrics.ContainsKey("leaf_classification_trace_attempt_count")) { [math]::Round($metrics["leaf_classification_trace_attempt_count"], 0) } else { 0 })
-        LeafClassificationFastCandidateCount = $(if ($metrics.ContainsKey("leaf_classification_fast_candidate_count")) { [math]::Round($metrics["leaf_classification_fast_candidate_count"], 0) } else { 0 })
-        LeafClassificationFallbackCandidateCount = $(if ($metrics.ContainsKey("leaf_classification_fallback_candidate_count")) { [math]::Round($metrics["leaf_classification_fallback_candidate_count"], 0) } else { 0 })
-        LeafClassificationNormalCandidateCount = $(if ($metrics.ContainsKey("leaf_classification_normal_candidate_count")) { [math]::Round($metrics["leaf_classification_normal_candidate_count"], 0) } else { 0 })
-        LeafClassificationInteriorBridgeCandidateCount = $(if ($metrics.ContainsKey("leaf_classification_interior_bridge_candidate_count")) { [math]::Round($metrics["leaf_classification_interior_bridge_candidate_count"], 0) } else { 0 })
+    return $metrics
+}
+
+function Get-Metric {
+    param(
+        [hashtable]$Metrics,
+        [string]$Key,
+        [double]$Default = 0
+    )
+
+    if ($Metrics.ContainsKey($Key)) {
+        return $Metrics[$Key]
     }
+
+    return $Default
 }
 
 function Get-CMakeCacheValue {
@@ -368,6 +304,14 @@ function Test-CMakeMultiConfig {
 
     $configTypes = Get-CMakeCacheValue $CachePath "CMAKE_CONFIGURATION_TYPES"
     return (-not [string]::IsNullOrWhiteSpace($configTypes))
+}
+
+function Test-TracyEnabledInBuild {
+    param([string]$BuildDir)
+
+    $cachePath = Join-Path $BuildDir "CMakeCache.txt"
+    $value = Get-CMakeCacheValue $cachePath "REEMBER_ENABLE_TRACY"
+    return ($value -eq "ON" -or $value -eq "TRUE" -or $value -eq "1")
 }
 
 function Get-ReEmberExecutableCandidates {
@@ -405,45 +349,68 @@ function Resolve-ReEmberExecutablePath {
     return $null
 }
 
-function Get-BuildCommandArguments {
-    param(
-        [string]$BuildDir,
-        [string]$BuildConfiguration
-    )
+function Invoke-CMakeConfigure {
+    $args = @("-S", ".", "-B", $BuildRoot)
+    if (-not $NoTracy) {
+        $args += "-DREEMBER_ENABLE_TRACY=ON"
+    }
 
+    Invoke-External "cmake" $args (Join-Path $PerfRoot "cmake_configure.stdout.txt") (Join-Path $PerfRoot "cmake_configure.stderr.txt") $BuildTimeoutSeconds | Out-Null
+}
+
+function Invoke-CMakeBuild {
     $args = New-Object System.Collections.Generic.List[string]
     $args.Add("--build")
-    $args.Add($BuildDir)
-    if (Test-CMakeMultiConfig (Join-Path $BuildDir "CMakeCache.txt")) {
+    $args.Add($BuildRoot)
+    if (Test-CMakeMultiConfig (Join-Path $BuildRoot "CMakeCache.txt")) {
         $args.Add("--config")
-        $args.Add($BuildConfiguration)
+        $args.Add($Configuration)
     }
     $args.Add("--target")
     $args.Add("re-EMBER")
-    return $args
+
+    Invoke-External "cmake" $args.ToArray() (Join-Path $PerfRoot "cmake_build.stdout.txt") (Join-Path $PerfRoot "cmake_build.stderr.txt") $BuildTimeoutSeconds | Out-Null
 }
 
-function Throw-FriendlyCMakeFailure {
+function Resolve-ToolPath {
     param(
-        [string]$StepName,
-        [string]$StdoutPath,
-        [string]$StderrPath,
-        [System.Management.Automation.ErrorRecord]$ErrorRecord
+        [string]$ToolName,
+        [string]$ExplicitRoot
     )
 
-    $diagnosticText = New-Object System.Collections.Generic.List[string]
-    foreach ($path in @($StdoutPath, $StderrPath)) {
-        if ($path -and (Test-Path -LiteralPath $path)) {
-            $diagnosticText.Add((Get-Content -LiteralPath $path -Raw))
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($ExplicitRoot) {
+        $candidates.Add((Join-Path $ExplicitRoot $ToolName))
+        $candidates.Add((Join-Path $ExplicitRoot ("tools\tracy\{0}" -f $ToolName)))
+    }
+    if ($env:VCPKG_ROOT) {
+        $candidates.Add((Join-Path $env:VCPKG_ROOT ("installed\x64-windows\tools\tracy\{0}" -f $ToolName)))
+        $candidates.Add((Join-Path $env:VCPKG_ROOT ("installed\x64-windows\bin\{0}" -f $ToolName)))
+    }
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate) {
+            return (Resolve-Path -LiteralPath $candidate).Path
         }
     }
 
-    $combined = $diagnosticText -join "`n"
-    if ($combined -match 'generate\.stamp' -or $combined -match 'Cannot restore timestamp') {
-        throw ("{0} failed because build\CMakeFiles\generate.stamp could not be updated. The current build tree is locked or not writable. Fix or recreate build\ before rebuilding." -f $StepName)
+    $command = Get-Command $ToolName -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
     }
 
-    throw $ErrorRecord
+    return $null
+}
+
+function Assert-TracyTools {
+    param(
+        [string]$CapturePath,
+        [string]$CsvExportPath
+    )
+
+    if (-not $CapturePath -or -not $CsvExportPath) {
+        throw "Missing Tracy CLI tools. Install them with: vcpkg install tracy[cli-tools]:x64-windows, or pass -TracyToolRoot."
+    }
 }
 
 function New-Workload {
@@ -575,6 +542,7 @@ function Invoke-ReEmberWorkload {
     Ensure-ParentDirectory $outPath
     $result = Invoke-External $ExePath (Get-ReEmberArguments $Workload $outPath $metricsPath) $stdoutPath $stderrPath $TimeoutSeconds
     $metrics = Read-ReEmberTimingMetrics $metricsPath
+
     return [pscustomobject]@{
         FilePath = $result.FilePath
         Arguments = $result.Arguments
@@ -583,312 +551,460 @@ function Invoke-ReEmberWorkload {
         StdoutPath = $result.StdoutPath
         StderrPath = $result.StderrPath
         MetricsPath = $metricsPath
-        ReadMs = $metrics.ReadMs
-        PrepareMs = $metrics.PrepareMs
-        SolveMs = $metrics.SolveMs
-        ExportMs = $metrics.ExportMs
-        InputPolygons = $metrics.InputPolygons
-        NodeCount = $metrics.NodeCount
-        InternalNodeCount = $metrics.InternalNodeCount
-        LeafNodeCount = $metrics.LeafNodeCount
-        DiscardedNodeCount = $metrics.DiscardedNodeCount
-        MaxDepth = $metrics.MaxDepth
-        TotalPolygonCount = $metrics.TotalPolygonCount
-        LeafFragmentCount = $metrics.LeafFragmentCount
-        ClassifiedFragmentCount = $metrics.ClassifiedFragmentCount
-        ResultFragmentCount = $metrics.ResultFragmentCount
-        ConstantDiscardCount = $metrics.ConstantDiscardCount
-        LeafThresholdStopCount = $metrics.LeafThresholdStopCount
-        AabbNotSplittableStopCount = $metrics.AabbNotSplittableStopCount
-        SplitFailureStopCount = $metrics.SplitFailureStopCount
-        WntvAwareSplitCount = $metrics.WntvAwareSplitCount
-        CenterRangeSplitCount = $metrics.CenterRangeSplitCount
-        MidpointSplitCount = $metrics.MidpointSplitCount
-        ChildReferenceReuseCount = $metrics.ChildReferenceReuseCount
-        ChildReferenceTraceCount = $metrics.ChildReferenceTraceCount
-        ChildReferenceCandidateCount = $metrics.ChildReferenceCandidateCount
-        ChildReferenceCandidateTriedCount = $metrics.ChildReferenceCandidateTriedCount
-        SingleOperandLeafBspSkipCount = $metrics.SingleOperandLeafBspSkipCount
-        SingleOperandClassificationReuseCount = $metrics.SingleOperandClassificationReuseCount
-        LeafBspBuildCount = $metrics.LeafBspBuildCount
-        LeafClassificationPointCandidateCount = $metrics.LeafClassificationPointCandidateCount
-        LeafClassificationTraceAttemptCount = $metrics.LeafClassificationTraceAttemptCount
-        LeafClassificationFastCandidateCount = $metrics.LeafClassificationFastCandidateCount
-        LeafClassificationFallbackCandidateCount = $metrics.LeafClassificationFallbackCandidateCount
-        LeafClassificationNormalCandidateCount = $metrics.LeafClassificationNormalCandidateCount
-        LeafClassificationInteriorBridgeCandidateCount = $metrics.LeafClassificationInteriorBridgeCandidateCount
+        Metrics = $metrics
     }
 }
 
-function Export-XperfReports {
+function Start-TracyCaptureProcess {
     param(
-        [string]$XperfPath,
-        [string]$EtlPath,
-        [string]$ExePath,
-        [int]$ReportTimeoutSec
+        [string]$CapturePath,
+        [string]$TracePath,
+        [string]$StdoutPath,
+        [string]$StderrPath
     )
 
-    $exeDir = Split-Path -Parent $ExePath
-    $symbolCache = Join-Path $PerfRoot "symcache"
-    $profileOut = Join-Path $PerfRoot "xperf_profile_detail.txt"
-    $profileErr = Join-Path $PerfRoot "xperf_profile_detail.err.txt"
-    $stackOut = Join-Path $PerfRoot "xperf_stack_butterfly.txt"
-    $stackErr = Join-Path $PerfRoot "xperf_stack_butterfly.err.txt"
-    $processOut = Join-Path $PerfRoot "xperf_process.txt"
-    $processErr = Join-Path $PerfRoot "xperf_process.err.txt"
-    $processCmdlineOut = Join-Path $PerfRoot "xperf_process_cmdline.txt"
-    $processCmdlineErr = Join-Path $PerfRoot "xperf_process_cmdline.err.txt"
+    Ensure-ParentDirectory $TracePath
+    $arguments = @(
+        "-a", "127.0.0.1",
+        "-p", [string]$TracyPort,
+        "-o", $TracePath,
+        "-f"
+    )
 
-    $previousSymbolPath = $env:_NT_SYMBOL_PATH
-    $previousSymCachePath = $env:_NT_SYMCACHE_PATH
+    Write-Info ("EXEC: {0} {1}" -f $CapturePath, ($arguments -join " "))
 
-    try {
-        $symbolPathEntries = @($exeDir)
-        if ($ResolveSymbols) {
-            New-Item -ItemType Directory -Force -Path $symbolCache | Out-Null
-            $symbolPathEntries += ("srv*{0}*https://msdl.microsoft.com/download/symbols" -f $symbolCache)
-            $env:_NT_SYMCACHE_PATH = $symbolCache
-        }
-        else {
-            Remove-Item Env:_NT_SYMCACHE_PATH -ErrorAction SilentlyContinue
-        }
-        $env:_NT_SYMBOL_PATH = ($symbolPathEntries -join ";")
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $CapturePath
+    $startInfo.WorkingDirectory = $RepoRoot
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.Arguments = Join-CommandLine $arguments
 
-        $reports = @(
-            [pscustomobject]@{
-                Name = "xperf profile"
-                Args = @("-i", $EtlPath, "-symbols", "-o", $profileOut, "-a", "profile", "-detail")
-                Stdout = $null
-                Stderr = $profileErr
-            },
-            [pscustomobject]@{
-                Name = "xperf stack"
-                Args = @("-i", $EtlPath, "-symbols", "-o", $stackOut, "-a", "stack", "-process", "re-EMBER.exe", "-butterfly", "1")
-                Stdout = $null
-                Stderr = $stackErr
-            },
-            [pscustomobject]@{
-                Name = "xperf process"
-                Args = @("-i", $EtlPath, "-o", $processOut, "-a", "process")
-                Stdout = $null
-                Stderr = $processErr
-            },
-            [pscustomobject]@{
-                Name = "xperf process cmdline"
-                Args = @("-i", $EtlPath, "-o", $processCmdlineOut, "-a", "process", "-withcmdline")
-                Stdout = $null
-                Stderr = $processCmdlineErr
-            }
-        )
-
-        foreach ($report in $reports) {
-            try {
-                [void](Invoke-External $XperfPath $report.Args $report.Stdout $report.Stderr $ReportTimeoutSec)
-            }
-            catch {
-                throw ("Failed to export {0}: {1}" -f $report.Name, $_.Exception.Message)
-            }
-        }
-    }
-    finally {
-        if ($null -ne $previousSymbolPath) {
-            $env:_NT_SYMBOL_PATH = $previousSymbolPath
-        }
-        else {
-            Remove-Item Env:_NT_SYMBOL_PATH -ErrorAction SilentlyContinue
-        }
-
-        if ($null -ne $previousSymCachePath) {
-            $env:_NT_SYMCACHE_PATH = $previousSymCachePath
-        }
-        else {
-            Remove-Item Env:_NT_SYMCACHE_PATH -ErrorAction SilentlyContinue
-        }
-    }
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $startInfo
+    [void]$process.Start()
 
     return [pscustomobject]@{
-        EtlPath = $EtlPath
-        ProfilePath = $profileOut
-        StackPath = $stackOut
-        ProcessPath = $processOut
-        ProcessCmdlinePath = $processCmdlineOut
+        Process = $process
+        StdoutTask = $process.StandardOutput.ReadToEndAsync()
+        StderrTask = $process.StandardError.ReadToEndAsync()
+        StdoutPath = $StdoutPath
+        StderrPath = $StderrPath
+        TracePath = $TracePath
     }
 }
 
-function Invoke-EtwProfile {
-    param(
-        [string]$ExePath,
-        [object[]]$Workloads,
-        [string]$XperfPath,
-        [bool]$IsAdmin
-    )
+function Stop-TracyCaptureProcess {
+    param([object]$Capture)
 
-    if ($NoEtw) {
-        Write-Info "Skipping ETW because -NoEtw was specified."
-        return $null
-    }
-
-    if (-not $IsAdmin) {
-        throw "ETW profiling requires an elevated PowerShell session. Re-run as Administrator or use -NoEtw."
-    }
-
-    if (-not $XperfPath) {
-        throw "xperf.exe was not found. Install Windows Performance Toolkit or use -NoEtw."
-    }
-
-    $etlPath = Join-Path $PerfRoot "reember_cpu.etl"
-    $rawEtlPath = Join-Path $PerfRoot "reember_cpu_raw.etl"
-    $started = $false
-
-    try {
-        if ($ForceStopExisting) {
-            Write-Info "Force-stopping any existing xperf kernel logger."
-            [void](Invoke-External $XperfPath @("-stop") $null (Join-Path $PerfRoot "xperf_force_stop.err.txt") 60 -IgnoreExit)
-        }
-
-        [void](Invoke-External $XperfPath @(
-            "-on", "PROC_THREAD+LOADER+PROFILE",
-            "-stackwalk", "Profile",
-            "-BufferSize", "1024",
-            "-MaxFile", "512",
-            "-FileMode", "Circular",
-            "-f", $rawEtlPath
-        ) (Join-Path $PerfRoot "xperf_start.stdout.txt") (Join-Path $PerfRoot "xperf_start.stderr.txt") 60)
-        $started = $true
-
-        foreach ($workload in $Workloads) {
-            [void](Invoke-ReEmberWorkload $ExePath $workload "etw")
-        }
-
-        [void](Invoke-External $XperfPath @("-d", $etlPath) (Join-Path $PerfRoot "xperf_stop.stdout.txt") (Join-Path $PerfRoot "xperf_stop.stderr.txt") 180)
-        $started = $false
-
-        if (-not (Test-Path -LiteralPath $etlPath)) {
-            throw "xperf stop completed but reember_cpu.etl was not produced."
-        }
-
-        return Export-XperfReports $XperfPath $etlPath $ExePath $ReportTimeoutSeconds
-    }
-    finally {
-        if ($started) {
-            try {
-                [void](Invoke-External $XperfPath @("-stop") $null (Join-Path $PerfRoot "xperf_stop_recovery.err.txt") 60 -IgnoreExit)
-            }
-            catch {
-                Write-Warning ("Failed to stop xperf cleanly: {0}" -f $_.Exception.Message)
-            }
-        }
-    }
-}
-
-function Assert-EtwPrerequisites {
-    param(
-        [string]$XperfPath,
-        [bool]$IsAdmin
-    )
-
-    if ($NoEtw) {
+    if (-not $Capture) {
         return
     }
 
-    if (-not $IsAdmin) {
-        throw "ETW profiling requires an elevated PowerShell session. Re-run as Administrator or use -NoEtw."
+    $process = $Capture.Process
+    if (-not $process.WaitForExit($ReportTimeoutSeconds * 1000)) {
+        try {
+            $process.Kill($true)
+        }
+        catch {
+            $process.Kill()
+        }
+        throw ("Timed out waiting for tracy-capture to finish. Check {0} and {1}." -f $Capture.StdoutPath, $Capture.StderrPath)
     }
 
-    if (-not $XperfPath) {
-        throw "xperf.exe was not found. Install Windows Performance Toolkit or use -NoEtw."
+    $stdout = $Capture.StdoutTask.GetAwaiter().GetResult()
+    $stderr = $Capture.StderrTask.GetAwaiter().GetResult()
+    Set-Content -LiteralPath $Capture.StdoutPath -Value $stdout -Encoding UTF8
+    Set-Content -LiteralPath $Capture.StderrPath -Value $stderr -Encoding UTF8
+
+    if ($process.ExitCode -ne 0) {
+        throw ("tracy-capture failed with exit code {0}. Check {1}." -f $process.ExitCode, $Capture.StderrPath)
     }
+
+    if (-not (Test-Path -LiteralPath $Capture.TracePath)) {
+        throw ("tracy-capture completed but did not create trace: {0}" -f $Capture.TracePath)
+    }
+}
+
+function Invoke-TracyCapturedWorkload {
+    param(
+        [string]$ExePath,
+        [object]$Workload,
+        [string]$Tag,
+        [string]$CapturePath
+    )
+
+    $tracePath = Join-Path $TraceRoot ("{0}_{1}.tracy" -f $Tag, $Workload.Name)
+    $captureStdout = Join-Path $PerfRoot ("{0}_{1}.tracy-capture.stdout.txt" -f $Tag, $Workload.Name)
+    $captureStderr = Join-Path $PerfRoot ("{0}_{1}.tracy-capture.stderr.txt" -f $Tag, $Workload.Name)
+    $capture = Start-TracyCaptureProcess $CapturePath $tracePath $captureStdout $captureStderr
+    Start-Sleep -Milliseconds 300
+
+    try {
+        $result = Invoke-ReEmberWorkload $ExePath $Workload $Tag
+        Stop-TracyCaptureProcess $capture
+        $result | Add-Member -NotePropertyName TracePath -NotePropertyValue $tracePath
+        return $result
+    }
+    catch {
+        if ($capture -and -not $capture.Process.HasExited) {
+            try {
+                $capture.Process.Kill($true)
+            }
+            catch {
+                $capture.Process.Kill()
+            }
+        }
+        throw
+    }
+}
+
+function New-TimingRow {
+    param(
+        [object]$Workload,
+        [int]$Iteration,
+        [object]$Result
+    )
+
+    $metrics = $Result.Metrics
+    return [pscustomobject]@{
+        workload = $Workload.Name
+        iteration = $Iteration
+        elapsed_ms = $Result.ElapsedMs
+        read_ms = [math]::Round((Get-Metric $metrics "read_ms"), 3)
+        prepare_ms = [math]::Round((Get-Metric $metrics "prepare_ms"), 3)
+        solve_ms = [math]::Round((Get-Metric $metrics "solve_ms"), 3)
+        export_ms = [math]::Round((Get-Metric $metrics "export_ms"), 3)
+        lhs_input_faces = [math]::Round((Get-Metric $metrics "lhs_input_faces"), 0)
+        rhs_input_faces = [math]::Round((Get-Metric $metrics "rhs_input_faces"), 0)
+        shared_scale = [math]::Round((Get-Metric $metrics "shared_scale"), 0)
+        lhs_polygons = [math]::Round((Get-Metric $metrics "lhs_polygons"), 0)
+        rhs_polygons = [math]::Round((Get-Metric $metrics "rhs_polygons"), 0)
+        exported_faces = [math]::Round((Get-Metric $metrics "exported_faces"), 0)
+        input_polygons = [math]::Round((Get-Metric $metrics "input_polygons"), 0)
+        node_count = [math]::Round((Get-Metric $metrics "node_count"), 0)
+        internal_node_count = [math]::Round((Get-Metric $metrics "internal_node_count"), 0)
+        leaf_node_count = [math]::Round((Get-Metric $metrics "leaf_node_count"), 0)
+        discarded_node_count = [math]::Round((Get-Metric $metrics "discarded_node_count"), 0)
+        max_depth = [math]::Round((Get-Metric $metrics "max_depth"), 0)
+        total_polygon_count = [math]::Round((Get-Metric $metrics "total_polygon_count"), 0)
+        leaf_fragment_count = [math]::Round((Get-Metric $metrics "leaf_fragment_count"), 0)
+        classified_fragment_count = [math]::Round((Get-Metric $metrics "classified_fragment_count"), 0)
+        result_fragment_count = [math]::Round((Get-Metric $metrics "result_fragment_count"), 0)
+        constant_discard_count = [math]::Round((Get-Metric $metrics "constant_discard_count"), 0)
+        leaf_threshold_stop_count = [math]::Round((Get-Metric $metrics "leaf_threshold_stop_count"), 0)
+        aabb_not_splittable_stop_count = [math]::Round((Get-Metric $metrics "aabb_not_splittable_stop_count"), 0)
+        split_failure_stop_count = [math]::Round((Get-Metric $metrics "split_failure_stop_count"), 0)
+        wntv_aware_split_count = [math]::Round((Get-Metric $metrics "wntv_aware_split_count"), 0)
+        center_range_split_count = [math]::Round((Get-Metric $metrics "center_range_split_count"), 0)
+        midpoint_split_count = [math]::Round((Get-Metric $metrics "midpoint_split_count"), 0)
+        child_reference_reuse_count = [math]::Round((Get-Metric $metrics "child_reference_reuse_count"), 0)
+        child_reference_trace_count = [math]::Round((Get-Metric $metrics "child_reference_trace_count"), 0)
+        child_reference_candidate_count = [math]::Round((Get-Metric $metrics "child_reference_candidate_count"), 0)
+        child_reference_candidate_tried_count = [math]::Round((Get-Metric $metrics "child_reference_candidate_tried_count"), 0)
+        single_operand_leaf_bsp_skip_count = [math]::Round((Get-Metric $metrics "single_operand_leaf_bsp_skip_count"), 0)
+        single_operand_classification_reuse_count = [math]::Round((Get-Metric $metrics "single_operand_classification_reuse_count"), 0)
+        leaf_bsp_build_count = [math]::Round((Get-Metric $metrics "leaf_bsp_build_count"), 0)
+        leaf_classification_point_candidate_count = [math]::Round((Get-Metric $metrics "leaf_classification_point_candidate_count"), 0)
+        leaf_classification_trace_attempt_count = [math]::Round((Get-Metric $metrics "leaf_classification_trace_attempt_count"), 0)
+        leaf_classification_fast_candidate_count = [math]::Round((Get-Metric $metrics "leaf_classification_fast_candidate_count"), 0)
+        leaf_classification_fallback_candidate_count = [math]::Round((Get-Metric $metrics "leaf_classification_fallback_candidate_count"), 0)
+        leaf_classification_normal_candidate_count = [math]::Round((Get-Metric $metrics "leaf_classification_normal_candidate_count"), 0)
+        leaf_classification_interior_bridge_candidate_count = [math]::Round((Get-Metric $metrics "leaf_classification_interior_bridge_candidate_count"), 0)
+        exit_code = $Result.ExitCode
+        lhs_faces = $Workload.LhsFaces
+        rhs_faces = $Workload.RhsFaces
+        op = $Workload.Op
+        output = $(if (Test-Path -LiteralPath $Workload.Out) { $Workload.Out } else { $null })
+        stdout = $Result.StdoutPath
+        stderr = $Result.StderrPath
+        metrics = $Result.MetricsPath
+        tracy_trace = $(if ($Result.PSObject.Properties.Name -contains "TracePath") { $Result.TracePath } else { $null })
+    }
+}
+
+function Export-TracyZones {
+    param(
+        [string]$CsvExportPath,
+        [object[]]$TraceRecords
+    )
+
+    $zoneRows = New-Object System.Collections.Generic.List[object]
+    foreach ($traceRecord in $TraceRecords) {
+        $tracePath = $traceRecord.TracePath
+        $rawCsvPath = Join-Path $PerfRoot ("{0}_{1}.tracy-zones.raw.csv" -f $traceRecord.Tag, $traceRecord.Workload)
+        $stderrPath = Join-Path $PerfRoot ("{0}_{1}.tracy-csvexport.stderr.txt" -f $traceRecord.Tag, $traceRecord.Workload)
+        Invoke-External $CsvExportPath @($tracePath) $rawCsvPath $stderrPath $ReportTimeoutSeconds | Out-Null
+
+        foreach ($row in Import-Csv -LiteralPath $rawCsvPath) {
+            $zoneRows.Add([pscustomobject]@{
+                workload = $traceRecord.Workload
+                iteration = $traceRecord.Iteration
+                trace = $tracePath
+                name = $row.name
+                src_file = $row.src_file
+                src_line = $row.src_line
+                total_ns = [double]$row.total_ns
+                total_perc = [double]$row.total_perc
+                counts = [double]$row.counts
+                mean_ns = [double]$row.mean_ns
+                min_ns = [double]$row.min_ns
+                max_ns = [double]$row.max_ns
+                std_ns = [double]$row.std_ns
+            })
+        }
+    }
+
+    $zonesCsvPath = Join-Path $PerfRoot "tracy_zones.csv"
+    $zoneRows | Export-Csv -LiteralPath $zonesCsvPath -NoTypeInformation -Encoding UTF8
+    return [pscustomobject]@{
+        Path = $zonesCsvPath
+        Rows = @($zoneRows)
+    }
+}
+
+function Get-PropertyDouble {
+    param(
+        [object]$Row,
+        [string]$Property
+    )
+
+    return [double]$Row.PSObject.Properties[$Property].Value
+}
+
+function Measure-AverageProperty {
+    param(
+        [object[]]$Rows,
+        [string]$Property
+    )
+
+    if ($Rows.Count -eq 0) {
+        return 0
+    }
+
+    return [math]::Round((($Rows | ForEach-Object { Get-PropertyDouble $_ $Property }) | Measure-Object -Average).Average, 3)
+}
+
+function Measure-SumProperty {
+    param(
+        [object[]]$Rows,
+        [string]$Property
+    )
+
+    if ($Rows.Count -eq 0) {
+        return 0
+    }
+
+    return [math]::Round((($Rows | ForEach-Object { Get-PropertyDouble $_ $Property }) | Measure-Object -Sum).Sum, 3)
+}
+
+function Get-ZoneAggregates {
+    param([object[]]$ZoneRows)
+
+    $aggregates = New-Object System.Collections.Generic.List[object]
+    foreach ($group in ($ZoneRows | Group-Object name)) {
+        $count = Measure-SumProperty $group.Group "counts"
+        $totalNs = Measure-SumProperty $group.Group "total_ns"
+        $maxNs = (($group.Group | ForEach-Object { Get-PropertyDouble $_ "max_ns" }) | Measure-Object -Maximum).Maximum
+        $meanNs = $(if ($count -gt 0) { $totalNs / $count } else { 0 })
+        $aggregates.Add([pscustomobject]@{
+            name = $group.Name
+            counts = [math]::Round($count, 0)
+            total_ms = [math]::Round($totalNs / 1000000.0, 3)
+            mean_us = [math]::Round($meanNs / 1000.0, 3)
+            max_ms = [math]::Round($maxNs / 1000000.0, 3)
+        })
+    }
+
+    return @($aggregates | Sort-Object total_ms -Descending)
+}
+
+function Find-ZoneAggregate {
+    param(
+        [object[]]$Aggregates,
+        [string]$Name
+    )
+
+    return $Aggregates | Where-Object { $_.name -eq $Name } | Select-Object -First 1
+}
+
+function Add-MarkdownTable {
+    param(
+        [System.Collections.Generic.List[string]]$Lines,
+        [string[]]$Headers,
+        [object[]]$Rows
+    )
+
+    $Lines.Add(("| {0} |" -f ($Headers -join " | ")))
+    $Lines.Add(("| {0} |" -f (($Headers | ForEach-Object { "---" }) -join " | ")))
+    foreach ($row in $Rows) {
+        $values = foreach ($header in $Headers) {
+            [string]$row.PSObject.Properties[$header].Value
+        }
+        $Lines.Add(("| {0} |" -f ($values -join " | ")))
+    }
+}
+
+function Write-Reports {
+    param(
+        [object[]]$TimingRows,
+        [object[]]$ZoneRows,
+        [string]$TimingCsvPath,
+        [string]$ZonesCsvPath
+    )
+
+    $zoneAggregates = @(Get-ZoneAggregates $ZoneRows)
+    $reportLines = New-Object System.Collections.Generic.List[string]
+    $reportLines.Add("# re-EMBER Tracy Performance Report")
+    $reportLines.Add("")
+    $reportLines.Add(("run={0}" -f $RunStamp))
+    $reportLines.Add(("configuration={0}" -f $Configuration))
+    $reportLines.Add(("iterations={0}" -f $Iterations))
+    $reportLines.Add(("timings_csv={0}" -f $TimingCsvPath))
+    if ($ZonesCsvPath) {
+        $reportLines.Add(("tracy_zones_csv={0}" -f $ZonesCsvPath))
+    }
+    $reportLines.Add("")
+
+    $workloadRows = New-Object System.Collections.Generic.List[object]
+    foreach ($group in ($TimingRows | Group-Object workload)) {
+        $rows = @($group.Group)
+        $workloadRows.Add([pscustomobject]@{
+            workload = $group.Name
+            avg_elapsed_ms = Measure-AverageProperty $rows "elapsed_ms"
+            avg_solve_ms = Measure-AverageProperty $rows "solve_ms"
+            avg_nodes = Measure-AverageProperty $rows "node_count"
+            avg_leaves = Measure-AverageProperty $rows "leaf_node_count"
+            avg_leaf_traces = Measure-AverageProperty $rows "leaf_classification_trace_attempt_count"
+            avg_child_ref_tried = Measure-AverageProperty $rows "child_reference_candidate_tried_count"
+            avg_results = Measure-AverageProperty $rows "result_fragment_count"
+        })
+    }
+
+    $reportLines.Add("## Workload Scale")
+    Add-MarkdownTable -Lines $reportLines -Headers @(
+        "workload",
+        "avg_elapsed_ms",
+        "avg_solve_ms",
+        "avg_nodes",
+        "avg_leaves",
+        "avg_leaf_traces",
+        "avg_child_ref_tried",
+        "avg_results"
+    ) -Rows ($workloadRows.ToArray())
+    $reportLines.Add("")
+
+    if ($ZoneRows.Count -gt 0) {
+        $keyZoneNames = @(
+            "re-EMBER::read_obj",
+            "re-EMBER::prepare_polygons",
+            "re-EMBER::prepare_problem",
+            "re-EMBER::solve_bool_problem",
+            "BoolProblem::solve",
+            "SubdivisionSolver::solve",
+            "SubdivisionSolver::solveRecursive",
+            "SubdivisionSolver::createChildrenFromSplit",
+            "SubdivisionSolver::makeChildReference",
+            "SubdivisionSolver::solveLeafArrangement",
+            "SubdivisionSolver::classifyLeafFragmentsAndCollectResults",
+            "LeafClassification::traceCandidate",
+            "tracePathWNVAllowSubdivisionClipCrossingTrusted",
+            "tracePathWNVToSurfacePointTrusted",
+            "BSPTree::insertTrusted",
+            "BSPTree::addSegmentRecursive",
+            "enumerateAABBPathCandidates",
+            "enumerateLeafClassificationFastPathCandidatesFromPoints",
+            "enumerateLeafClassificationFallbackPathCandidatesFromPoints",
+            "enumerateLeafClassificationNormalApproachCandidatesFromPoints",
+            "enumerateLeafClassificationInteriorBridgeCandidatesFromPoints"
+        )
+
+        $keyRows = New-Object System.Collections.Generic.List[object]
+        foreach ($zoneName in $keyZoneNames) {
+            $zone = Find-ZoneAggregate $zoneAggregates $zoneName
+            if ($zone) {
+                $keyRows.Add($zone)
+            }
+        }
+
+        $reportLines.Add("## Key Zone Counts")
+        Add-MarkdownTable -Lines $reportLines -Headers @("name", "counts", "total_ms", "mean_us", "max_ms") -Rows ($keyRows.ToArray())
+        $reportLines.Add("")
+
+        $reportLines.Add("## Top Hot Zones")
+        Add-MarkdownTable -Lines $reportLines -Headers @("name", "counts", "total_ms", "mean_us", "max_ms") -Rows @($zoneAggregates | Select-Object -First 20)
+        $reportLines.Add("")
+
+        $leafTraceMetric = Measure-SumProperty $TimingRows "leaf_classification_trace_attempt_count"
+        $leafTraceZone = Find-ZoneAggregate $zoneAggregates "LeafClassification::traceCandidate"
+        $childTraceMetric = Measure-SumProperty $TimingRows "child_reference_candidate_tried_count"
+        $childTraceZone = Find-ZoneAggregate $zoneAggregates "tracePathWNVAllowSubdivisionClipCrossingTrusted"
+        $reportLines.Add("## Cross Checks")
+        $reportLines.Add(("- leaf trace attempts: metrics={0}, zone={1}" -f $leafTraceMetric, $(if ($leafTraceZone) { $leafTraceZone.counts } else { 0 })))
+        $reportLines.Add(("- child reference trace attempts: metrics={0}, zone={1}" -f $childTraceMetric, $(if ($childTraceZone) { $childTraceZone.counts } else { 0 })))
+    }
+    else {
+        $reportLines.Add("## Tracy Zones")
+        $reportLines.Add("No Tracy zone data was captured because -NoTracy was used.")
+    }
+
+    $reportPath = Join-Path $PerfRoot "report.md"
+    Set-Content -LiteralPath $reportPath -Value $reportLines -Encoding UTF8
+
+    $summaryLines = New-Object System.Collections.Generic.List[string]
+    $summaryLines.Add(("executable={0}" -f $script:ExePath))
+    $summaryLines.Add(("configuration={0}" -f $Configuration))
+    $summaryLines.Add(("iterations={0}" -f $Iterations))
+    $summaryLines.Add(("timings_csv={0}" -f $TimingCsvPath))
+    if ($ZonesCsvPath) {
+        $summaryLines.Add(("tracy_zones_csv={0}" -f $ZonesCsvPath))
+    }
+    $summaryLines.Add(("report={0}" -f $reportPath))
+    foreach ($row in $workloadRows) {
+        $summaryLines.Add(("workload={0}" -f $row.workload))
+        $summaryLines.Add(("  avg_elapsed_ms={0}" -f $row.avg_elapsed_ms))
+        $summaryLines.Add(("  avg_solve_ms={0}" -f $row.avg_solve_ms))
+        $summaryLines.Add(("  avg_nodes={0}" -f $row.avg_nodes))
+        $summaryLines.Add(("  avg_leaf_traces={0}" -f $row.avg_leaf_traces))
+    }
+    Set-Content -LiteralPath (Join-Path $PerfRoot "summary.txt") -Value $summaryLines -Encoding UTF8
+
+    return $reportPath
 }
 
 try {
     Start-Transcript -Path $TranscriptPath -Force | Out-Null
     $TranscriptStarted = $true
 
-    $isAdmin = Test-IsAdministrator
-    $cmakePath = Get-CommandPath "cmake.exe"
-    $xperfPath = Get-CommandPath "xperf.exe"
-
-    Write-Info ("Repo root: {0}" -f $RepoRoot)
-    Write-Info ("Build dir: {0}" -f $BuildRoot)
-    Write-Info ("Output dir: {0}" -f $PerfRoot)
-    Write-Info ("Configuration: {0}" -f $Configuration)
-    Write-Info ("Administrator: {0}" -f $isAdmin)
-    Write-Info ("cmake: {0}" -f $(if ($cmakePath) { $cmakePath } else { "<missing>" }))
-    Write-Info ("xperf: {0}" -f $(if ($xperfPath) { $xperfPath } else { "<missing>" }))
-    Assert-EtwPrerequisites $xperfPath $isAdmin
-
-    $cachePath = Join-Path $BuildRoot "CMakeCache.txt"
-    $multiConfig = Test-CMakeMultiConfig $cachePath
-    $generator = Get-CMakeCacheValue $cachePath "CMAKE_GENERATOR"
-    $configuredBuildType = Get-CMakeCacheValue $cachePath "CMAKE_BUILD_TYPE"
-    $exePath = Resolve-ReEmberExecutablePath $BuildRoot $Configuration
-
-    if ($generator) {
-        Write-Info ("CMake generator: {0}" -f $generator)
-    }
-    if ((-not $multiConfig) -and $configuredBuildType) {
-        Write-Info ("Single-config build type: {0}" -f $configuredBuildType)
-    }
-
-    if (($configuredBuildType) -and (-not $multiConfig) -and ($configuredBuildType -ine $Configuration) -and $SkipBuild) {
-        throw ("build\ is configured as {0}, but -Configuration requested {1} with -SkipBuild." -f $configuredBuildType, $Configuration)
-    }
-
-    if (($null -eq $exePath) -and $SkipBuild) {
-        $expectedLocations = Get-ReEmberExecutableCandidates $BuildRoot $Configuration
-        throw ("Missing executable and -SkipBuild was specified. Checked: {0}" -f ($expectedLocations -join ", "))
+    if (-not (Test-Path -LiteralPath $BuildRoot)) {
+        New-Item -ItemType Directory -Force -Path $BuildRoot | Out-Null
     }
 
     if (-not $SkipBuild) {
-        if (-not $cmakePath) {
-            throw "cmake.exe was not found in PATH."
-        }
-
-        $needsConfigure = -not (Test-Path -LiteralPath $cachePath)
-        $needsBuild = $ForceBuild -or (-not $exePath)
-
-        if ((-not $multiConfig) -and $configuredBuildType -and ($configuredBuildType -ine $Configuration)) {
-            $needsConfigure = $true
-            $needsBuild = $true
-        }
-
-        if ($needsConfigure) {
-            $configureStdoutPath = Join-Path $PerfRoot "cmake_configure.stdout.txt"
-            $configureStderrPath = Join-Path $PerfRoot "cmake_configure.stderr.txt"
-            try {
-                [void](Invoke-External $cmakePath @("-S", ".", "-B", "build", "-DCMAKE_BUILD_TYPE=$Configuration") $configureStdoutPath $configureStderrPath $BuildTimeoutSeconds)
-            }
-            catch {
-                Throw-FriendlyCMakeFailure "CMake configure" $configureStdoutPath $configureStderrPath $_
-            }
-            $cachePath = Join-Path $BuildRoot "CMakeCache.txt"
-            $multiConfig = Test-CMakeMultiConfig $cachePath
-            $generator = Get-CMakeCacheValue $cachePath "CMAKE_GENERATOR"
-            $configuredBuildType = Get-CMakeCacheValue $cachePath "CMAKE_BUILD_TYPE"
-            if ($generator) {
-                Write-Info ("Configured generator: {0}" -f $generator)
-            }
-        }
-
-        if ($needsBuild) {
-            $buildStdoutPath = Join-Path $PerfRoot "cmake_build.stdout.txt"
-            $buildStderrPath = Join-Path $PerfRoot "cmake_build.stderr.txt"
-            try {
-                [void](Invoke-External $cmakePath (Get-BuildCommandArguments $BuildRoot $Configuration) $buildStdoutPath $buildStderrPath $BuildTimeoutSeconds)
-            }
-            catch {
-                Throw-FriendlyCMakeFailure "CMake build" $buildStdoutPath $buildStderrPath $_
-            }
-        }
-        else {
-            Write-Info ("Reusing existing executable for requested configuration: {0}" -f $Configuration)
-        }
+        Invoke-CMakeConfigure
     }
 
-    $exePath = Resolve-ReEmberExecutablePath $BuildRoot $Configuration
-    if ([string]::IsNullOrWhiteSpace($exePath) -or (-not (Test-Path -LiteralPath $exePath))) {
+    if ((-not $NoTracy) -and (-not (Test-TracyEnabledInBuild $BuildRoot))) {
+        throw "The build tree is not configured with REEMBER_ENABLE_TRACY=ON. Re-run without -SkipBuild or configure build\ manually."
+    }
+
+    if ((-not $SkipBuild) -or $ForceBuild) {
+        Invoke-CMakeBuild
+    }
+
+    $script:ExePath = Resolve-ReEmberExecutablePath $BuildRoot $Configuration
+    if (-not $script:ExePath) {
         $expectedLocations = Get-ReEmberExecutableCandidates $BuildRoot $Configuration
         throw ("Missing executable after build. Checked: {0}" -f ($expectedLocations -join ", "))
+    }
+
+    $tracyCapturePath = $null
+    $tracyCsvExportPath = $null
+    if (-not $NoTracy) {
+        $tracyCapturePath = Resolve-ToolPath "tracy-capture.exe" $TracyToolRoot
+        $tracyCsvExportPath = Resolve-ToolPath "tracy-csvexport.exe" $TracyToolRoot
+        Assert-TracyTools $tracyCapturePath $tracyCsvExportPath
     }
 
     $workloads = @(Get-Workloads)
@@ -897,116 +1013,56 @@ try {
         buildDir = [string]$BuildRoot
         outputDir = [string]$PerfRoot
         timestamp = $RunStamp
-        administrator = $isAdmin
         configuration = $Configuration
-        executable = $exePath
+        executable = $script:ExePath
         leafThreshold = $LeafThreshold
         iterations = $Iterations
         timeoutSeconds = $TimeoutSeconds
-        etwEnabled = (-not $NoEtw)
+        tracyEnabled = (-not $NoTracy)
+        tracyPort = $TracyPort
+        tracyCapture = $tracyCapturePath
+        tracyCsvExport = $tracyCsvExportPath
         inputAssumptionsEnabled = (-not $NoInputAssumptions)
         workloads = $workloads
     }
     $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $PerfRoot "manifest.json") -Encoding UTF8
 
     $timingRows = New-Object System.Collections.Generic.List[object]
+    $traceRecords = New-Object System.Collections.Generic.List[object]
     foreach ($workload in $workloads) {
-        Write-Info ("Timing workload {0}: lhs_faces={1} rhs_faces={2} op={3}" -f $workload.Name, $workload.LhsFaces, $workload.RhsFaces, $workload.Op)
+        Write-Info ("Profiling workload {0}: lhs_faces={1} rhs_faces={2} op={3}" -f $workload.Name, $workload.LhsFaces, $workload.RhsFaces, $workload.Op)
         for ($i = 1; $i -le $Iterations; ++$i) {
-            $result = Invoke-ReEmberWorkload $exePath $workload ("timing_{0}" -f $i)
-        $timingRows.Add([pscustomobject]@{
-            workload = $workload.Name
-            iteration = $i
-            elapsed_ms = $result.ElapsedMs
-            read_ms = $result.ReadMs
-            prepare_ms = $result.PrepareMs
-            solve_ms = $result.SolveMs
-            export_ms = $result.ExportMs
-            input_polygons = $result.InputPolygons
-            node_count = $result.NodeCount
-            internal_node_count = $result.InternalNodeCount
-            leaf_node_count = $result.LeafNodeCount
-            discarded_node_count = $result.DiscardedNodeCount
-            max_depth = $result.MaxDepth
-            total_polygon_count = $result.TotalPolygonCount
-            leaf_fragment_count = $result.LeafFragmentCount
-            classified_fragment_count = $result.ClassifiedFragmentCount
-            result_fragment_count = $result.ResultFragmentCount
-            constant_discard_count = $result.ConstantDiscardCount
-            leaf_threshold_stop_count = $result.LeafThresholdStopCount
-            aabb_not_splittable_stop_count = $result.AabbNotSplittableStopCount
-            split_failure_stop_count = $result.SplitFailureStopCount
-            wntv_aware_split_count = $result.WntvAwareSplitCount
-            center_range_split_count = $result.CenterRangeSplitCount
-            midpoint_split_count = $result.MidpointSplitCount
-            child_reference_reuse_count = $result.ChildReferenceReuseCount
-            child_reference_trace_count = $result.ChildReferenceTraceCount
-            child_reference_candidate_count = $result.ChildReferenceCandidateCount
-            child_reference_candidate_tried_count = $result.ChildReferenceCandidateTriedCount
-            single_operand_leaf_bsp_skip_count = $result.SingleOperandLeafBspSkipCount
-            single_operand_classification_reuse_count = $result.SingleOperandClassificationReuseCount
-            leaf_bsp_build_count = $result.LeafBspBuildCount
-            leaf_classification_point_candidate_count = $result.LeafClassificationPointCandidateCount
-            leaf_classification_trace_attempt_count = $result.LeafClassificationTraceAttemptCount
-            leaf_classification_fast_candidate_count = $result.LeafClassificationFastCandidateCount
-            leaf_classification_fallback_candidate_count = $result.LeafClassificationFallbackCandidateCount
-            leaf_classification_normal_candidate_count = $result.LeafClassificationNormalCandidateCount
-            leaf_classification_interior_bridge_candidate_count = $result.LeafClassificationInteriorBridgeCandidateCount
-            exit_code = $result.ExitCode
-            lhs_faces = $workload.LhsFaces
-            rhs_faces = $workload.RhsFaces
-            op = $workload.Op
-                output = $(if (Test-Path -LiteralPath $workload.Out) { $workload.Out } else { $null })
-                stdout = $result.StdoutPath
-                stderr = $result.StderrPath
-                metrics = $result.MetricsPath
-            })
+            $tag = "timing_{0}" -f $i
+            if ($NoTracy) {
+                $result = Invoke-ReEmberWorkload $script:ExePath $workload $tag
+            }
+            else {
+                $result = Invoke-TracyCapturedWorkload $script:ExePath $workload $tag $tracyCapturePath
+                $traceRecords.Add([pscustomobject]@{
+                    Workload = $workload.Name
+                    Iteration = $i
+                    Tag = $tag
+                    TracePath = $result.TracePath
+                })
+            }
+
+            $timingRows.Add((New-TimingRow $workload $i $result))
         }
     }
 
     $timingCsvPath = Join-Path $PerfRoot "timings.csv"
     $timingRows | Export-Csv -LiteralPath $timingCsvPath -NoTypeInformation -Encoding UTF8
 
-    $etwArtifacts = Invoke-EtwProfile $exePath $workloads $xperfPath $isAdmin
-
-    $summaryLines = New-Object System.Collections.Generic.List[string]
-    $summaryLines.Add(("executable={0}" -f $exePath))
-    $summaryLines.Add(("configuration={0}" -f $Configuration))
-    $summaryLines.Add(("iterations={0}" -f $Iterations))
-    $summaryLines.Add(("timings_csv={0}" -f $timingCsvPath))
-    foreach ($group in ($timingRows | Group-Object workload)) {
-        $elapsedValues = @($group.Group | ForEach-Object { [double]$_.elapsed_ms })
-        $readValues = @($group.Group | ForEach-Object { [double]$_.read_ms })
-        $prepareValues = @($group.Group | ForEach-Object { [double]$_.prepare_ms })
-        $solveValues = @($group.Group | ForEach-Object { [double]$_.solve_ms })
-        $exportValues = @($group.Group | ForEach-Object { [double]$_.export_ms })
-        $nodeCountValues = @($group.Group | ForEach-Object { [double]$_.node_count })
-        $leafNodeValues = @($group.Group | ForEach-Object { [double]$_.leaf_node_count })
-        $discardedNodeValues = @($group.Group | ForEach-Object { [double]$_.discarded_node_count })
-        $maxDepthValues = @($group.Group | ForEach-Object { [double]$_.max_depth })
-        $summaryLines.Add(("workload={0}" -f $group.Name))
-        $summaryLines.Add(("  min_ms={0}" -f ([math]::Round(($elapsedValues | Measure-Object -Minimum).Minimum, 3))))
-        $summaryLines.Add(("  max_ms={0}" -f ([math]::Round(($elapsedValues | Measure-Object -Maximum).Maximum, 3))))
-        $summaryLines.Add(("  avg_ms={0}" -f ([math]::Round(($elapsedValues | Measure-Object -Average).Average, 3))))
-        $summaryLines.Add(("  avg_read_ms={0}" -f ([math]::Round(($readValues | Measure-Object -Average).Average, 3))))
-        $summaryLines.Add(("  avg_prepare_ms={0}" -f ([math]::Round(($prepareValues | Measure-Object -Average).Average, 3))))
-        $summaryLines.Add(("  avg_solve_ms={0}" -f ([math]::Round(($solveValues | Measure-Object -Average).Average, 3))))
-        $summaryLines.Add(("  avg_export_ms={0}" -f ([math]::Round(($exportValues | Measure-Object -Average).Average, 3))))
-        $summaryLines.Add(("  avg_node_count={0}" -f ([math]::Round(($nodeCountValues | Measure-Object -Average).Average, 3))))
-        $summaryLines.Add(("  avg_leaf_node_count={0}" -f ([math]::Round(($leafNodeValues | Measure-Object -Average).Average, 3))))
-        $summaryLines.Add(("  avg_discarded_node_count={0}" -f ([math]::Round(($discardedNodeValues | Measure-Object -Average).Average, 3))))
-        $summaryLines.Add(("  avg_max_depth={0}" -f ([math]::Round(($maxDepthValues | Measure-Object -Average).Average, 3))))
+    $zoneRows = @()
+    $zonesCsvPath = $null
+    if (-not $NoTracy) {
+        $zoneResult = Export-TracyZones -CsvExportPath $tracyCsvExportPath -TraceRecords ($traceRecords.ToArray())
+        $zonesCsvPath = $zoneResult.Path
+        $zoneRows = @($zoneResult.Rows)
     }
-    if ($etwArtifacts) {
-        $summaryLines.Add(("etl={0}" -f $etwArtifacts.EtlPath))
-        $summaryLines.Add(("xperf_profile_detail={0}" -f $etwArtifacts.ProfilePath))
-        $summaryLines.Add(("xperf_stack_butterfly={0}" -f $etwArtifacts.StackPath))
-        $summaryLines.Add(("xperf_process={0}" -f $etwArtifacts.ProcessPath))
-        $summaryLines.Add(("xperf_process_cmdline={0}" -f $etwArtifacts.ProcessCmdlinePath))
-    }
-    Set-Content -LiteralPath (Join-Path $PerfRoot "summary.txt") -Value $summaryLines -Encoding UTF8
 
-    Write-Info "Done. Send profile.log, timings.csv, summary.txt, and xperf_*.txt back for analysis. Keep reember_cpu.etl for WPA."
+    $reportPath = Write-Reports -TimingRows ($timingRows.ToArray()) -ZoneRows @($zoneRows) -TimingCsvPath $timingCsvPath -ZonesCsvPath $zonesCsvPath
+    Write-Info ("Done. See report: {0}" -f $reportPath)
 }
 finally {
     if ($TranscriptStarted) {
