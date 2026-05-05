@@ -593,6 +593,56 @@ void runBoolProblemTests()
     }
 
     {
+        const std::vector<Polygon256> tallLhs = makeAxisAlignedBox(0, 0, 0, 1, 100, 1);
+        const std::vector<Polygon256> tallRhs = makeAxisAlignedBox(3, 0, 0, 4, 100, 1);
+
+        {
+            ember::BoolProblem problem(6);
+            problem.setOperation(BoolOp::Union);
+            problem.setOperands(tallLhs, tallRhs);
+            problem.solve();
+
+            const std::vector<ember::BoolLeafSummary> &leaves = problem.leafSummaries();
+            assert(problem.isSolved());
+            assert(!problem.isDiscarded());
+            assert(problem.resultFragments().size() == 12u);
+            assert(leaves.size() == 2u);
+            for (const ember::BoolLeafSummary &leaf : leaves)
+            {
+                assert(leaf.polygonCount == 6u);
+                assert(leaf.aabb.xMax <= Integer(2) || leaf.aabb.xMin >= Integer(2));
+            }
+        }
+
+        {
+            ember::BoolProblem problem(6);
+            problem.setOperation(BoolOp::Intersection);
+            problem.setOperands(tallLhs, tallRhs);
+            problem.solve();
+
+            assert(problem.isSolved());
+            assert(problem.isDiscarded());
+            assert(problem.resultFragments().empty());
+            assert(problem.leafSummaries().empty());
+        }
+
+        {
+            ember::BoolProblem problem(6);
+            problem.setOperation(BoolOp::Difference);
+            problem.setOperands(tallLhs, tallRhs);
+            problem.solve();
+
+            const std::vector<ember::BoolLeafSummary> &leaves = problem.leafSummaries();
+            assert(problem.isSolved());
+            assert(!problem.isDiscarded());
+            assert(problem.resultFragments().size() == 6u);
+            assert(leaves.size() == 1u);
+            assert(leaves.front().polygonCount == 6u);
+            assert(leaves.front().aabb.xMax <= Integer(2));
+        }
+    }
+
+    {
         ember::BoolProblem problem(2);
         problem.setOperation(BoolOp::Difference);
         problem.setOperands(lhs, rhs);
