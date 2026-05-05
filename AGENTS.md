@@ -18,7 +18,7 @@
 - 仓库自有源码的文件头和解释性注释写中文；公开接口使用 Doxygen 结构。
 - 不参考旧 README 作为架构事实；如果全局 memory 仍提到 `BoolProblem::solveRecursive()` 调用链，应视为过期。
 - 默认保持 OBJ 输出为 n 边面多边形集合，不主动三角化输出。
-- 默认不编辑 `include/slimcpplib`、`assets`、`reference`、`Doxyfile` 或构建产物。
+- 默认不编辑 `third_party/slimcpplib`、`third_party/tracy`、`assets`、`reference`、`Doxyfile` 或构建产物。
 - 每做一个阶段的改动后要及时commit，同样优先使用中文提交
 
 ## 验证命令
