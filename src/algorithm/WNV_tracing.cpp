@@ -4,6 +4,7 @@
  */
 #include "WNV_tracing.h"
 #include "algorithm/tracing_geometry.h"
+#include "core/perf_tracing.h"
 
 #include <utility>
 
@@ -57,6 +58,8 @@ namespace ember
             bool validatePath,
             BoundaryPolicy boundaryPolicy)
         {
+            REEMBER_PROFILE_ZONE("tracePathWNVImpl");
+
             if (validatePath)
             {
                 for (const auto &seg : path)
@@ -183,6 +186,8 @@ namespace ember
             bool validatePolygons,
             bool validatePath)
         {
+            REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl");
+
             if (path.empty())
             {
                 return INPUT_INVALID;
@@ -319,6 +324,8 @@ namespace ember
 
     traceStatus tracePathWNV(const refPoint &refpoint, const Path &path, const std::vector<Polygon256> &polygons, WNV &targetWNV)
     {
+        REEMBER_PROFILE_ZONE("tracePathWNV");
+
         return tracePathWNVImpl(refpoint, path, polygons, targetWNV, true, true, BoundaryPolicy::RejectAll);
     }
 
@@ -328,6 +335,8 @@ namespace ember
         const std::vector<Polygon256> &polygons,
         WNV &targetWNV)
     {
+        REEMBER_PROFILE_ZONE("tracePathWNVTrusted");
+
         return tracePathWNVImpl(refpoint, path, polygons, targetWNV, false, false, BoundaryPolicy::RejectAll);
     }
 
@@ -337,6 +346,8 @@ namespace ember
         const std::vector<Polygon256> &polygons,
         WNV &targetWNV)
     {
+        REEMBER_PROFILE_ZONE("tracePathWNVAllowSubdivisionClipCrossingTrusted");
+
         return tracePathWNVImpl(
             refpoint,
             path,
@@ -355,6 +366,8 @@ namespace ember
         WNV &frontWNV,
         WNV &backWNV)
     {
+        REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePoint");
+
         return tracePathWNVToSurfacePointImpl(refpoint, path, polygons, referencePlane, frontWNV, backWNV, true, true);
     }
 
@@ -366,6 +379,8 @@ namespace ember
         WNV &frontWNV,
         WNV &backWNV)
     {
+        REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointTrusted");
+
         return tracePathWNVToSurfacePointImpl(refpoint, path, polygons, referencePlane, frontWNV, backWNV, false, false);
     }
 }
