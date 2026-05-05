@@ -23,9 +23,14 @@ endif()
 option(REEMBER_ENABLE_EIGEN "Link Eigen3 from vcpkg" OFF)
 option(REEMBER_ENABLE_CGAL "Link CGAL from vcpkg" OFF)
 option(REEMBER_BUILD_VISUAL_TEST "Build the libigl-based visual-test target" ON)
+option(REEMBER_ENABLE_TRACY "Enable optional Tracy profiler instrumentation" OFF)
 
 find_package(spdlog CONFIG REQUIRED)
 find_package(tinyobjloader CONFIG REQUIRED)
+
+if(REEMBER_ENABLE_TRACY)
+  find_package(Tracy CONFIG REQUIRED)
+endif()
 
 set(REEMBER_APP_SOURCE
   "${CMAKE_CURRENT_SOURCE_DIR}/src/application/main.cpp"
@@ -65,6 +70,7 @@ set(REEMBER_LIBRARY_HEADERS
   "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/tracing_geometry.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/core/bool_problem.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/core/logging.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/core/perf_tracing.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/core/subdivision_solver.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/aabb.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/clipping.h"
@@ -121,6 +127,11 @@ endif()
 if(REEMBER_ENABLE_CGAL)
   find_package(CGAL CONFIG REQUIRED)
   target_link_libraries(reember_lib PUBLIC CGAL::CGAL)
+endif()
+
+if(REEMBER_ENABLE_TRACY)
+  target_compile_definitions(reember_lib PUBLIC REEMBER_ENABLE_TRACY=1 TRACY_ENABLE=1)
+  target_link_libraries(reember_lib PUBLIC Tracy::TracyClient)
 endif()
 
 add_executable(re-EMBER ${REEMBER_APP_SOURCE})
