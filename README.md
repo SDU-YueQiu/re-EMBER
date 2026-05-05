@@ -20,7 +20,7 @@ OBJ -> 多边形集合 -> BoolProblem -> SubdivisionSolver -> resultFragments ->
 - `src/algorithm/`：局部 BSP、叶子编排、WNV 路径追踪和分类路径候选。
 - `src/geometry/`、`src/math/`：固定宽度整数几何 primitive、平面点表示、裁剪和基础代数。
 - `src/tests/`：仓库自定义断言测试，不依赖第三方测试框架。
-- `tools/profile-re-ember.ps1`：端到端性能测试与 ETW 采样入口。
+- `tools/profile-re-ember.ps1`：端到端性能测试、Tracy 捕获和报告入口。
 
 `BoolProblem` 现在只暴露应用需要的门面接口：`setOperation`、`setLeafPolygonThreshold`、`addPolygon`、`setPolygons`、`setOperands`、`solve`、`isSolved`、`isDiscarded`、`resultFragments`、`leafSummaries` 和 `solveMetrics`。递归子问题状态属于 `SubdivisionSolver` 内部实现；测试或诊断需要看叶子结构时使用 `leafSummaries()`，需要看求解规模和剪枝/候选统计时使用 `solveMetrics()`。
 
@@ -34,6 +34,8 @@ cmake --build build --config Debug --target re-EMBER_tests
 ctest --test-dir build -C Debug --output-on-failure --timeout 60
 cmake --build build --config Debug --target re-EMBER
 ```
+
+Tracy 性能插桩是编译期可选项，默认关闭；普通 Debug/Release/RelWithDebInfo 构建不会包含 Tracy 头、链接库或 profiler 线程。只有显式配置 `-DREEMBER_ENABLE_TRACY=ON` 时才启用插桩。
 
 基础 CLI smoke：
 
@@ -68,18 +70,32 @@ build\Debug\re-EMBER.exe --lhs <left.obj> --rhs <right.obj> --op union|intersect
 
 ## 性能测试
 
-### 快速计时
+### 可选 Tracy 构建
 
-推荐先构建 `RelWithDebInfo`：
+首次使用 Tracy 报告前，先安装 vcpkg 的 Tracy CLI 工具：
 
 ```powershell
-cmake --build build --config RelWithDebInfo --target re-EMBER
+vcpkg install tracy[cli-tools]:x64-windows
 ```
 
-脚本默认会把结果写到 `build\perf\run_<timestamp>\`：
+性能脚本默认会把 `build/` 配置为 Tracy 构建并构建 `re-EMBER`：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -NoEtw -Iterations 3
+powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -Iterations 3
+```
+
+如果已经手动配置和构建过 Tracy 版本，可以加 `-SkipBuild` 只运行 workload：
+
+```powershell
+cmake -S . -B build -DREEMBER_ENABLE_TRACY=ON
+cmake --build build --config RelWithDebInfo --target re-EMBER
+powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -SkipBuild -Iterations 3
+```
+
+只想看端到端时间和 `BoolSolveMetrics`，不需要 Tracy zone 时使用 `-NoTracy`：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -NoTracy -Iterations 3
 ```
 
 默认 workload 包含：
@@ -94,25 +110,11 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configura
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
-  -Configuration RelWithDebInfo -NoEtw -SkipBuild -Iterations 1 `
+  -Configuration RelWithDebInfo -SkipBuild -Iterations 1 `
   -Lhs assets\visual_test\workpiece_block.obj `
   -Rhs build\perf\run_<existing>\visual_test_overlap_pose_tool.obj `
   -Op difference
 ```
-
-### ETW 热点
-
-需要 CPU hotspot 时，在提升权限的 PowerShell 中运行，并建议加 `-ForceStopExisting` 避免已有 kernel logger 冲突：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
-  -Configuration RelWithDebInfo -SkipBuild -Iterations 1 -ForceStopExisting `
-  -Lhs assets\visual_test\workpiece_block.obj `
-  -Rhs build\perf\run_<existing>\visual_test_overlap_pose_tool.obj `
-  -Op difference
-```
-
-如果 `RelWithDebInfo` 可执行文件已经存在，优先加 `-SkipBuild`，让脚本只做 workload 运行与采样。
 
 ### 看哪些文件
 
@@ -120,11 +122,11 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 
 - `summary.txt`：每个 workload 的总体摘要。
 - `timings.csv`：逐次迭代的结构化表格。
-- `timing_*.metrics.txt` / `etw_*.metrics.txt`：单个 workload 的时间和高层统计。
+- `timing_*.metrics.txt`：单个 workload 的时间和高层统计。
+- `tracy_traces\*.tracy`：Tracy 原始捕获。
+- `tracy_zones.csv`：`tracy-csvexport` 导出的 zone 进入次数和耗时统计。
+- `report.md`：问题规模、关键函数进入次数、热点 zone 和交叉校验报告。
 - `profile.log`：脚本实际执行的命令与日志。
-- `xperf_profile_detail.txt`：采样热点明细。
-- `xperf_stack_butterfly.txt`：高层调用栈的 inclusive hot path。
-- `reember_cpu.etl`：后续用 WPA 深挖时的原始 ETW 数据。
 
 ### 怎么读结果
 
@@ -155,11 +157,11 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 
 这些字段比单看 `node_count` 更能解释“为什么只有几十个节点却仍然很慢”。
 
-### ETW 的正确读法
+### Tracy 的正确读法
 
-- `xperf profile -detail` 里的 `Weight` 不是精确函数调用次数。
-- `xperf stack` / butterfly 里的 `inclusive hits`、`exclusive hits` 也是采样命中数，不是精确调用数。
-- ETW 用来回答“时间主要烧在哪些函数/调用链上”；精确 workload 次数优先看 `metrics.txt` 中的 candidate / trace 计数。
+- `tracy_zones.csv` 里的 `counts` 是已插桩 zone 的进入次数，适合看关键函数或阶段被调用了多少次。
+- `total_ns`、`mean_ns`、`max_ns` 用来定位热点阶段；跨 workload 对比时优先看 `report.md` 中按 workload 汇总后的规模和耗时。
+- 领域规模仍以 `timings.csv` / `metrics.txt` 中的 `BoolSolveMetrics` 为准；`report.md` 会把 leaf trace 和 child reference trace 的 zone count 与 metrics count 做交叉校验。
 
 ## 代码约定
 
