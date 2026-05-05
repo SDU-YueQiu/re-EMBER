@@ -638,9 +638,12 @@ namespace ember
             bool hasPositive = false;
             bool hasNegative = false;
             const std::size_t edgeCount = polygon.edgeCount();
+            std::vector<int> vertexSides;
+            vertexSides.resize(edgeCount);
             for (std::size_t edgeIndex = 0; edgeIndex < edgeCount; ++edgeIndex)
             {
                 const int side = getPolygonVertex(polygon, edgeIndex).classify(splitPlane);
+                vertexSides[edgeIndex] = side;
                 if (side > 0)
                 {
                     hasPositive = true;
@@ -664,9 +667,10 @@ namespace ember
 
             Polygon256 frontClipped;
             Polygon256 backClipped;
-            if (!detail::clipLeafGeometryByPlaneTrusted(
+            if (!detail::clipLeafGeometryByPlaneTrustedWithSides(
                     polygon,
                     splitPlane,
+                    vertexSides,
                     frontClipped,
                     backClipped,
                     PolygonEdgeProvenance::SubdivisionClip))

@@ -326,26 +326,51 @@ namespace ember
             return false;
         }
 
-		frontClipped = Polygon256();
-		frontClipped.plane = source.plane;
-		frontClipped.WNTV = source.WNTV;
-		backClipped = Polygon256();
-		backClipped.plane = source.plane;
-		backClipped.WNTV = source.WNTV;
-
-		const std::size_t n = source.edgeCount();
-        const Plane3i oppositePlane(-clipPlane.a, -clipPlane.b, -clipPlane.c, -clipPlane.d);// 取反后表示裁剪平面的另一侧。
-
-		std::vector<int> sides;
-		sides.resize(n);
-
-        for (std::size_t i = 0; i < n; ++i)
+        std::vector<int> sides;
+        sides.resize(source.edgeCount());
+        for (std::size_t i = 0; i < source.edgeCount(); ++i)
         {
-            const std::size_t last = (i == 0) ? (n - 1) : (i - 1);
-			const PlanePoint3i v(source.plane, source.edgePlanes[i], source.edgePlanes[last]);
-
-			sides[i] = v.classify(clipPlane);
+            const std::size_t last = (i == 0) ? (source.edgeCount() - 1u) : (i - 1u);
+            const PlanePoint3i v(source.plane, source.edgePlanes[i], source.edgePlanes[last]);
+            sides[i] = v.classify(clipPlane);
         }
+
+        return clipLeafGeometryByPlaneTrustedWithSides(
+            source,
+            clipPlane,
+            sides,
+            frontClipped,
+            backClipped,
+            insertedEdgeProvenance);
+    }
+
+    bool detail::clipLeafGeometryByPlaneTrustedWithSides(
+        const Polygon256& source,
+        const Plane3i& clipPlane,
+        const std::vector<int>& vertexSides,
+        Polygon256& frontClipped,
+        Polygon256& backClipped,
+        PolygonEdgeProvenance insertedEdgeProvenance)
+    {
+        frontClipped = Polygon256();
+        frontClipped.plane = source.plane;
+        frontClipped.WNTV = source.WNTV;
+        backClipped = Polygon256();
+        backClipped.plane = source.plane;
+        backClipped.WNTV = source.WNTV;
+
+        const std::size_t n = source.edgeCount();
+        if (vertexSides.size() != n)
+        {
+            emitLog(
+                LogLevel::Debug,
+                LogCategory::Geometry,
+                "clipLeafGeometryByPlane",
+                "Rejected leaf clipping because the cached vertex side count does not match the polygon edge count.");
+            return false;
+        }
+
+        const Plane3i oppositePlane(-clipPlane.a, -clipPlane.b, -clipPlane.c, -clipPlane.d);// 取反后表示裁剪平面的另一侧。
 
         for (std::size_t i = 0; i < n; ++i)
         {
@@ -353,8 +378,8 @@ namespace ember
             const Plane3i& segmentEdge = source.edgePlanes[i];
             const PolygonEdgeProvenance segmentEdgeProvenance = source.edgeProvenance(i);
 
-            const int sSide = sides[i];
-            const int eSide = sides[next];
+            const int sSide = vertexSides[i];
+            const int eSide = vertexSides[next];
             const bool sInside = (sSide >= 0);
             const bool eInside = (eSide >= 0);
 
@@ -430,13 +455,13 @@ namespace ember
                     << " front_valid=" << frontValid
                     << " back_valid=" << backValid
                     << " sides=[";
-            for (std::size_t i = 0; i < sides.size(); ++i)
+            for (std::size_t i = 0; i < vertexSides.size(); ++i)
             {
                 if (i != 0)
                 {
                     message << ",";
                 }
-                message << sides[i];
+                message << vertexSides[i];
             }
             message << "].";
             emitLog(

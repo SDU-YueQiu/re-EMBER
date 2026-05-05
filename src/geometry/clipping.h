@@ -6,6 +6,8 @@
 
 #include "geometry256.h"
 
+#include <vector>
+
 namespace ember
 {
     // 计算源多边形和裁剪平面的交线。
@@ -64,6 +66,20 @@ namespace ember
         bool clipLeafGeometryByPlaneTrusted(
             const Polygon256& source,
             const Plane3i& clipPlane,
+            Polygon256& frontClipped,
+            Polygon256& backClipped,
+            PolygonEdgeProvenance insertedEdgeProvenance = PolygonEdgeProvenance::Regular);
+
+        /**
+         * @brief 使用调用方已缓存的顶点侧分类按平面切分叶片几何。
+         *
+         * @pre `source` 满足 `Polygon256::isValid()`。
+         * @pre `vertexSides[i]` 是第 i 个顶点相对 `clipPlane` 的分类。
+         */
+        bool clipLeafGeometryByPlaneTrustedWithSides(
+            const Polygon256& source,
+            const Plane3i& clipPlane,
+            const std::vector<int>& vertexSides,
             Polygon256& frontClipped,
             Polygon256& backClipped,
             PolygonEdgeProvenance insertedEdgeProvenance = PolygonEdgeProvenance::Regular);
