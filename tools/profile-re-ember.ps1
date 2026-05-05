@@ -15,6 +15,7 @@ param(
     [switch]$SkipBuild,
     [switch]$ForceBuild,
     [switch]$NoEtw,
+    [switch]$NoInputAssumptions,
     [switch]$ResolveSymbols,
     [switch]$ForceStopExisting,
     [switch]$Help
@@ -51,6 +52,8 @@ Notes:
   - Reuses the executable only when the requested configuration already exists.
   - Re-run with -ForceBuild to rebuild the requested configuration.
   - Use -NoEtw for timing-only runs.
+  - OBJ workloads are assumed to satisfy NSI/NNC input assumptions by default.
+  - Use -NoInputAssumptions only when profiling intentionally invalid or adversarial OBJ inputs.
   - ETW uses xperf only. If ETW prerequisites are missing, the script fails instead of silently falling back.
   - Use -ResolveSymbols only when you need symbol-server lookup in addition to local PDB resolution.
 "@
@@ -503,7 +506,7 @@ function Get-ReEmberArguments {
         [string]$MetricsPath
     )
 
-    return @(
+    $arguments = @(
         "--lhs", $Workload.Lhs,
         "--rhs", $Workload.Rhs,
         "--op", $Workload.Op,
@@ -511,6 +514,17 @@ function Get-ReEmberArguments {
         "--leaf-threshold", [string]$LeafThreshold,
         "--timings-out", $MetricsPath
     )
+
+    if (-not $NoInputAssumptions) {
+        $arguments += @(
+            "--assume-lhs-nsi",
+            "--assume-lhs-nnc",
+            "--assume-rhs-nsi",
+            "--assume-rhs-nnc"
+        )
+    }
+
+    return $arguments
 }
 
 function Invoke-ReEmberWorkload {
@@ -830,6 +844,7 @@ try {
         iterations = $Iterations
         timeoutSeconds = $TimeoutSeconds
         etwEnabled = (-not $NoEtw)
+        inputAssumptionsEnabled = (-not $NoInputAssumptions)
         workloads = $workloads
     }
     $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $PerfRoot "manifest.json") -Encoding UTF8

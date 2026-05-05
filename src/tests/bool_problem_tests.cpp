@@ -69,6 +69,14 @@ namespace
             makeFaceXY(zmax, xmin, xmax, ymin, ymax, 1)};
     }
 
+    void assignWNTV(std::vector<Polygon256> &polygons, const ember::WNV &wntv)
+    {
+        for (Polygon256 &polygon : polygons)
+        {
+            polygon.WNTV = wntv;
+        }
+    }
+
     Polygon256 makeThinTriangleXY()
     {
         return Polygon256(
@@ -595,6 +603,7 @@ void runBoolProblemTests()
     {
         const std::vector<Polygon256> tallLhs = makeAxisAlignedBox(0, 0, 0, 1, 100, 1);
         const std::vector<Polygon256> tallRhs = makeAxisAlignedBox(3, 0, 0, 4, 100, 1);
+        const ember::BoolOperandAssumptions exactOperand{true, true};
 
         {
             ember::BoolProblem problem(6);
@@ -640,6 +649,114 @@ void runBoolProblemTests()
             assert(leaves.front().polygonCount == 6u);
             assert(leaves.front().aabb.xMax <= Integer(2));
         }
+
+        {
+            ember::BoolProblem problem(6);
+            problem.setOperation(BoolOp::Union);
+            problem.setOperandAssumptions(exactOperand, exactOperand);
+            problem.setOperands(tallLhs, tallRhs);
+            problem.solve();
+
+            assert(problem.isSolved());
+            assert(!problem.isDiscarded());
+            assert(problem.resultFragments().size() == 12u);
+        }
+
+        {
+            ember::BoolProblem problem(6);
+            problem.setOperation(BoolOp::Intersection);
+            problem.setOperandAssumptions(exactOperand, exactOperand);
+            problem.setOperands(tallLhs, tallRhs);
+            problem.solve();
+
+            assert(problem.isSolved());
+            assert(problem.isDiscarded());
+            assert(problem.resultFragments().empty());
+            assert(problem.leafSummaries().empty());
+        }
+
+        {
+            ember::BoolProblem problem(6);
+            problem.setOperation(BoolOp::Difference);
+            problem.setOperandAssumptions(exactOperand, exactOperand);
+            problem.setOperands(tallLhs, tallRhs);
+            problem.solve();
+
+            assert(problem.isSolved());
+            assert(!problem.isDiscarded());
+            assert(problem.resultFragments().size() == 6u);
+        }
+    }
+
+    {
+        const std::vector<Polygon256> singleLhs = makeAxisAlignedBox(0, 0, 0, 1, 1, 1);
+        const std::vector<Polygon256> emptyRhs;
+
+        {
+            ember::BoolProblem problem(6);
+            ember::BoolOperandAssumptions lhsAssumptions;
+            lhsAssumptions.noSelfIntersections = true;
+            problem.setOperation(BoolOp::Union);
+            problem.setOperandAssumptions(lhsAssumptions, ember::BoolOperandAssumptions{});
+            problem.setOperands(singleLhs, emptyRhs);
+            problem.solve();
+
+            assert(problem.isSolved());
+            assert(!problem.isDiscarded());
+            assert(problem.resultFragments().size() == 6u);
+        }
+
+        {
+            ember::BoolProblem problem(6);
+            ember::BoolOperandAssumptions lhsAssumptions;
+            lhsAssumptions.noSelfIntersections = true;
+            lhsAssumptions.noNestedComponents = true;
+            problem.setOperation(BoolOp::Union);
+            problem.setOperandAssumptions(lhsAssumptions, ember::BoolOperandAssumptions{});
+            problem.setOperands(singleLhs, emptyRhs);
+            problem.solve();
+
+            assert(problem.isSolved());
+            assert(!problem.isDiscarded());
+            assert(problem.resultFragments().size() == 6u);
+        }
+
+        {
+            ember::BoolProblem problem(6);
+            ember::BoolOperandAssumptions lhsAssumptions;
+            lhsAssumptions.noSelfIntersections = true;
+            lhsAssumptions.noNestedComponents = true;
+            problem.setOperation(BoolOp::Difference);
+            problem.setOperandAssumptions(lhsAssumptions, ember::BoolOperandAssumptions{});
+            problem.setOperands(singleLhs, emptyRhs);
+            problem.solve();
+
+            assert(problem.isSolved());
+            assert(!problem.isDiscarded());
+            assert(problem.resultFragments().size() == 6u);
+        }
+    }
+
+    {
+        std::vector<Polygon256> customWntvBox = makeAxisAlignedBox(0, 0, 0, 1, 1, 1);
+        assignWNTV(customWntvBox, ember::WNV{1, 1});
+
+        ember::BoolProblem baseline(6);
+        baseline.setOperation(BoolOp::Union);
+        baseline.setPolygons(customWntvBox);
+        baseline.solve();
+
+        ember::BoolProblem assumed(6);
+        assumed.setOperation(BoolOp::Union);
+        assumed.setOperandAssumptions(
+            ember::BoolOperandAssumptions{true, true},
+            ember::BoolOperandAssumptions{true, true});
+        assumed.setPolygons(customWntvBox);
+        assumed.solve();
+
+        assert(baseline.isSolved());
+        assert(assumed.isSolved());
+        assert(baseline.resultFragments().size() == assumed.resultFragments().size());
     }
 
     {

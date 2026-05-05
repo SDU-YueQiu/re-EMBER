@@ -43,7 +43,9 @@ namespace ember
         SubdivisionSolver(
             BoolOp op,
             std::size_t leafPolygonThreshold,
-            const std::vector<Polygon256> &polygons);
+            const std::vector<Polygon256> &polygons,
+            BoolOperandAssumptions lhsAssumptions,
+            BoolOperandAssumptions rhsAssumptions);
 
         SubdivisionSolver(const SubdivisionSolver &) = delete;
         SubdivisionSolver &operator=(const SubdivisionSolver &) = delete;
@@ -77,7 +79,9 @@ namespace ember
             std::size_t depth,
             std::vector<Polygon256> polygons,
             const AABB3i &aabb,
-            SubdivisionRefState reference);
+            SubdivisionRefState reference,
+            BoolOperandAssumptions lhsAssumptions,
+            BoolOperandAssumptions rhsAssumptions);
 
         /**
          * @brief 重置上一次求解派生出的运行时状态。
@@ -115,6 +119,11 @@ namespace ember
         bool shouldDiscardSubproblemEarly(BoolStatus &constantStatus) const noexcept;
 
         /**
+         * @brief 若当前叶子只含一个二元操作数 WNTV 类，返回该类假设配置。
+         */
+        bool tryGetSingleOperandLeafAssumptions(BoolOperandAssumptions &outAssumptions) const noexcept;
+
+        /**
          * @brief 根据 AABB 切分创建子求解器节点。
          */
         bool createChildrenFromSplit(const AABBSplit3i &split);
@@ -139,6 +148,8 @@ namespace ember
 
         BoolOp op_ = BoolOp::Intersection;
         std::size_t leafPolygonThreshold_ = 25;
+        BoolOperandAssumptions lhsAssumptions_;
+        BoolOperandAssumptions rhsAssumptions_;
         std::size_t depth_ = 0;
         bool isLeaf_ = true;
         bool discarded_ = false;

@@ -675,9 +675,13 @@ namespace ember
     SubdivisionSolver::SubdivisionSolver(
         BoolOp op,
         std::size_t leafPolygonThreshold,
-        const std::vector<Polygon256> &polygons)
+        const std::vector<Polygon256> &polygons,
+        BoolOperandAssumptions lhsAssumptions,
+        BoolOperandAssumptions rhsAssumptions)
         : op_(op),
           leafPolygonThreshold_(leafPolygonThreshold == 0 ? 1 : leafPolygonThreshold),
+          lhsAssumptions_(lhsAssumptions),
+          rhsAssumptions_(rhsAssumptions),
           polygons_(polygons)
     {
     }
@@ -688,9 +692,13 @@ namespace ember
         std::size_t depth,
         std::vector<Polygon256> polygons,
         const AABB3i &aabb,
-        SubdivisionRefState reference)
+        SubdivisionRefState reference,
+        BoolOperandAssumptions lhsAssumptions,
+        BoolOperandAssumptions rhsAssumptions)
         : op_(op),
           leafPolygonThreshold_(leafPolygonThreshold == 0 ? 1 : leafPolygonThreshold),
+          lhsAssumptions_(lhsAssumptions),
+          rhsAssumptions_(rhsAssumptions),
           depth_(depth),
           aabb_(aabb),
           reference_(std::move(reference)),
@@ -946,6 +954,41 @@ namespace ember
         return tryEvaluateConstantBinaryIndicator(op_, reference_.wnv, polygons_, constantStatus);
     }
 
+    bool SubdivisionSolver::tryGetSingleOperandLeafAssumptions(BoolOperandAssumptions &outAssumptions) const noexcept
+    {
+        if (polygons_.empty())
+        {
+            return false;
+        }
+
+        const WNV &wntv = polygons_.front().WNTV;
+        if (wntv.size() != 2u)
+        {
+            return false;
+        }
+
+        for (const Polygon256 &polygon : polygons_)
+        {
+            if (polygon.WNTV != wntv)
+            {
+                return false;
+            }
+        }
+
+        if (wntv[0] == 1 && wntv[1] == 0)
+        {
+            outAssumptions = lhsAssumptions_;
+            return true;
+        }
+        if (wntv[0] == 0 && wntv[1] == 1)
+        {
+            outAssumptions = rhsAssumptions_;
+            return true;
+        }
+
+        return false;
+    }
+
     // 裁剪当前多边形集合到左右子 AABB，并为每个非空子问题建立参考状态。
     bool SubdivisionSolver::createChildrenFromSplit(const AABBSplit3i &split)
     {
@@ -1036,7 +1079,9 @@ namespace ember
                 depth_ + 1,
                 std::move(leftPolygons),
                 split.left,
-                std::move(leftReference)));
+                std::move(leftReference),
+                lhsAssumptions_,
+                rhsAssumptions_));
         }
 
         if (!rightPolygons.empty() && shouldCreateChild("right", rightPolygons, rightReference))
@@ -1047,7 +1092,9 @@ namespace ember
                 depth_ + 1,
                 std::move(rightPolygons),
                 split.right,
-                std::move(rightReference)));
+                std::move(rightReference),
+                lhsAssumptions_,
+                rhsAssumptions_));
         }
 
         logBoolDebug(
