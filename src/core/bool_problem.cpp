@@ -5,6 +5,7 @@
 #include "bool_problem.h"
 
 #include "core/logging.h"
+#include "core/perf_tracing.h"
 #include "core/subdivision_solver.h"
 
 #include <algorithm>
@@ -160,6 +161,8 @@ namespace ember
 
     void BoolProblem::solve()
     {
+        REEMBER_PROFILE_ZONE("BoolProblem::solve");
+
         resetSolveState();
 
         logBoolInfo(

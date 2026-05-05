@@ -5,6 +5,7 @@
 #pragma once
 
 #include "algorithm/path_candidate_details.h"
+#include "core/perf_tracing.h"
 
 #include <algorithm>
 #include <array>
@@ -46,6 +47,8 @@ namespace ember
         const AABB3i &box,
         CandidateVisitor &&visitor)
     {
+        REEMBER_PROFILE_ZONE("enumerateLeafClassificationNormalApproachCandidatesFromPoints");
+
         std::size_t emitted = 0;
         if (!referencePoint.hasUniqueIntersection() || !isValidAABB(box))
         {
@@ -106,6 +109,8 @@ namespace ember
 
     inline std::vector<AABBPathCandidate> enumerateAABBPathCandidates(const PlanePoint3i &startPoint, const AABB3i &targetBox)
     {
+        REEMBER_PROFILE_ZONE("enumerateAABBPathCandidates");
+
         std::vector<AABBPathCandidate> candidates;
         if (!startPoint.hasUniqueIntersection() || !isValidAABB(targetBox))
         {
@@ -398,6 +403,8 @@ namespace ember
      */
     inline std::vector<PlanePoint3i> enumerateLeafClassificationPointCandidates(const Polygon256 &polygon)
     {
+        REEMBER_PROFILE_ZONE("enumerateLeafClassificationPointCandidates");
+
         if (!polygon.isValid())
         {
             return {};
@@ -425,6 +432,8 @@ namespace ember
         const AABB3i &box,
         CandidateVisitor &&visitor)
     {
+        REEMBER_PROFILE_ZONE("enumerateLeafClassificationFastPathCandidatesFromPoints");
+
         std::size_t emitted = 0;
         if (!referencePoint.hasUniqueIntersection() || !isValidAABB(box))
         {
@@ -552,6 +561,8 @@ namespace ember
         const AABB3i &box,
         CandidateVisitor &&visitor)
     {
+        REEMBER_PROFILE_ZONE("enumerateLeafClassificationFallbackPathCandidatesFromPoints");
+
         std::size_t emitted = 0;
         if (!referencePoint.hasUniqueIntersection() || !isValidAABB(box))
         {
@@ -636,6 +647,8 @@ namespace ember
         const AABB3i &box,
         CandidateVisitor &&visitor)
     {
+        REEMBER_PROFILE_ZONE("enumerateLeafClassificationInteriorBridgeCandidatesFromPoints");
+
         std::size_t emitted = 0;
         if (!referencePoint.hasUniqueIntersection() || !isValidAABB(box))
         {

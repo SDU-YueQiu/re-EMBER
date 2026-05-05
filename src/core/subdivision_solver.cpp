@@ -7,6 +7,7 @@
 #include "algorithm/path_candidates.h"
 #include "algorithm/WNV_tracing.h"
 #include "core/logging.h"
+#include "core/perf_tracing.h"
 #include "geometry/polygon_ops.h"
 
 #include <algorithm>
@@ -412,6 +413,8 @@ namespace ember
             const AABB3i &box,
             AABBSplit3i &outSplit)
         {
+            REEMBER_PROFILE_ZONE("chooseWntvAwareSplit");
+
             std::vector<WntvSubdivisionGroup> groups;
             if (!buildWntvSubdivisionGroups(polygons, groups) || groups.size() < 2u)
             {
@@ -560,6 +563,8 @@ namespace ember
             const AABB3i &box,
             AABBSplit3i &outSplit)
         {
+            REEMBER_PROFILE_ZONE("chooseCenterRangeSplit");
+
             PolygonCenterSplitStats stats;
             if (!computePolygonCenterSplitStats(polygons, stats))
             {
@@ -606,6 +611,8 @@ namespace ember
             AABBSplit3i &outSplit,
             SubdivisionSplitStrategy &outStrategy)
         {
+            REEMBER_PROFILE_ZONE("chooseSubdivisionSplit");
+
             if (chooseWntvAwareSplit(polygons, box, outSplit))
             {
                 outStrategy = SubdivisionSplitStrategy::WntvAware;
@@ -632,6 +639,8 @@ namespace ember
             std::vector<Polygon256> &leftPolygons,
             std::vector<Polygon256> &rightPolygons)
         {
+            REEMBER_PROFILE_ZONE("appendSplitChildPolygons");
+
             bool hasPositive = false;
             bool hasNegative = false;
             const std::size_t edgeCount = polygon.edgeCount();
@@ -724,6 +733,8 @@ namespace ember
 
     void SubdivisionSolver::solve()
     {
+        REEMBER_PROFILE_ZONE("SubdivisionSolver::solve");
+
         resetSolveState();
         solveMetrics_.inputPolygonCount = polygons_.size();
         if (polygons_.empty())
@@ -802,6 +813,8 @@ namespace ember
 
     void SubdivisionSolver::initializeRootReference()
     {
+        REEMBER_PROFILE_ZONE("SubdivisionSolver::initializeRootReference");
+
         reference_.point = getAABBCornerPoint(aabb_, false, false, false);
         reference_.wnv.assign(computeWNVSize(polygons_), 0);
 
@@ -821,6 +834,8 @@ namespace ember
     // 递归推进 subdivision；到达叶子后立即执行局部 BSP 和 WNV 分类。
     void SubdivisionSolver::solveRecursive()
     {
+        REEMBER_PROFILE_ZONE("SubdivisionSolver::solveRecursive");
+
         if (polygons_.empty() || !isValidAABB(aabb_))
         {
             discarded_ = true;
@@ -1044,6 +1059,8 @@ namespace ember
     // 裁剪当前多边形集合到左右子 AABB，并为每个非空子问题建立参考状态。
     bool SubdivisionSolver::createChildrenFromSplit(const AABBSplit3i &split)
     {
+        REEMBER_PROFILE_ZONE("SubdivisionSolver::createChildrenFromSplit");
+
         std::vector<Polygon256> leftPolygons;
         std::vector<Polygon256> rightPolygons;
         leftPolygons.reserve(polygons_.size());
@@ -1171,6 +1188,8 @@ namespace ember
         const std::vector<Polygon256> &childPolygons,
         SubdivisionRefState &outReference)
     {
+        REEMBER_PROFILE_ZONE("SubdivisionSolver::makeChildReference");
+
         const bool sourceReferenceIsStrictInterior = isPointStrictlyInsideAABB(reference_.point, childBox);
         if (sourceReferenceIsStrictInterior)
         {
@@ -1336,6 +1355,8 @@ namespace ember
 
     void SubdivisionSolver::collectSolveMetrics(BoolSolveMetrics &outMetrics) const
     {
+        REEMBER_PROFILE_ZONE("SubdivisionSolver::collectSolveMetrics");
+
         outMetrics.constantDiscardCount += solveMetrics_.constantDiscardCount;
         outMetrics.leafThresholdStopCount += solveMetrics_.leafThresholdStopCount;
         outMetrics.aabbNotSplittableStopCount += solveMetrics_.aabbNotSplittableStopCount;
