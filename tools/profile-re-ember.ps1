@@ -6,7 +6,7 @@ param(
     [string]$Out,
     [ValidateSet("Debug", "Release", "RelWithDebInfo", "MinSizeRel")][string]$Configuration = "RelWithDebInfo",
     [int]$LeafThreshold = 25,
-    [int]$Iterations = 3,
+    [int]$Iterations = 10,
     [int]$TimeoutSeconds = 300,
     [int]$BuildTimeoutSeconds = 900,
     [int]$ReportTimeoutSeconds = 120,
