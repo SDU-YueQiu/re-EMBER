@@ -27,6 +27,547 @@ namespace ember
         std::vector<Segment256> path;
     };
 
+    namespace detail
+    {
+        enum class AABBPathBuildMode
+        {
+            Empty,
+            Corner,
+            FreeCoordinate
+        };
+
+        struct AABBPathCandidateSeed
+        {
+            PlanePoint3i targetPoint;
+            std::array<SplitAxis3i, 3> axisOrder{};
+            std::size_t axisCount = 0;
+            AABBPathBuildMode buildMode = AABBPathBuildMode::Empty;
+        };
+
+        inline bool axisOrderLess(SplitAxis3i lhs, SplitAxis3i rhs) noexcept
+        {
+            return axisOrderKey(lhs) < axisOrderKey(rhs);
+        }
+
+        inline void appendUniqueIntegerChoice(std::vector<Integer> &choices, const Integer &value)
+        {
+            if (std::find(choices.begin(), choices.end(), value) == choices.end())
+            {
+                choices.push_back(value);
+            }
+        }
+
+        inline bool appendUniqueIntegerTarget(
+            std::vector<std::array<Integer, 3>> &targets,
+            const Integer &x,
+            const Integer &y,
+            const Integer &z)
+        {
+            const std::array<Integer, 3> target = {x, y, z};
+            if (std::find(targets.begin(), targets.end(), target) != targets.end())
+            {
+                return false;
+            }
+
+            targets.push_back(target);
+            return true;
+        }
+
+        template <typename SeedVisitor>
+        inline bool emitAABBPathCandidateSeed(
+            const PlanePoint3i &targetPoint,
+            const std::array<SplitAxis3i, 3> &axisOrder,
+            std::size_t axisCount,
+            AABBPathBuildMode buildMode,
+            std::size_t &emitted,
+            SeedVisitor &visitor)
+        {
+            const AABBPathCandidateSeed seed{targetPoint, axisOrder, axisCount, buildMode};
+            ++emitted;
+            return visitor(seed);
+        }
+
+        template <typename SeedVisitor>
+        inline bool visitIntegerAABBPathTargetSeeds(
+            const PlanePoint3i &targetPoint,
+            const Integer &startX,
+            const Integer &startY,
+            const Integer &startZ,
+            const Integer &targetX,
+            const Integer &targetY,
+            const Integer &targetZ,
+            std::size_t &emitted,
+            SeedVisitor &visitor)
+        {
+            std::array<SplitAxis3i, 3> changedAxes = {};
+            std::size_t axisCount = 0;
+            if (startX != targetX)
+            {
+                changedAxes[axisCount++] = SplitAxis3i::X;
+            }
+            if (startY != targetY)
+            {
+                changedAxes[axisCount++] = SplitAxis3i::Y;
+            }
+            if (startZ != targetZ)
+            {
+                changedAxes[axisCount++] = SplitAxis3i::Z;
+            }
+
+            if (axisCount == 0)
+            {
+                return emitAABBPathCandidateSeed(
+                    targetPoint,
+                    changedAxes,
+                    0,
+                    AABBPathBuildMode::Empty,
+                    emitted,
+                    visitor);
+            }
+
+            std::sort(
+                changedAxes.begin(),
+                changedAxes.begin() + static_cast<std::ptrdiff_t>(axisCount),
+                axisOrderLess);
+            do
+            {
+                if (!emitAABBPathCandidateSeed(
+                        targetPoint,
+                        changedAxes,
+                        axisCount,
+                        AABBPathBuildMode::Corner,
+                        emitted,
+                        visitor))
+                {
+                    return false;
+                }
+            } while (std::next_permutation(
+                changedAxes.begin(),
+                changedAxes.begin() + static_cast<std::ptrdiff_t>(axisCount),
+                axisOrderLess));
+
+            return true;
+        }
+
+        template <typename SeedVisitor>
+        inline bool visitFreeCoordinateAABBPathTargetSeeds(
+            const PlanePoint3i &startPoint,
+            const PlanePoint3i &targetPoint,
+            std::size_t &emitted,
+            SeedVisitor &visitor)
+        {
+            if (!targetPoint.hasUniqueIntersection())
+            {
+                return true;
+            }
+
+            const std::array<Plane3i, 3> startCoordinatePlanes = {
+                makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::X),
+                makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::Y),
+                makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::Z)};
+            const std::array<Plane3i, 3> targetCoordinatePlanes = {
+                makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::X),
+                makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Y),
+                makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Z)};
+
+            std::array<SplitAxis3i, 3> changedAxes = {};
+            std::size_t axisCount = 0;
+            if (!areSamePlaneEquation(startCoordinatePlanes[0], targetCoordinatePlanes[0]))
+            {
+                changedAxes[axisCount++] = SplitAxis3i::X;
+            }
+            if (!areSamePlaneEquation(startCoordinatePlanes[1], targetCoordinatePlanes[1]))
+            {
+                changedAxes[axisCount++] = SplitAxis3i::Y;
+            }
+            if (!areSamePlaneEquation(startCoordinatePlanes[2], targetCoordinatePlanes[2]))
+            {
+                changedAxes[axisCount++] = SplitAxis3i::Z;
+            }
+
+            if (axisCount == 0)
+            {
+                return emitAABBPathCandidateSeed(
+                    targetPoint,
+                    changedAxes,
+                    0,
+                    AABBPathBuildMode::Empty,
+                    emitted,
+                    visitor);
+            }
+
+            std::sort(
+                changedAxes.begin(),
+                changedAxes.begin() + static_cast<std::ptrdiff_t>(axisCount),
+                axisOrderLess);
+            do
+            {
+                if (!emitAABBPathCandidateSeed(
+                        targetPoint,
+                        changedAxes,
+                        axisCount,
+                        AABBPathBuildMode::FreeCoordinate,
+                        emitted,
+                        visitor))
+                {
+                    return false;
+                }
+            } while (std::next_permutation(
+                changedAxes.begin(),
+                changedAxes.begin() + static_cast<std::ptrdiff_t>(axisCount),
+                axisOrderLess));
+
+            return true;
+        }
+
+        inline bool buildAABBPathFromSeed(
+            const PlanePoint3i &startPoint,
+            const AABBPathCandidateSeed &seed,
+            std::vector<Segment256> &outPath)
+        {
+            switch (seed.buildMode)
+            {
+            case AABBPathBuildMode::Empty:
+                outPath.clear();
+                return areSamePlanePoint(startPoint, seed.targetPoint);
+            case AABBPathBuildMode::Corner:
+                return buildAxisAlignedCornerPath(startPoint, seed.targetPoint, seed.axisOrder, seed.axisCount, outPath);
+            case AABBPathBuildMode::FreeCoordinate:
+                return buildAxisAlignedFreeCoordinatePath(startPoint, seed.targetPoint, seed.axisOrder, seed.axisCount, outPath);
+            }
+
+            outPath.clear();
+            return false;
+        }
+
+        template <typename SeedVisitor>
+        inline std::size_t visitFastAABBPathCandidateSeeds(
+            const PlanePoint3i &startPoint,
+            const AABB3i &targetBox,
+            SeedVisitor &&visitor)
+        {
+            std::size_t emitted = 0;
+            if (!startPoint.hasUniqueIntersection() || !isValidAABB(targetBox))
+            {
+                return emitted;
+            }
+
+            const PlanePoint3i preferredTarget = projectPointToAABB(startPoint, targetBox);
+            if (areSamePlanePoint(preferredTarget, startPoint))
+            {
+                const std::array<SplitAxis3i, 3> emptyAxes = {};
+                if (!emitAABBPathCandidateSeed(
+                        startPoint,
+                        emptyAxes,
+                        0,
+                        AABBPathBuildMode::Empty,
+                        emitted,
+                        visitor))
+                {
+                    return emitted;
+                }
+            }
+
+            Integer startX, startY, startZ;
+            Integer preferredX, preferredY, preferredZ;
+            if (!tryExtractExactIntegerPoint(startPoint, startX, startY, startZ) ||
+                !tryExtractExactIntegerPoint(preferredTarget, preferredX, preferredY, preferredZ))
+            {
+                return emitted;
+            }
+
+            Integer strictX;
+            Integer strictY;
+            Integer strictZ;
+            if (!chooseStrictInteriorAABBCoordinate(targetBox.xMin, targetBox.xMax, preferredX, strictX) ||
+                !chooseStrictInteriorAABBCoordinate(targetBox.yMin, targetBox.yMax, preferredY, strictY) ||
+                !chooseStrictInteriorAABBCoordinate(targetBox.zMin, targetBox.zMax, preferredZ, strictZ))
+            {
+                return emitted;
+            }
+
+            std::vector<std::array<Integer, 3>> emittedTargets;
+            emittedTargets.reserve(20);
+            auto emitUniqueIntegerTarget =
+                [&](const Integer &x, const Integer &y, const Integer &z) -> bool
+            {
+                if (!appendUniqueIntegerTarget(emittedTargets, x, y, z))
+                {
+                    return true;
+                }
+
+                return visitIntegerAABBPathTargetSeeds(
+                    makeIntegerPoint(x, y, z),
+                    startX,
+                    startY,
+                    startZ,
+                    x,
+                    y,
+                    z,
+                    emitted,
+                    visitor);
+            };
+
+            if (!emitUniqueIntegerTarget(strictX, strictY, strictZ))
+            {
+                return emitted;
+            }
+
+            for (const Integer &delta : {Integer(1), Integer(-1), Integer(2), Integer(-2)})
+            {
+                if (strictX + delta > targetBox.xMin && strictX + delta < targetBox.xMax)
+                {
+                    if (!emitUniqueIntegerTarget(strictX + delta, strictY, strictZ))
+                    {
+                        return emitted;
+                    }
+                }
+                if (strictY + delta > targetBox.yMin && strictY + delta < targetBox.yMax)
+                {
+                    if (!emitUniqueIntegerTarget(strictX, strictY + delta, strictZ))
+                    {
+                        return emitted;
+                    }
+                }
+                if (strictZ + delta > targetBox.zMin && strictZ + delta < targetBox.zMax)
+                {
+                    if (!emitUniqueIntegerTarget(strictX, strictY, strictZ + delta))
+                    {
+                        return emitted;
+                    }
+                }
+            }
+
+            const Integer centerX = floorDiv(targetBox.xMin + targetBox.xMax, Integer(2));
+            const Integer centerY = floorDiv(targetBox.yMin + targetBox.yMax, Integer(2));
+            const Integer centerZ = floorDiv(targetBox.zMin + targetBox.zMax, Integer(2));
+            Integer strictCenterX;
+            Integer strictCenterY;
+            Integer strictCenterZ;
+            if (chooseStrictInteriorAABBCoordinate(targetBox.xMin, targetBox.xMax, centerX, strictCenterX) &&
+                chooseStrictInteriorAABBCoordinate(targetBox.yMin, targetBox.yMax, centerY, strictCenterY) &&
+                chooseStrictInteriorAABBCoordinate(targetBox.zMin, targetBox.zMax, centerZ, strictCenterZ))
+            {
+                if (!emitUniqueIntegerTarget(strictCenterX, strictCenterY, strictCenterZ))
+                {
+                    return emitted;
+                }
+            }
+
+            std::vector<Integer> xInsets;
+            std::vector<Integer> yInsets;
+            std::vector<Integer> zInsets;
+            xInsets.reserve(2);
+            yInsets.reserve(2);
+            zInsets.reserve(2);
+            appendUniqueIntegerChoice(xInsets, targetBox.xMin + Integer(1));
+            appendUniqueIntegerChoice(xInsets, targetBox.xMax - Integer(1));
+            appendUniqueIntegerChoice(yInsets, targetBox.yMin + Integer(1));
+            appendUniqueIntegerChoice(yInsets, targetBox.yMax - Integer(1));
+            appendUniqueIntegerChoice(zInsets, targetBox.zMin + Integer(1));
+            appendUniqueIntegerChoice(zInsets, targetBox.zMax - Integer(1));
+            for (const Integer &xInset : xInsets)
+            {
+                if (xInset <= targetBox.xMin || xInset >= targetBox.xMax)
+                {
+                    continue;
+                }
+                for (const Integer &yInset : yInsets)
+                {
+                    if (yInset <= targetBox.yMin || yInset >= targetBox.yMax)
+                    {
+                        continue;
+                    }
+                    for (const Integer &zInset : zInsets)
+                    {
+                        if (zInset <= targetBox.zMin || zInset >= targetBox.zMax)
+                        {
+                            continue;
+                        }
+                        if (!emitUniqueIntegerTarget(xInset, yInset, zInset))
+                        {
+                            return emitted;
+                        }
+                    }
+                }
+            }
+
+            return emitted;
+        }
+
+        template <typename SeedVisitor>
+        inline std::size_t visitExhaustiveAABBPathCandidateSeeds(
+            const PlanePoint3i &startPoint,
+            const AABB3i &targetBox,
+            SeedVisitor &&visitor)
+        {
+            std::size_t emitted = 0;
+            if (!startPoint.hasUniqueIntersection() || !isValidAABB(targetBox))
+            {
+                return emitted;
+            }
+
+            const PlanePoint3i preferredTarget = projectPointToAABB(startPoint, targetBox);
+
+            Integer startX, startY, startZ;
+            Integer preferredX, preferredY, preferredZ;
+            if (!tryExtractExactIntegerPoint(startPoint, startX, startY, startZ) ||
+                !tryExtractExactIntegerPoint(preferredTarget, preferredX, preferredY, preferredZ))
+            {
+                const PlanePoint3i centerPoint(
+                    Plane3i(2, 0, 0, -(targetBox.xMin + targetBox.xMax)),
+                    Plane3i(0, 2, 0, -(targetBox.yMin + targetBox.yMax)),
+                    Plane3i(0, 0, 2, -(targetBox.zMin + targetBox.zMax)));
+                if (!visitFreeCoordinateAABBPathTargetSeeds(startPoint, preferredTarget, emitted, visitor))
+                {
+                    return emitted;
+                }
+                if (!areSamePlanePoint(centerPoint, preferredTarget) &&
+                    !visitFreeCoordinateAABBPathTargetSeeds(startPoint, centerPoint, emitted, visitor))
+                {
+                    return emitted;
+                }
+                return emitted;
+            }
+
+            std::vector<Integer> xChoices;
+            std::vector<Integer> yChoices;
+            std::vector<Integer> zChoices;
+            xChoices.reserve(7);
+            yChoices.reserve(7);
+            zChoices.reserve(7);
+
+            appendUniqueIntegerChoice(xChoices, preferredX);
+            appendUniqueIntegerChoice(yChoices, preferredY);
+            appendUniqueIntegerChoice(zChoices, preferredZ);
+            for (const Integer &delta : {Integer(-1), Integer(1), Integer(-2), Integer(2)})
+            {
+                if (preferredX + delta >= targetBox.xMin && preferredX + delta <= targetBox.xMax)
+                {
+                    appendUniqueIntegerChoice(xChoices, preferredX + delta);
+                }
+                if (preferredY + delta >= targetBox.yMin && preferredY + delta <= targetBox.yMax)
+                {
+                    appendUniqueIntegerChoice(yChoices, preferredY + delta);
+                }
+                if (preferredZ + delta >= targetBox.zMin && preferredZ + delta <= targetBox.zMax)
+                {
+                    appendUniqueIntegerChoice(zChoices, preferredZ + delta);
+                }
+            }
+            appendUniqueIntegerChoice(xChoices, targetBox.xMin);
+            appendUniqueIntegerChoice(xChoices, targetBox.xMax);
+            appendUniqueIntegerChoice(yChoices, targetBox.yMin);
+            appendUniqueIntegerChoice(yChoices, targetBox.yMax);
+            appendUniqueIntegerChoice(zChoices, targetBox.zMin);
+            appendUniqueIntegerChoice(zChoices, targetBox.zMax);
+
+            struct IntegerAABBTarget
+            {
+                Integer x;
+                Integer y;
+                Integer z;
+                bool interior = false;
+                bool preferred = false;
+                Integer distance = 0;
+                std::size_t axisCount = 0;
+            };
+
+            std::vector<IntegerAABBTarget> targets;
+            targets.reserve(xChoices.size() * yChoices.size() * zChoices.size());
+            for (const Integer &xChoice : xChoices)
+            {
+                for (const Integer &yChoice : yChoices)
+                {
+                    for (const Integer &zChoice : zChoices)
+                    {
+                        IntegerAABBTarget target;
+                        target.x = xChoice;
+                        target.y = yChoice;
+                        target.z = zChoice;
+                        target.interior =
+                            xChoice > targetBox.xMin && xChoice < targetBox.xMax &&
+                            yChoice > targetBox.yMin && yChoice < targetBox.yMax &&
+                            zChoice > targetBox.zMin && zChoice < targetBox.zMax;
+                        target.preferred =
+                            xChoice == preferredX &&
+                            yChoice == preferredY &&
+                            zChoice == preferredZ;
+                        target.distance =
+                            absInteger(xChoice - preferredX) +
+                            absInteger(yChoice - preferredY) +
+                            absInteger(zChoice - preferredZ);
+                        target.axisCount =
+                            static_cast<std::size_t>(startX != xChoice) +
+                            static_cast<std::size_t>(startY != yChoice) +
+                            static_cast<std::size_t>(startZ != zChoice);
+                        targets.push_back(std::move(target));
+                    }
+                }
+            }
+
+            std::sort(
+                targets.begin(),
+                targets.end(),
+                [](const IntegerAABBTarget &lhs, const IntegerAABBTarget &rhs)
+                {
+                    if (lhs.interior != rhs.interior)
+                    {
+                        return lhs.interior;
+                    }
+                    if (lhs.preferred != rhs.preferred)
+                    {
+                        return lhs.preferred;
+                    }
+                    if (lhs.distance != rhs.distance)
+                    {
+                        return lhs.distance < rhs.distance;
+                    }
+                    if (lhs.axisCount != rhs.axisCount)
+                    {
+                        return lhs.axisCount < rhs.axisCount;
+                    }
+                    if (lhs.x != rhs.x)
+                    {
+                        return lhs.x < rhs.x;
+                    }
+                    if (lhs.y != rhs.y)
+                    {
+                        return lhs.y < rhs.y;
+                    }
+                    return lhs.z < rhs.z;
+                });
+
+            for (const IntegerAABBTarget &target : targets)
+            {
+                if (!visitIntegerAABBPathTargetSeeds(
+                        makeIntegerPoint(target.x, target.y, target.z),
+                        startX,
+                        startY,
+                        startZ,
+                        target.x,
+                        target.y,
+                        target.z,
+                        emitted,
+                        visitor))
+                {
+                    return emitted;
+                }
+            }
+
+            const PlanePoint3i centerPoint(
+                Plane3i(2, 0, 0, -(targetBox.xMin + targetBox.xMax)),
+                Plane3i(0, 2, 0, -(targetBox.yMin + targetBox.yMax)),
+                Plane3i(0, 0, 2, -(targetBox.zMin + targetBox.zMax)));
+            if (!areSamePlanePoint(centerPoint, preferredTarget) &&
+                !visitFreeCoordinateAABBPathTargetSeeds(startPoint, centerPoint, emitted, visitor))
+            {
+                return emitted;
+            }
+
+            return emitted;
+        }
+    }
 
     /**
      * @brief 枚举以目标片段支撑平面法向作为最后一段的分类路径候选。
@@ -112,286 +653,19 @@ namespace ember
         REEMBER_PROFILE_ZONE("enumerateAABBPathCandidates");
 
         std::vector<AABBPathCandidate> candidates;
-        if (!startPoint.hasUniqueIntersection() || !isValidAABB(targetBox))
+        auto materializeSeed =
+            [&candidates, &startPoint](const detail::AABBPathCandidateSeed &seed)
         {
-            return candidates;
-        }
-
-        const PlanePoint3i preferredTarget = projectPointToAABB(startPoint, targetBox);
-
-        auto appendCoordinatePathCandidates =
-            [&candidates, &startPoint](const PlanePoint3i &targetPoint)
-        {
-            if (!targetPoint.hasUniqueIntersection())
+            std::vector<Segment256> path;
+            if (detail::buildAABBPathFromSeed(startPoint, seed, path))
             {
-                return;
+                candidates.push_back(AABBPathCandidate{seed.targetPoint, std::move(path)});
             }
-
-            const std::array<Plane3i, 3> startCoordinatePlanes = {
-                detail::makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::X),
-                detail::makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::Y),
-                detail::makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::Z)};
-            const std::array<Plane3i, 3> targetCoordinatePlanes = {
-                detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::X),
-                detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Y),
-                detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Z)};
-
-            std::vector<SplitAxis3i> changedAxes;
-            changedAxes.reserve(3);
-            if (!detail::areSamePlaneEquation(startCoordinatePlanes[0], targetCoordinatePlanes[0]))
-            {
-                changedAxes.push_back(SplitAxis3i::X);
-            }
-            if (!detail::areSamePlaneEquation(startCoordinatePlanes[1], targetCoordinatePlanes[1]))
-            {
-                changedAxes.push_back(SplitAxis3i::Y);
-            }
-            if (!detail::areSamePlaneEquation(startCoordinatePlanes[2], targetCoordinatePlanes[2]))
-            {
-                changedAxes.push_back(SplitAxis3i::Z);
-            }
-
-            if (changedAxes.empty())
-            {
-                candidates.push_back({targetPoint, {}});
-                return;
-            }
-
-            std::sort(
-                changedAxes.begin(),
-                changedAxes.end(),
-                [](SplitAxis3i lhs, SplitAxis3i rhs)
-                {
-                    return detail::axisOrderKey(lhs) < detail::axisOrderKey(rhs);
-                });
-
-            do
-            {
-                std::vector<Segment256> path;
-                if (detail::buildAxisAlignedFreeCoordinatePath(startPoint, targetPoint, changedAxes, path))
-                {
-                    candidates.push_back({targetPoint, std::move(path)});
-                }
-            } while (std::next_permutation(
-                changedAxes.begin(),
-                changedAxes.end(),
-                [](SplitAxis3i lhs, SplitAxis3i rhs)
-                {
-                    return detail::axisOrderKey(lhs) < detail::axisOrderKey(rhs);
-                }));
+            return true;
         };
 
-        auto appendInteriorCenterCandidates =
-            [&appendCoordinatePathCandidates, &targetBox]()
-        {
-            const PlanePoint3i centerPoint(
-                Plane3i(2, 0, 0, -(targetBox.xMin + targetBox.xMax)),
-                Plane3i(0, 2, 0, -(targetBox.yMin + targetBox.yMax)),
-                Plane3i(0, 0, 2, -(targetBox.zMin + targetBox.zMax)));
-            appendCoordinatePathCandidates(centerPoint);
-        };
-
-        Integer startX, startY, startZ;
-        Integer preferredX, preferredY, preferredZ;
-        if (!detail::tryExtractExactIntegerPoint(startPoint, startX, startY, startZ) ||
-            !detail::tryExtractExactIntegerPoint(preferredTarget, preferredX, preferredY, preferredZ))
-        {
-            appendCoordinatePathCandidates(preferredTarget);
-            appendInteriorCenterCandidates();
-            return candidates;
-        }
-
-        std::vector<Integer> xChoices;
-        std::vector<Integer> yChoices;
-        std::vector<Integer> zChoices;
-
-        xChoices.push_back(preferredX);
-        yChoices.push_back(preferredY);
-        zChoices.push_back(preferredZ);
-
-        for (const Integer &delta : {Integer(1), Integer(2)})
-        {
-            if (preferredX - delta >= targetBox.xMin)
-            {
-                xChoices.push_back(preferredX - delta);
-            }
-            if (preferredX + delta <= targetBox.xMax)
-            {
-                xChoices.push_back(preferredX + delta);
-            }
-            if (preferredY - delta >= targetBox.yMin)
-            {
-                yChoices.push_back(preferredY - delta);
-            }
-            if (preferredY + delta <= targetBox.yMax)
-            {
-                yChoices.push_back(preferredY + delta);
-            }
-            if (preferredZ - delta >= targetBox.zMin)
-            {
-                zChoices.push_back(preferredZ - delta);
-            }
-            if (preferredZ + delta <= targetBox.zMax)
-            {
-                zChoices.push_back(preferredZ + delta);
-            }
-        }
-
-        xChoices.push_back(targetBox.xMin);
-        xChoices.push_back(targetBox.xMax);
-        yChoices.push_back(targetBox.yMin);
-        yChoices.push_back(targetBox.yMax);
-        zChoices.push_back(targetBox.zMin);
-        zChoices.push_back(targetBox.zMax);
-
-        std::sort(xChoices.begin(), xChoices.end());
-        xChoices.erase(std::unique(xChoices.begin(), xChoices.end()), xChoices.end());
-        std::sort(yChoices.begin(), yChoices.end());
-        yChoices.erase(std::unique(yChoices.begin(), yChoices.end()), yChoices.end());
-        std::sort(zChoices.begin(), zChoices.end());
-        zChoices.erase(std::unique(zChoices.begin(), zChoices.end()), zChoices.end());
-
-        std::vector<PlanePoint3i> targetPoints;
-        for (const Integer &xChoice : xChoices)
-        {
-            for (const Integer &yChoice : yChoices)
-            {
-                for (const Integer &zChoice : zChoices)
-                {
-                    const PlanePoint3i targetPoint = makeIntegerPoint(xChoice, yChoice, zChoice);
-
-                    bool duplicated = false;
-                    for (const PlanePoint3i &existing : targetPoints)
-                    {
-                        if (areSamePlanePoint(existing, targetPoint))
-                        {
-                            duplicated = true;
-                            break;
-                        }
-                    }
-
-                    if (!duplicated)
-                    {
-                        targetPoints.push_back(targetPoint);
-                    }
-                }
-            }
-        }
-
-        for (const PlanePoint3i &targetPoint : targetPoints)
-        {
-            Integer targetX, targetY, targetZ;
-            detail::tryExtractExactIntegerPoint(targetPoint, targetX, targetY, targetZ);
-
-            std::vector<SplitAxis3i> changedAxes;
-            changedAxes.reserve(3);
-            if (startX != targetX)
-            {
-                changedAxes.push_back(SplitAxis3i::X);
-            }
-            if (startY != targetY)
-            {
-                changedAxes.push_back(SplitAxis3i::Y);
-            }
-            if (startZ != targetZ)
-            {
-                changedAxes.push_back(SplitAxis3i::Z);
-            }
-
-            std::sort(
-                changedAxes.begin(),
-                changedAxes.end(),
-                [](SplitAxis3i lhs, SplitAxis3i rhs)
-                {
-                    return detail::axisOrderKey(lhs) < detail::axisOrderKey(rhs);
-                });
-
-            if (changedAxes.empty())
-            {
-                candidates.push_back({targetPoint, {}});
-                continue;
-            }
-
-            do
-            {
-                std::vector<Segment256> path;
-                if (detail::buildAxisAlignedCornerPath(startPoint, targetPoint, changedAxes, path))
-                {
-                    candidates.push_back({targetPoint, std::move(path)});
-                }
-            } while (std::next_permutation(
-                changedAxes.begin(),
-                changedAxes.end(),
-                [](SplitAxis3i lhs, SplitAxis3i rhs)
-                {
-                    return detail::axisOrderKey(lhs) < detail::axisOrderKey(rhs);
-                }));
-        }
-
-        appendInteriorCenterCandidates();
-
-        auto isStrictInteriorTarget = [&targetBox](const PlanePoint3i &point) -> bool
-        {
-            Integer x;
-            Integer y;
-            Integer z;
-            if (!detail::tryExtractExactIntegerPoint(point, x, y, z))
-            {
-                return false;
-            }
-
-            return x > targetBox.xMin && x < targetBox.xMax &&
-                   y > targetBox.yMin && y < targetBox.yMax &&
-                   z > targetBox.zMin && z < targetBox.zMax;
-        };
-
-        std::stable_sort(
-            candidates.begin(),
-            candidates.end(),
-            [preferredX, preferredY, preferredZ, &isStrictInteriorTarget](const AABBPathCandidate &lhs, const AABBPathCandidate &rhs)
-            {
-                const bool lhsInterior = isStrictInteriorTarget(lhs.targetPoint);
-                const bool rhsInterior = isStrictInteriorTarget(rhs.targetPoint);
-                if (lhsInterior != rhsInterior)
-                {
-                    return lhsInterior;
-                }
-
-                Integer lhsX, lhsY, lhsZ;
-                Integer rhsX, rhsY, rhsZ;
-                detail::tryExtractExactIntegerPoint(lhs.targetPoint, lhsX, lhsY, lhsZ);
-                detail::tryExtractExactIntegerPoint(rhs.targetPoint, rhsX, rhsY, rhsZ);
-
-                const bool lhsPreferred = (lhsX == preferredX && lhsY == preferredY && lhsZ == preferredZ);
-                const bool rhsPreferred = (rhsX == preferredX && rhsY == preferredY && rhsZ == preferredZ);
-                if (lhsPreferred != rhsPreferred)
-                {
-                    return lhsPreferred;
-                }
-
-                const Integer lhsDx = lhsX - preferredX;
-                const Integer lhsDy = lhsY - preferredY;
-                const Integer lhsDz = lhsZ - preferredZ;
-                const Integer rhsDx = rhsX - preferredX;
-                const Integer rhsDy = rhsY - preferredY;
-                const Integer rhsDz = rhsZ - preferredZ;
-
-                const Integer lhsDistance =
-                    (lhsDx < 0 ? -lhsDx : lhsDx) +
-                    (lhsDy < 0 ? -lhsDy : lhsDy) +
-                    (lhsDz < 0 ? -lhsDz : lhsDz);
-                const Integer rhsDistance =
-                    (rhsDx < 0 ? -rhsDx : rhsDx) +
-                    (rhsDy < 0 ? -rhsDy : rhsDy) +
-                    (rhsDz < 0 ? -rhsDz : rhsDz);
-                if (lhsDistance != rhsDistance)
-                {
-                    return lhsDistance < rhsDistance;
-                }
-
-                return lhs.path.size() < rhs.path.size();
-            });
-
+        detail::visitFastAABBPathCandidateSeeds(startPoint, targetBox, materializeSeed);
+        detail::visitExhaustiveAABBPathCandidateSeeds(startPoint, targetBox, materializeSeed);
         return candidates;
     }
 

@@ -80,7 +80,8 @@ namespace ember
         inline bool buildAxisAlignedCornerPath(
             const PlanePoint3i &startPoint,
             const PlanePoint3i &targetPoint,
-            const std::vector<SplitAxis3i> &axisOrder,
+            const std::array<SplitAxis3i, 3> &axisOrder,
+            std::size_t axisCount,
             std::vector<Segment256> &outPath)
         {
             Integer currentX, currentY, currentZ;
@@ -93,8 +94,9 @@ namespace ember
 
             outPath.clear();
             PlanePoint3i currentPoint = startPoint;
-            for (const SplitAxis3i axis : axisOrder)
+            for (std::size_t axisIndex = 0; axisIndex < axisCount; ++axisIndex)
             {
+                const SplitAxis3i axis = axisOrder[axisIndex];
                 Integer nextX = currentX;
                 Integer nextY = currentY;
                 Integer nextZ = currentZ;
@@ -133,6 +135,22 @@ namespace ember
             }
 
             return areSamePlanePoint(currentPoint, targetPoint);
+        }
+
+        inline bool buildAxisAlignedCornerPath(
+            const PlanePoint3i &startPoint,
+            const PlanePoint3i &targetPoint,
+            const std::vector<SplitAxis3i> &axisOrder,
+            std::vector<Segment256> &outPath)
+        {
+            std::array<SplitAxis3i, 3> axisOrderArray = {};
+            const std::size_t axisCount = std::min<std::size_t>(axisOrder.size(), axisOrderArray.size());
+            for (std::size_t axisIndex = 0; axisIndex < axisCount; ++axisIndex)
+            {
+                axisOrderArray[axisIndex] = axisOrder[axisIndex];
+            }
+
+            return buildAxisAlignedCornerPath(startPoint, targetPoint, axisOrderArray, axisCount, outPath);
         }
 
         /**
@@ -710,7 +728,8 @@ namespace ember
         inline bool buildAxisAlignedFreeCoordinatePath(
             const PlanePoint3i &startPoint,
             const PlanePoint3i &targetPoint,
-            const std::vector<SplitAxis3i> &axisOrder,
+            const std::array<SplitAxis3i, 3> &axisOrder,
+            std::size_t axisCount,
             std::vector<Segment256> &outPath)
         {
             std::array<Plane3i, 3> currentCoordinatePlanes = {
@@ -724,16 +743,17 @@ namespace ember
 
             PlanePoint3i currentPoint = startPoint;
             outPath.clear();
-            for (const SplitAxis3i axis : axisOrder)
+            for (std::size_t axisIndex = 0; axisIndex < axisCount; ++axisIndex)
             {
-                const int axisIndex = axisOrderKey(axis);
-                if (areSamePlaneEquation(currentCoordinatePlanes[axisIndex], targetCoordinatePlanes[axisIndex]))
+                const SplitAxis3i axis = axisOrder[axisIndex];
+                const int coordinateIndex = axisOrderKey(axis);
+                if (areSamePlaneEquation(currentCoordinatePlanes[coordinateIndex], targetCoordinatePlanes[coordinateIndex]))
                 {
                     continue;
                 }
 
                 const std::array<Plane3i, 3> startCoordinatePlanes = currentCoordinatePlanes;
-                currentCoordinatePlanes[axisIndex] = targetCoordinatePlanes[axisIndex];
+                currentCoordinatePlanes[coordinateIndex] = targetCoordinatePlanes[coordinateIndex];
 
                 const PlanePoint3i nextPoint = makePointFromPlanes(currentCoordinatePlanes);
                 if (!nextPoint.hasUniqueIntersection())
@@ -754,6 +774,22 @@ namespace ember
             }
 
             return areSamePlanePoint(currentPoint, targetPoint);
+        }
+
+        inline bool buildAxisAlignedFreeCoordinatePath(
+            const PlanePoint3i &startPoint,
+            const PlanePoint3i &targetPoint,
+            const std::vector<SplitAxis3i> &axisOrder,
+            std::vector<Segment256> &outPath)
+        {
+            std::array<SplitAxis3i, 3> axisOrderArray = {};
+            const std::size_t axisCount = std::min<std::size_t>(axisOrder.size(), axisOrderArray.size());
+            for (std::size_t axisIndex = 0; axisIndex < axisCount; ++axisIndex)
+            {
+                axisOrderArray[axisIndex] = axisOrder[axisIndex];
+            }
+
+            return buildAxisAlignedFreeCoordinatePath(startPoint, targetPoint, axisOrderArray, axisCount, outPath);
         }
 
         /**

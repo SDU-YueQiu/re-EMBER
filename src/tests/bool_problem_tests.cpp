@@ -77,6 +77,100 @@ namespace
         }
     }
 
+    std::vector<Polygon256> makeInteriorGridSupportPlanesForBox(int minCoord, int maxCoord)
+    {
+        std::vector<Polygon256> polygons;
+        for (int coordinate = minCoord + 1; coordinate < maxCoord; ++coordinate)
+        {
+            polygons.push_back(makeFaceYZ(coordinate, minCoord, maxCoord, minCoord, maxCoord, 1));
+            polygons.push_back(makeFaceXZ(coordinate, minCoord, maxCoord, minCoord, maxCoord, 1));
+            polygons.push_back(makeFaceXY(coordinate, minCoord, maxCoord, minCoord, maxCoord, 1));
+        }
+
+        assignWNTV(polygons, ember::WNV{1, 0});
+        return polygons;
+    }
+
+    bool tryPropagateReferenceViaAABBSeedTiers(
+        const PlanePoint3i &startPoint,
+        const ember::WNV &startWNV,
+        const ember::AABB3i &box,
+        const std::vector<Polygon256> &polygons,
+        bool useFastTier,
+        bool useExhaustiveTier,
+        PlanePoint3i &outPoint,
+        std::size_t &outVisitedCount,
+        std::size_t &outTriedCount)
+    {
+        outPoint = PlanePoint3i();
+        outVisitedCount = 0;
+        outTriedCount = 0;
+
+        const ember::refPoint reference(startPoint, startWNV);
+        std::vector<ember::Segment256> path;
+        path.reserve(3);
+        bool success = false;
+        bool hardFailure = false;
+        auto processSeed =
+            [&](const ember::detail::AABBPathCandidateSeed &seed)
+            {
+                ++outVisitedCount;
+
+                bool onSurface = false;
+                for (const Polygon256 &polygon : polygons)
+                {
+                    if (seed.targetPoint.classify(polygon.plane) == 0)
+                    {
+                        onSurface = true;
+                        break;
+                    }
+                }
+                if (onSurface)
+                {
+                    return true;
+                }
+
+                if (!ember::detail::buildAABBPathFromSeed(startPoint, seed, path))
+                {
+                    return true;
+                }
+
+                ember::WNV propagatedWNV;
+                ++outTriedCount;
+                const ember::traceStatus status =
+                    ember::detail::tracePathWNVAllowSubdivisionClipCrossingTrusted(
+                        reference,
+                        path,
+                        polygons,
+                        propagatedWNV);
+                if (status == ember::SUCCESS)
+                {
+                    outPoint = seed.targetPoint;
+                    success = true;
+                    return false;
+                }
+
+                if (status != ember::PATH_INVALID)
+                {
+                    hardFailure = true;
+                    return false;
+                }
+
+                return true;
+            };
+
+        if (useFastTier)
+        {
+            ember::detail::visitFastAABBPathCandidateSeeds(startPoint, box, processSeed);
+        }
+        if (!success && !hardFailure && useExhaustiveTier)
+        {
+            ember::detail::visitExhaustiveAABBPathCandidateSeeds(startPoint, box, processSeed);
+        }
+
+        return success;
+    }
+
     Polygon256 makeThinTriangleXY()
     {
         return Polygon256(
@@ -341,6 +435,119 @@ void runBoolProblemTests()
         assert(x > box.xMin && x < box.xMax);
         assert(y > box.yMin && y < box.yMax);
         assert(z > box.zMin && z < box.zMax);
+    }
+
+    {
+        ember::AABB3i box;
+        box.xMin = 0;
+        box.xMax = 4;
+        box.yMin = 0;
+        box.yMax = 4;
+        box.zMin = 0;
+        box.zMax = 4;
+        box.valid = true;
+
+        const PlanePoint3i start = ember::makeIntegerPoint(0, 0, 0);
+        const std::vector<ember::AABBPathCandidate> candidates =
+            ember::enumerateAABBPathCandidates(start, box);
+        assert(!candidates.empty());
+        assert(candidates.front().path.empty());
+        assert(ember::areSamePlanePoint(candidates.front().targetPoint, start));
+
+        std::vector<Polygon256> distantSurface = {makeFaceYZ(3, 0, 4, 0, 4, 1)};
+        assignWNTV(distantSurface, ember::WNV{1, 0});
+
+        PlanePoint3i propagatedPoint;
+        std::size_t visitedSeeds = 0;
+        std::size_t triedSeeds = 0;
+        assert(tryPropagateReferenceViaAABBSeedTiers(
+            start,
+            ember::WNV{5, 7},
+            box,
+            distantSurface,
+            true,
+            false,
+            propagatedPoint,
+            visitedSeeds,
+            triedSeeds));
+        assert(visitedSeeds == 1u);
+        assert(triedSeeds == 1u);
+        assert(ember::areSamePlanePoint(propagatedPoint, start));
+    }
+
+    {
+        ember::AABB3i box;
+        box.xMin = 0;
+        box.xMax = 4;
+        box.yMin = 0;
+        box.yMax = 4;
+        box.zMin = 0;
+        box.zMax = 4;
+        box.valid = true;
+
+        std::vector<Polygon256> distantSurface = {makeFaceYZ(3, 0, 4, 0, 4, 1)};
+        assignWNTV(distantSurface, ember::WNV{1, 0});
+
+        PlanePoint3i propagatedPoint;
+        std::size_t visitedSeeds = 0;
+        std::size_t triedSeeds = 0;
+        assert(tryPropagateReferenceViaAABBSeedTiers(
+            ember::makeIntegerPoint(-1, 1, 1),
+            ember::WNV{0, 0},
+            box,
+            distantSurface,
+            true,
+            false,
+            propagatedPoint,
+            visitedSeeds,
+            triedSeeds));
+        assert(visitedSeeds == 1u);
+        assert(triedSeeds == 1u);
+        assert(ember::areSamePlanePoint(propagatedPoint, ember::makeIntegerPoint(1, 1, 1)));
+    }
+
+    {
+        ember::AABB3i box;
+        box.xMin = 0;
+        box.xMax = 4;
+        box.yMin = 0;
+        box.yMax = 4;
+        box.zMin = 0;
+        box.zMax = 4;
+        box.valid = true;
+
+        const std::vector<Polygon256> blockingSurfaces = makeInteriorGridSupportPlanesForBox(0, 4);
+        PlanePoint3i propagatedPoint;
+        std::size_t fastVisitedSeeds = 0;
+        std::size_t fastTriedSeeds = 0;
+        assert(!tryPropagateReferenceViaAABBSeedTiers(
+            ember::makeIntegerPoint(-1, 0, 0),
+            ember::WNV{0, 0},
+            box,
+            blockingSurfaces,
+            true,
+            false,
+            propagatedPoint,
+            fastVisitedSeeds,
+            fastTriedSeeds));
+        assert(fastVisitedSeeds > 0u);
+        assert(fastTriedSeeds == 0u);
+
+        std::size_t allVisitedSeeds = 0;
+        std::size_t allTriedSeeds = 0;
+        assert(tryPropagateReferenceViaAABBSeedTiers(
+            ember::makeIntegerPoint(-1, 0, 0),
+            ember::WNV{0, 0},
+            box,
+            blockingSurfaces,
+            true,
+            true,
+            propagatedPoint,
+            allVisitedSeeds,
+            allTriedSeeds));
+        assert(allVisitedSeeds > fastVisitedSeeds);
+        assert(allTriedSeeds == 1u);
+        assert(ember::areSamePlanePoint(propagatedPoint, ember::makeIntegerPoint(0, 0, 0)));
     }
 
     {
