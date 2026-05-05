@@ -311,6 +311,28 @@ function Read-ReEmberTimingMetrics {
         PrepareMs = [math]::Round($metrics["prepare_ms"], 3)
         SolveMs = [math]::Round($metrics["solve_ms"], 3)
         ExportMs = [math]::Round($metrics["export_ms"], 3)
+        InputPolygons = $(if ($metrics.ContainsKey("input_polygons")) { [math]::Round($metrics["input_polygons"], 0) } else { 0 })
+        NodeCount = $(if ($metrics.ContainsKey("node_count")) { [math]::Round($metrics["node_count"], 0) } else { 0 })
+        InternalNodeCount = $(if ($metrics.ContainsKey("internal_node_count")) { [math]::Round($metrics["internal_node_count"], 0) } else { 0 })
+        LeafNodeCount = $(if ($metrics.ContainsKey("leaf_node_count")) { [math]::Round($metrics["leaf_node_count"], 0) } else { 0 })
+        DiscardedNodeCount = $(if ($metrics.ContainsKey("discarded_node_count")) { [math]::Round($metrics["discarded_node_count"], 0) } else { 0 })
+        MaxDepth = $(if ($metrics.ContainsKey("max_depth")) { [math]::Round($metrics["max_depth"], 0) } else { 0 })
+        TotalPolygonCount = $(if ($metrics.ContainsKey("total_polygon_count")) { [math]::Round($metrics["total_polygon_count"], 0) } else { 0 })
+        LeafFragmentCount = $(if ($metrics.ContainsKey("leaf_fragment_count")) { [math]::Round($metrics["leaf_fragment_count"], 0) } else { 0 })
+        ClassifiedFragmentCount = $(if ($metrics.ContainsKey("classified_fragment_count")) { [math]::Round($metrics["classified_fragment_count"], 0) } else { 0 })
+        ResultFragmentCount = $(if ($metrics.ContainsKey("result_fragment_count")) { [math]::Round($metrics["result_fragment_count"], 0) } else { 0 })
+        ConstantDiscardCount = $(if ($metrics.ContainsKey("constant_discard_count")) { [math]::Round($metrics["constant_discard_count"], 0) } else { 0 })
+        LeafThresholdStopCount = $(if ($metrics.ContainsKey("leaf_threshold_stop_count")) { [math]::Round($metrics["leaf_threshold_stop_count"], 0) } else { 0 })
+        AabbNotSplittableStopCount = $(if ($metrics.ContainsKey("aabb_not_splittable_stop_count")) { [math]::Round($metrics["aabb_not_splittable_stop_count"], 0) } else { 0 })
+        SplitFailureStopCount = $(if ($metrics.ContainsKey("split_failure_stop_count")) { [math]::Round($metrics["split_failure_stop_count"], 0) } else { 0 })
+        WntvAwareSplitCount = $(if ($metrics.ContainsKey("wntv_aware_split_count")) { [math]::Round($metrics["wntv_aware_split_count"], 0) } else { 0 })
+        CenterRangeSplitCount = $(if ($metrics.ContainsKey("center_range_split_count")) { [math]::Round($metrics["center_range_split_count"], 0) } else { 0 })
+        MidpointSplitCount = $(if ($metrics.ContainsKey("midpoint_split_count")) { [math]::Round($metrics["midpoint_split_count"], 0) } else { 0 })
+        ChildReferenceReuseCount = $(if ($metrics.ContainsKey("child_reference_reuse_count")) { [math]::Round($metrics["child_reference_reuse_count"], 0) } else { 0 })
+        ChildReferenceTraceCount = $(if ($metrics.ContainsKey("child_reference_trace_count")) { [math]::Round($metrics["child_reference_trace_count"], 0) } else { 0 })
+        SingleOperandLeafBspSkipCount = $(if ($metrics.ContainsKey("single_operand_leaf_bsp_skip_count")) { [math]::Round($metrics["single_operand_leaf_bsp_skip_count"], 0) } else { 0 })
+        SingleOperandClassificationReuseCount = $(if ($metrics.ContainsKey("single_operand_classification_reuse_count")) { [math]::Round($metrics["single_operand_classification_reuse_count"], 0) } else { 0 })
+        LeafBspBuildCount = $(if ($metrics.ContainsKey("leaf_bsp_build_count")) { [math]::Round($metrics["leaf_bsp_build_count"], 0) } else { 0 })
     }
 }
 
@@ -557,6 +579,28 @@ function Invoke-ReEmberWorkload {
         PrepareMs = $metrics.PrepareMs
         SolveMs = $metrics.SolveMs
         ExportMs = $metrics.ExportMs
+        InputPolygons = $metrics.InputPolygons
+        NodeCount = $metrics.NodeCount
+        InternalNodeCount = $metrics.InternalNodeCount
+        LeafNodeCount = $metrics.LeafNodeCount
+        DiscardedNodeCount = $metrics.DiscardedNodeCount
+        MaxDepth = $metrics.MaxDepth
+        TotalPolygonCount = $metrics.TotalPolygonCount
+        LeafFragmentCount = $metrics.LeafFragmentCount
+        ClassifiedFragmentCount = $metrics.ClassifiedFragmentCount
+        ResultFragmentCount = $metrics.ResultFragmentCount
+        ConstantDiscardCount = $metrics.ConstantDiscardCount
+        LeafThresholdStopCount = $metrics.LeafThresholdStopCount
+        AabbNotSplittableStopCount = $metrics.AabbNotSplittableStopCount
+        SplitFailureStopCount = $metrics.SplitFailureStopCount
+        WntvAwareSplitCount = $metrics.WntvAwareSplitCount
+        CenterRangeSplitCount = $metrics.CenterRangeSplitCount
+        MidpointSplitCount = $metrics.MidpointSplitCount
+        ChildReferenceReuseCount = $metrics.ChildReferenceReuseCount
+        ChildReferenceTraceCount = $metrics.ChildReferenceTraceCount
+        SingleOperandLeafBspSkipCount = $metrics.SingleOperandLeafBspSkipCount
+        SingleOperandClassificationReuseCount = $metrics.SingleOperandClassificationReuseCount
+        LeafBspBuildCount = $metrics.LeafBspBuildCount
     }
 }
 
@@ -854,18 +898,40 @@ try {
         Write-Info ("Timing workload {0}: lhs_faces={1} rhs_faces={2} op={3}" -f $workload.Name, $workload.LhsFaces, $workload.RhsFaces, $workload.Op)
         for ($i = 1; $i -le $Iterations; ++$i) {
             $result = Invoke-ReEmberWorkload $exePath $workload ("timing_{0}" -f $i)
-            $timingRows.Add([pscustomobject]@{
-                workload = $workload.Name
-                iteration = $i
-                elapsed_ms = $result.ElapsedMs
-                read_ms = $result.ReadMs
-                prepare_ms = $result.PrepareMs
-                solve_ms = $result.SolveMs
-                export_ms = $result.ExportMs
-                exit_code = $result.ExitCode
-                lhs_faces = $workload.LhsFaces
-                rhs_faces = $workload.RhsFaces
-                op = $workload.Op
+        $timingRows.Add([pscustomobject]@{
+            workload = $workload.Name
+            iteration = $i
+            elapsed_ms = $result.ElapsedMs
+            read_ms = $result.ReadMs
+            prepare_ms = $result.PrepareMs
+            solve_ms = $result.SolveMs
+            export_ms = $result.ExportMs
+            input_polygons = $result.InputPolygons
+            node_count = $result.NodeCount
+            internal_node_count = $result.InternalNodeCount
+            leaf_node_count = $result.LeafNodeCount
+            discarded_node_count = $result.DiscardedNodeCount
+            max_depth = $result.MaxDepth
+            total_polygon_count = $result.TotalPolygonCount
+            leaf_fragment_count = $result.LeafFragmentCount
+            classified_fragment_count = $result.ClassifiedFragmentCount
+            result_fragment_count = $result.ResultFragmentCount
+            constant_discard_count = $result.ConstantDiscardCount
+            leaf_threshold_stop_count = $result.LeafThresholdStopCount
+            aabb_not_splittable_stop_count = $result.AabbNotSplittableStopCount
+            split_failure_stop_count = $result.SplitFailureStopCount
+            wntv_aware_split_count = $result.WntvAwareSplitCount
+            center_range_split_count = $result.CenterRangeSplitCount
+            midpoint_split_count = $result.MidpointSplitCount
+            child_reference_reuse_count = $result.ChildReferenceReuseCount
+            child_reference_trace_count = $result.ChildReferenceTraceCount
+            single_operand_leaf_bsp_skip_count = $result.SingleOperandLeafBspSkipCount
+            single_operand_classification_reuse_count = $result.SingleOperandClassificationReuseCount
+            leaf_bsp_build_count = $result.LeafBspBuildCount
+            exit_code = $result.ExitCode
+            lhs_faces = $workload.LhsFaces
+            rhs_faces = $workload.RhsFaces
+            op = $workload.Op
                 output = $(if (Test-Path -LiteralPath $workload.Out) { $workload.Out } else { $null })
                 stdout = $result.StdoutPath
                 stderr = $result.StderrPath
@@ -890,6 +956,10 @@ try {
         $prepareValues = @($group.Group | ForEach-Object { [double]$_.prepare_ms })
         $solveValues = @($group.Group | ForEach-Object { [double]$_.solve_ms })
         $exportValues = @($group.Group | ForEach-Object { [double]$_.export_ms })
+        $nodeCountValues = @($group.Group | ForEach-Object { [double]$_.node_count })
+        $leafNodeValues = @($group.Group | ForEach-Object { [double]$_.leaf_node_count })
+        $discardedNodeValues = @($group.Group | ForEach-Object { [double]$_.discarded_node_count })
+        $maxDepthValues = @($group.Group | ForEach-Object { [double]$_.max_depth })
         $summaryLines.Add(("workload={0}" -f $group.Name))
         $summaryLines.Add(("  min_ms={0}" -f ([math]::Round(($elapsedValues | Measure-Object -Minimum).Minimum, 3))))
         $summaryLines.Add(("  max_ms={0}" -f ([math]::Round(($elapsedValues | Measure-Object -Maximum).Maximum, 3))))
@@ -898,6 +968,10 @@ try {
         $summaryLines.Add(("  avg_prepare_ms={0}" -f ([math]::Round(($prepareValues | Measure-Object -Average).Average, 3))))
         $summaryLines.Add(("  avg_solve_ms={0}" -f ([math]::Round(($solveValues | Measure-Object -Average).Average, 3))))
         $summaryLines.Add(("  avg_export_ms={0}" -f ([math]::Round(($exportValues | Measure-Object -Average).Average, 3))))
+        $summaryLines.Add(("  avg_node_count={0}" -f ([math]::Round(($nodeCountValues | Measure-Object -Average).Average, 3))))
+        $summaryLines.Add(("  avg_leaf_node_count={0}" -f ([math]::Round(($leafNodeValues | Measure-Object -Average).Average, 3))))
+        $summaryLines.Add(("  avg_discarded_node_count={0}" -f ([math]::Round(($discardedNodeValues | Measure-Object -Average).Average, 3))))
+        $summaryLines.Add(("  avg_max_depth={0}" -f ([math]::Round(($maxDepthValues | Measure-Object -Average).Average, 3))))
     }
     if ($etwArtifacts) {
         $summaryLines.Add(("etl={0}" -f $etwArtifacts.EtlPath))
