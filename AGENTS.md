@@ -9,7 +9,8 @@
 - `SubdivisionSolver` 独占递归节点、AABB、局部参考点、叶片片段、分类片段和结果汇总。
 - `path_candidates.h` 保留公开候选类型和模板枚举入口；内部候选构造在 `path_candidate_details.h`。
 - CMake 使用显式源文件列表，新增源码需要同步加入 `CMakeLists.txt`。
-- 性能脚本入口是 `tools/profile-re-ember.ps1`；统一把计时、ETW 和结果 OBJ 写到 `build\perf\run_<timestamp>\`。
+- Tracy 性能插桩由 `REEMBER_ENABLE_TRACY` 控制，默认关闭，不影响普通发布构建。
+- 性能脚本入口是 `tools/profile-re-ember.ps1`；统一把计时、Tracy 捕获、报告和结果 OBJ 写到 `build\perf\run_<timestamp>\`。
 
 ## 工作规则
 
@@ -35,25 +36,19 @@ build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\mo
 计时优先使用 `RelWithDebInfo`：
 
 ```powershell
+vcpkg install tracy[cli-tools]:x64-windows
+cmake -S . -B build -DREEMBER_ENABLE_TRACY=ON
 cmake --build build --config RelWithDebInfo --target re-EMBER
-powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -NoEtw -Iterations 3
+powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -SkipBuild -Iterations 3
 ```
+
+只要端到端时间和 `BoolSolveMetrics` 时可加 `-NoTracy`；普通构建仍保持 `REEMBER_ENABLE_TRACY=OFF`。
 
 如果只想比较固定工件和固定位姿下的不同布尔运算，保持 `-Lhs/-Rhs` 不变，只切换 `-Op`：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
-  -Configuration RelWithDebInfo -NoEtw -SkipBuild -Iterations 1 `
-  -Lhs assets\visual_test\workpiece_block.obj `
-  -Rhs build\perf\run_<existing>\visual_test_overlap_pose_tool.obj `
-  -Op difference
-```
-
-需要热点时，使用提升权限的 PowerShell，并在 ETW 前加 `-ForceStopExisting`：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
-  -Configuration RelWithDebInfo -SkipBuild -Iterations 1 -ForceStopExisting `
+  -Configuration RelWithDebInfo -SkipBuild -Iterations 1 `
   -Lhs assets\visual_test\workpiece_block.obj `
   -Rhs build\perf\run_<existing>\visual_test_overlap_pose_tool.obj `
   -Op difference
@@ -63,9 +58,10 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 
 - `summary.txt`：每个 workload 的总体耗时摘要。
 - `timings.csv`：逐次迭代的结构化结果。
-- `timing_*.metrics.txt` / `etw_*.metrics.txt`：单次 workload 的详细求解统计。
-- `xperf_profile_detail.txt`：采样热点明细。
-- `xperf_stack_butterfly.txt`：高层调用栈的 inclusive hot path。
+- `timing_*.metrics.txt`：单次 workload 的详细求解统计。
+- `tracy_traces\*.tracy`：Tracy 原始捕获。
+- `tracy_zones.csv`：关键 zone 进入次数和耗时统计。
+- `report.md`：问题规模、关键函数进入次数和热点汇总。
 
 当前最有用的高层字段：
 
@@ -76,8 +72,4 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 - `wntv_aware_split_count`、`center_range_split_count`、`midpoint_split_count`：切分策略命中数。
 - `child_reference_candidate_count`、`child_reference_candidate_tried_count`、`child_reference_trace_count`：子参考点传播的候选放大量。
 - `leaf_classification_trace_attempt_count` 及各 layer candidate count：叶片分类阶段的路径尝试量。
-
-解释 ETW 时要注意：
-
-- `xperf profile -detail` 里的 `Weight` 和 `stack butterfly` 里的 `hits` 都是采样权重，不是精确函数调用次数。
-- 真正的 workload 次数优先看 `metrics.txt` 里的 candidate / trace 计数，而不是把 ETW 采样数当成调用数。
+- `tracy_zones.csv` 里的 `counts`：已插桩关键函数/阶段的进入次数；领域规模仍以 `timings.csv` / `metrics.txt` 为准。
