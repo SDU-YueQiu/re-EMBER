@@ -312,42 +312,97 @@ namespace ember
             return 0;
         }
 
-        bool buildWntvSubdivisionGroups(
-            const std::vector<Polygon256> &polygons,
-            std::vector<WntvSubdivisionGroup> &groups)
+        struct PolygonCenterSplitStats
         {
-            groups.clear();
+            bool valid = false;
+            Integer count = 0;
+            Integer sumX = 0;
+            Integer sumY = 0;
+            Integer sumZ = 0;
+            Integer minX = 0;
+            Integer maxX = 0;
+            Integer minY = 0;
+            Integer maxY = 0;
+            Integer minZ = 0;
+            Integer maxZ = 0;
+        };
+
+        struct SubdivisionSplitStats
+        {
+            std::vector<WntvSubdivisionGroup> wntvGroups;
+            PolygonCenterSplitStats centerStats;
+        };
+
+        void appendCenterCoordinate(
+            const Integer &coordinate,
+            Integer &minCoordinate,
+            Integer &maxCoordinate,
+            bool initialize)
+        {
+            if (initialize)
+            {
+                minCoordinate = coordinate;
+                maxCoordinate = coordinate;
+                return;
+            }
+
+            if (coordinate < minCoordinate) minCoordinate = coordinate;
+            if (coordinate > maxCoordinate) maxCoordinate = coordinate;
+        }
+
+        bool buildSubdivisionSplitStats(
+            const std::vector<Polygon256> &polygons,
+            SubdivisionSplitStats &stats)
+        {
+            stats.wntvGroups.clear();
+            stats.centerStats = PolygonCenterSplitStats();
+            stats.wntvGroups.reserve(polygons.size());
             for (const Polygon256 &polygon : polygons)
             {
                 auto it = std::find_if(
-                    groups.begin(),
-                    groups.end(),
+                    stats.wntvGroups.begin(),
+                    stats.wntvGroups.end(),
                     [&polygon](const WntvSubdivisionGroup &group)
                     {
                         return group.wntv == polygon.WNTV;
                     });
-                if (it == groups.end())
+                if (it == stats.wntvGroups.end())
                 {
                     WntvSubdivisionGroup group;
                     group.wntv = polygon.WNTV;
-                    groups.push_back(std::move(group));
-                    it = groups.end() - 1;
+                    stats.wntvGroups.push_back(std::move(group));
+                    it = stats.wntvGroups.end() - 1;
                 }
 
                 AABB3i polygonBox;
-                if (!appendPolygonBoundsToAABB(polygonBox, polygon))
+                if (!appendPolygonBoundsToAABB(polygonBox, polygon) || !isValidAABB(polygonBox))
                 {
                     return false;
                 }
+
+                const Integer centerX = axisMidpoint(polygonBox, SplitAxis3i::X);
+                const Integer centerY = axisMidpoint(polygonBox, SplitAxis3i::Y);
+                const Integer centerZ = axisMidpoint(polygonBox, SplitAxis3i::Z);
+
                 appendAABBToAABB(it->box, polygonBox);
-                it->sumCenterX += axisMidpoint(polygonBox, SplitAxis3i::X);
-                it->sumCenterY += axisMidpoint(polygonBox, SplitAxis3i::Y);
-                it->sumCenterZ += axisMidpoint(polygonBox, SplitAxis3i::Z);
+                it->sumCenterX += centerX;
+                it->sumCenterY += centerY;
+                it->sumCenterZ += centerZ;
                 ++it->centerCount;
                 ++it->polygonCount;
+
+                const bool initialize = !stats.centerStats.valid;
+                appendCenterCoordinate(centerX, stats.centerStats.minX, stats.centerStats.maxX, initialize);
+                appendCenterCoordinate(centerY, stats.centerStats.minY, stats.centerStats.maxY, initialize);
+                appendCenterCoordinate(centerZ, stats.centerStats.minZ, stats.centerStats.maxZ, initialize);
+                stats.centerStats.sumX += centerX;
+                stats.centerStats.sumY += centerY;
+                stats.centerStats.sumZ += centerZ;
+                ++stats.centerStats.count;
+                stats.centerStats.valid = true;
             }
 
-            for (WntvSubdivisionGroup &group : groups)
+            for (WntvSubdivisionGroup &group : stats.wntvGroups)
             {
                 if (!isValidAABB(group.box) || group.polygonCount == 0 || group.centerCount <= 0)
                 {
@@ -359,7 +414,7 @@ namespace ember
                 group.centerZ = floorDiv(group.sumCenterZ, group.centerCount);
             }
 
-            return true;
+            return stats.centerStats.valid && stats.centerStats.count > 0;
         }
 
         bool considerWntvSeparationCandidate(
@@ -409,14 +464,13 @@ namespace ember
 
         // 论文 4.5.3 策略：优先选能把某个 WNTV 类整体隔到单侧的轴向切分面。
         bool chooseWntvAwareSplit(
-            const std::vector<Polygon256> &polygons,
+            const std::vector<WntvSubdivisionGroup> &groups,
             const AABB3i &box,
             AABBSplit3i &outSplit)
         {
             REEMBER_PROFILE_ZONE("chooseWntvAwareSplit");
 
-            std::vector<WntvSubdivisionGroup> groups;
-            if (!buildWntvSubdivisionGroups(polygons, groups) || groups.size() < 2u)
+            if (groups.size() < 2u)
             {
                 return false;
             }
@@ -458,68 +512,6 @@ namespace ember
             return true;
         }
 
-        struct PolygonCenterSplitStats
-        {
-            bool valid = false;
-            Integer count = 0;
-            Integer sumX = 0;
-            Integer sumY = 0;
-            Integer sumZ = 0;
-            Integer minX = 0;
-            Integer maxX = 0;
-            Integer minY = 0;
-            Integer maxY = 0;
-            Integer minZ = 0;
-            Integer maxZ = 0;
-        };
-
-        void appendCenterCoordinate(
-            const Integer &coordinate,
-            Integer &minCoordinate,
-            Integer &maxCoordinate,
-            bool initialize)
-        {
-            if (initialize)
-            {
-                minCoordinate = coordinate;
-                maxCoordinate = coordinate;
-                return;
-            }
-
-            if (coordinate < minCoordinate) minCoordinate = coordinate;
-            if (coordinate > maxCoordinate) maxCoordinate = coordinate;
-        }
-
-        bool computePolygonCenterSplitStats(
-            const std::vector<Polygon256> &polygons,
-            PolygonCenterSplitStats &stats)
-        {
-            stats = PolygonCenterSplitStats();
-            for (const Polygon256 &polygon : polygons)
-            {
-                AABB3i polygonBox;
-                if (!appendPolygonBoundsToAABB(polygonBox, polygon) || !isValidAABB(polygonBox))
-                {
-                    return false;
-                }
-
-                const Integer centerX = axisMidpoint(polygonBox, SplitAxis3i::X);
-                const Integer centerY = axisMidpoint(polygonBox, SplitAxis3i::Y);
-                const Integer centerZ = axisMidpoint(polygonBox, SplitAxis3i::Z);
-                const bool initialize = !stats.valid;
-                appendCenterCoordinate(centerX, stats.minX, stats.maxX, initialize);
-                appendCenterCoordinate(centerY, stats.minY, stats.maxY, initialize);
-                appendCenterCoordinate(centerZ, stats.minZ, stats.maxZ, initialize);
-                stats.sumX += centerX;
-                stats.sumY += centerY;
-                stats.sumZ += centerZ;
-                ++stats.count;
-                stats.valid = true;
-            }
-
-            return stats.valid && stats.count > 0;
-        }
-
         Integer centerRange(const PolygonCenterSplitStats &stats, SplitAxis3i axis) noexcept
         {
             switch (axis)
@@ -559,14 +551,13 @@ namespace ember
 
         // 无 WNTV 分离候选时，用多边形中心范围近似最大方差轴，再按平均中心切分。
         bool chooseCenterRangeSplit(
-            const std::vector<Polygon256> &polygons,
+            const PolygonCenterSplitStats &stats,
             const AABB3i &box,
             AABBSplit3i &outSplit)
         {
             REEMBER_PROFILE_ZONE("chooseCenterRangeSplit");
 
-            PolygonCenterSplitStats stats;
-            if (!computePolygonCenterSplitStats(polygons, stats))
+            if (!stats.valid || stats.count <= 0)
             {
                 return false;
             }
@@ -613,12 +604,15 @@ namespace ember
         {
             REEMBER_PROFILE_ZONE("chooseSubdivisionSplit");
 
-            if (chooseWntvAwareSplit(polygons, box, outSplit))
+            SubdivisionSplitStats splitStats;
+            const bool hasSplitStats = buildSubdivisionSplitStats(polygons, splitStats);
+
+            if (hasSplitStats && chooseWntvAwareSplit(splitStats.wntvGroups, box, outSplit))
             {
                 outStrategy = SubdivisionSplitStrategy::WntvAware;
                 return true;
             }
-            if (chooseCenterRangeSplit(polygons, box, outSplit))
+            if (hasSplitStats && chooseCenterRangeSplit(splitStats.centerStats, box, outSplit))
             {
                 outStrategy = SubdivisionSplitStrategy::CenterRange;
                 return true;
