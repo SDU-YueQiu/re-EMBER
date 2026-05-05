@@ -81,7 +81,7 @@ vcpkg install tracy[cli-tools]:x64-windows
 性能脚本默认会把 `build/` 配置为 Tracy 构建并构建 `re-EMBER`：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -Iterations 3
+powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo
 ```
 
 如果已经手动配置和构建过 Tracy 版本，可以加 `-SkipBuild` 只运行 workload：
@@ -89,13 +89,13 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configura
 ```powershell
 cmake -S . -B build -DREEMBER_ENABLE_TRACY=ON
 cmake --build build --config RelWithDebInfo --target re-EMBER
-powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -SkipBuild -Iterations 3
+powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -SkipBuild
 ```
 
 只想看端到端时间和 `BoolSolveMetrics`，不需要 Tracy zone 时使用 `-NoTracy`：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -NoTracy -Iterations 3
+powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -NoTracy
 ```
 
 默认 workload 包含：

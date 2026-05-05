@@ -39,7 +39,7 @@ build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\mo
 vcpkg install tracy[cli-tools]:x64-windows
 cmake -S . -B build -DREEMBER_ENABLE_TRACY=ON
 cmake --build build --config RelWithDebInfo --target re-EMBER
-powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -SkipBuild -Iterations 3
+powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -SkipBuild
 ```
 
 只要端到端时间和 `BoolSolveMetrics` 时可加 `-NoTracy`；普通构建仍保持 `REEMBER_ENABLE_TRACY=OFF`。
