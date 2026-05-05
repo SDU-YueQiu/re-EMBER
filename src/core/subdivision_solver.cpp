@@ -1204,6 +1204,7 @@ namespace ember
 
         const refPoint sourceRef(reference_.point, reference_.wnv);
         const std::vector<AABBPathCandidate> candidates = enumerateAABBPathCandidates(reference_.point, childBox);
+        solveMetrics_.childReferenceCandidateCount += candidates.size();
         for (std::size_t candidateIndex = 0; candidateIndex < candidates.size(); ++candidateIndex)
         {
             const AABBPathCandidate &candidate = candidates[candidateIndex];
@@ -1263,6 +1264,7 @@ namespace ember
             }
 
             WNV propagatedWNV;
+            ++solveMetrics_.childReferenceCandidateTriedCount;
             const traceStatus status = detail::tracePathWNVAllowSubdivisionClipCrossingTrusted(
                 sourceRef,
                 candidate.path,
@@ -1343,9 +1345,17 @@ namespace ember
         outMetrics.midpointSplitCount += solveMetrics_.midpointSplitCount;
         outMetrics.childReferenceReuseCount += solveMetrics_.childReferenceReuseCount;
         outMetrics.childReferenceTraceCount += solveMetrics_.childReferenceTraceCount;
+        outMetrics.childReferenceCandidateCount += solveMetrics_.childReferenceCandidateCount;
+        outMetrics.childReferenceCandidateTriedCount += solveMetrics_.childReferenceCandidateTriedCount;
         outMetrics.singleOperandLeafBspSkipCount += solveMetrics_.singleOperandLeafBspSkipCount;
         outMetrics.singleOperandClassificationReuseCount += solveMetrics_.singleOperandClassificationReuseCount;
         outMetrics.leafBspBuildCount += solveMetrics_.leafBspBuildCount;
+        outMetrics.leafClassificationPointCandidateCount += solveMetrics_.leafClassificationPointCandidateCount;
+        outMetrics.leafClassificationTraceAttemptCount += solveMetrics_.leafClassificationTraceAttemptCount;
+        outMetrics.leafClassificationFastCandidateCount += solveMetrics_.leafClassificationFastCandidateCount;
+        outMetrics.leafClassificationFallbackCandidateCount += solveMetrics_.leafClassificationFallbackCandidateCount;
+        outMetrics.leafClassificationNormalCandidateCount += solveMetrics_.leafClassificationNormalCandidateCount;
+        outMetrics.leafClassificationInteriorBridgeCandidateCount += solveMetrics_.leafClassificationInteriorBridgeCandidateCount;
         ++outMetrics.nodeCount;
         outMetrics.totalPolygonCount += polygons_.size();
         outMetrics.maxDepth = std::max(outMetrics.maxDepth, depth_);

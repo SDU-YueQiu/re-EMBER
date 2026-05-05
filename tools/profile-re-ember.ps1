@@ -330,9 +330,17 @@ function Read-ReEmberTimingMetrics {
         MidpointSplitCount = $(if ($metrics.ContainsKey("midpoint_split_count")) { [math]::Round($metrics["midpoint_split_count"], 0) } else { 0 })
         ChildReferenceReuseCount = $(if ($metrics.ContainsKey("child_reference_reuse_count")) { [math]::Round($metrics["child_reference_reuse_count"], 0) } else { 0 })
         ChildReferenceTraceCount = $(if ($metrics.ContainsKey("child_reference_trace_count")) { [math]::Round($metrics["child_reference_trace_count"], 0) } else { 0 })
+        ChildReferenceCandidateCount = $(if ($metrics.ContainsKey("child_reference_candidate_count")) { [math]::Round($metrics["child_reference_candidate_count"], 0) } else { 0 })
+        ChildReferenceCandidateTriedCount = $(if ($metrics.ContainsKey("child_reference_candidate_tried_count")) { [math]::Round($metrics["child_reference_candidate_tried_count"], 0) } else { 0 })
         SingleOperandLeafBspSkipCount = $(if ($metrics.ContainsKey("single_operand_leaf_bsp_skip_count")) { [math]::Round($metrics["single_operand_leaf_bsp_skip_count"], 0) } else { 0 })
         SingleOperandClassificationReuseCount = $(if ($metrics.ContainsKey("single_operand_classification_reuse_count")) { [math]::Round($metrics["single_operand_classification_reuse_count"], 0) } else { 0 })
         LeafBspBuildCount = $(if ($metrics.ContainsKey("leaf_bsp_build_count")) { [math]::Round($metrics["leaf_bsp_build_count"], 0) } else { 0 })
+        LeafClassificationPointCandidateCount = $(if ($metrics.ContainsKey("leaf_classification_point_candidate_count")) { [math]::Round($metrics["leaf_classification_point_candidate_count"], 0) } else { 0 })
+        LeafClassificationTraceAttemptCount = $(if ($metrics.ContainsKey("leaf_classification_trace_attempt_count")) { [math]::Round($metrics["leaf_classification_trace_attempt_count"], 0) } else { 0 })
+        LeafClassificationFastCandidateCount = $(if ($metrics.ContainsKey("leaf_classification_fast_candidate_count")) { [math]::Round($metrics["leaf_classification_fast_candidate_count"], 0) } else { 0 })
+        LeafClassificationFallbackCandidateCount = $(if ($metrics.ContainsKey("leaf_classification_fallback_candidate_count")) { [math]::Round($metrics["leaf_classification_fallback_candidate_count"], 0) } else { 0 })
+        LeafClassificationNormalCandidateCount = $(if ($metrics.ContainsKey("leaf_classification_normal_candidate_count")) { [math]::Round($metrics["leaf_classification_normal_candidate_count"], 0) } else { 0 })
+        LeafClassificationInteriorBridgeCandidateCount = $(if ($metrics.ContainsKey("leaf_classification_interior_bridge_candidate_count")) { [math]::Round($metrics["leaf_classification_interior_bridge_candidate_count"], 0) } else { 0 })
     }
 }
 
@@ -598,9 +606,17 @@ function Invoke-ReEmberWorkload {
         MidpointSplitCount = $metrics.MidpointSplitCount
         ChildReferenceReuseCount = $metrics.ChildReferenceReuseCount
         ChildReferenceTraceCount = $metrics.ChildReferenceTraceCount
+        ChildReferenceCandidateCount = $metrics.ChildReferenceCandidateCount
+        ChildReferenceCandidateTriedCount = $metrics.ChildReferenceCandidateTriedCount
         SingleOperandLeafBspSkipCount = $metrics.SingleOperandLeafBspSkipCount
         SingleOperandClassificationReuseCount = $metrics.SingleOperandClassificationReuseCount
         LeafBspBuildCount = $metrics.LeafBspBuildCount
+        LeafClassificationPointCandidateCount = $metrics.LeafClassificationPointCandidateCount
+        LeafClassificationTraceAttemptCount = $metrics.LeafClassificationTraceAttemptCount
+        LeafClassificationFastCandidateCount = $metrics.LeafClassificationFastCandidateCount
+        LeafClassificationFallbackCandidateCount = $metrics.LeafClassificationFallbackCandidateCount
+        LeafClassificationNormalCandidateCount = $metrics.LeafClassificationNormalCandidateCount
+        LeafClassificationInteriorBridgeCandidateCount = $metrics.LeafClassificationInteriorBridgeCandidateCount
     }
 }
 
@@ -925,9 +941,17 @@ try {
             midpoint_split_count = $result.MidpointSplitCount
             child_reference_reuse_count = $result.ChildReferenceReuseCount
             child_reference_trace_count = $result.ChildReferenceTraceCount
+            child_reference_candidate_count = $result.ChildReferenceCandidateCount
+            child_reference_candidate_tried_count = $result.ChildReferenceCandidateTriedCount
             single_operand_leaf_bsp_skip_count = $result.SingleOperandLeafBspSkipCount
             single_operand_classification_reuse_count = $result.SingleOperandClassificationReuseCount
             leaf_bsp_build_count = $result.LeafBspBuildCount
+            leaf_classification_point_candidate_count = $result.LeafClassificationPointCandidateCount
+            leaf_classification_trace_attempt_count = $result.LeafClassificationTraceAttemptCount
+            leaf_classification_fast_candidate_count = $result.LeafClassificationFastCandidateCount
+            leaf_classification_fallback_candidate_count = $result.LeafClassificationFallbackCandidateCount
+            leaf_classification_normal_candidate_count = $result.LeafClassificationNormalCandidateCount
+            leaf_classification_interior_bridge_candidate_count = $result.LeafClassificationInteriorBridgeCandidateCount
             exit_code = $result.ExitCode
             lhs_faces = $workload.LhsFaces
             rhs_faces = $workload.RhsFaces
