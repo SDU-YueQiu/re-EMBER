@@ -28,6 +28,8 @@ option(REEMBER_ENABLE_TRACY "Enable optional Tracy profiler instrumentation" OFF
 find_package(spdlog CONFIG REQUIRED)
 find_package(tinyobjloader CONFIG REQUIRED)
 
+set(REEMBER_THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+
 set(REEMBER_APP_SOURCE
   "${CMAKE_CURRENT_SOURCE_DIR}/src/application/main.cpp"
 )
@@ -51,19 +53,19 @@ set(REEMBER_LIBRARY_SOURCES
 
 if(REEMBER_ENABLE_TRACY)
   list(APPEND REEMBER_LIBRARY_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/tracy/public/TracyClient.cpp"
+    "${REEMBER_THIRD_PARTY_DIR}/tracy/public/TracyClient.cpp"
   )
 endif()
 
 set(REEMBER_LIBRARY_HEADERS
-  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_fixdiv.h"
-  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_int.h"
-  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_io.h"
-  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_math.h"
-  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_math_gcc.h"
-  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_math_long.h"
-  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_math_msvc.h"
-  "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_uint.h"
+  "${REEMBER_THIRD_PARTY_DIR}/slimcpplib/long_fixdiv.h"
+  "${REEMBER_THIRD_PARTY_DIR}/slimcpplib/long_int.h"
+  "${REEMBER_THIRD_PARTY_DIR}/slimcpplib/long_io.h"
+  "${REEMBER_THIRD_PARTY_DIR}/slimcpplib/long_math.h"
+  "${REEMBER_THIRD_PARTY_DIR}/slimcpplib/long_math_gcc.h"
+  "${REEMBER_THIRD_PARTY_DIR}/slimcpplib/long_math_long.h"
+  "${REEMBER_THIRD_PARTY_DIR}/slimcpplib/long_math_msvc.h"
+  "${REEMBER_THIRD_PARTY_DIR}/slimcpplib/long_uint.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/WNV_tracing.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/bsp.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/leaf_arrangement.h"
@@ -103,7 +105,7 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${REEMBER_LIBRARY_SOURCES}
 target_include_directories(reember_lib
   PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${REEMBER_THIRD_PARTY_DIR}
 )
 
 target_compile_features(reember_lib PUBLIC cxx_std_17)
@@ -135,7 +137,7 @@ if(REEMBER_ENABLE_TRACY)
   find_package(Threads REQUIRED)
   target_compile_definitions(reember_lib PUBLIC REEMBER_ENABLE_TRACY=1 TRACY_ENABLE=1)
   target_compile_definitions(reember_lib PRIVATE TRACY_ONLY_IPV4 TRACY_NO_BROADCAST)
-  target_include_directories(reember_lib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/third_party/tracy/public")
+  target_include_directories(reember_lib PUBLIC "${REEMBER_THIRD_PARTY_DIR}/tracy/public")
   target_link_libraries(reember_lib PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
   if(WIN32)
     target_link_libraries(reember_lib PRIVATE ws2_32 dbghelp)

@@ -169,7 +169,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 - 仓库自有源码的文件头和解释性注释使用中文；公开接口使用 Doxygen 结构，保留 `@brief`、`@param`、`@return`、`@retval`、`@note` 等标签。
 - 不把 `BoolProblem` 当递归节点使用；运行时细分状态属于 `SubdivisionSolver`。
 - `path_candidates.h` 保留公开候选类型和模板枚举入口；内部路径构造细节在 `path_candidate_details.h`。
-- 默认不改 `include/slimcpplib`、`assets`、`reference`、`Doxyfile` 和构建产物。
+- 默认不改 `third_party/slimcpplib`、`third_party/tracy`、`assets`、`reference`、`Doxyfile` 和构建产物。
 - 当前几何核心基于固定宽度整数运算；新增高阶代数或齐次点比较前必须先确认 256 位中间结果预算。
 
 ## 已知限制
