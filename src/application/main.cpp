@@ -19,6 +19,7 @@
 namespace
 {
     using ember::BoolOp;
+    using ember::BoolOperandAssumptions;
     using Clock = std::chrono::steady_clock;
 
     // 命令行入口只负责组装两输入布尔任务，不扩展到表达式树或多输入场景。
@@ -31,6 +32,8 @@ namespace
         BoolOp operation = BoolOp::Intersection;
         std::optional<std::uint64_t> scale;
         std::size_t leafThreshold = 25;
+        BoolOperandAssumptions lhsAssumptions;
+        BoolOperandAssumptions rhsAssumptions;
     };
 
     struct CliTimings
@@ -47,7 +50,12 @@ namespace
             << "Usage: re-EMBER --lhs <file.obj> --rhs <file.obj> "
             << "--op union|intersection|difference --out <result.obj> "
             << "[--scale <positive_integer>] [--leaf-threshold <positive_integer>] "
-            << "[--timings-out <metrics.txt>]"
+            << "[--timings-out <metrics.txt>] "
+            << "[--assume-lhs-nsi] [--assume-lhs-nnc] "
+            << "[--assume-rhs-nsi] [--assume-rhs-nnc]"
+            << std::endl;
+        std::cerr
+            << "Assumption flags are unchecked optimizations; wrong NSI/NNC declarations can make results invalid."
             << std::endl;
     }
 
@@ -195,6 +203,27 @@ namespace
                 continue;
             }
 
+            if (arg == "--assume-lhs-nsi")
+            {
+                outOptions.lhsAssumptions.noSelfIntersections = true;
+                continue;
+            }
+            if (arg == "--assume-lhs-nnc")
+            {
+                outOptions.lhsAssumptions.noNestedComponents = true;
+                continue;
+            }
+            if (arg == "--assume-rhs-nsi")
+            {
+                outOptions.rhsAssumptions.noSelfIntersections = true;
+                continue;
+            }
+            if (arg == "--assume-rhs-nnc")
+            {
+                outOptions.rhsAssumptions.noNestedComponents = true;
+                continue;
+            }
+
             std::cerr << "Unknown argument: " << arg << std::endl;
             return false;
         }
@@ -205,6 +234,19 @@ namespace
             !hasOperation)
         {
             std::cerr << "Missing required arguments." << std::endl;
+            return false;
+        }
+
+        if (outOptions.lhsAssumptions.noNestedComponents &&
+            !outOptions.lhsAssumptions.noSelfIntersections)
+        {
+            std::cerr << "--assume-lhs-nnc requires --assume-lhs-nsi." << std::endl;
+            return false;
+        }
+        if (outOptions.rhsAssumptions.noNestedComponents &&
+            !outOptions.rhsAssumptions.noSelfIntersections)
+        {
+            std::cerr << "--assume-rhs-nnc requires --assume-rhs-nsi." << std::endl;
             return false;
         }
 
@@ -289,6 +331,7 @@ int main(int argc, char **argv)
 
         ember::BoolProblem problem(options.leafThreshold);
         problem.setOperation(options.operation);
+        problem.setOperandAssumptions(options.lhsAssumptions, options.rhsAssumptions);
         problem.setOperands(lhsPolygons, rhsPolygons);
 
         const Clock::time_point solveStart = Clock::now();
