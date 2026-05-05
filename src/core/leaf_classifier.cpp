@@ -167,7 +167,7 @@ namespace ember
         }
 
         BoolOperandAssumptions assumptions;
-        if (tryGetSingleOperandLeafAssumptions(assumptions) && assumptions.noSelfIntersections)
+        if (tryGetSingleOperandAssumptions(assumptions) && assumptions.noSelfIntersections)
         {
             ++solveMetrics_.singleOperandLeafBspSkipCount;
             leafFragments_ = polygons_;
@@ -205,20 +205,25 @@ namespace ember
     // 对每个叶片片段追踪到严格内部点；分类失败属于不可恢复错误。
     void SubdivisionSolver::classifyLeafFragmentsAndCollectResults()
     {
+        (void)classifyLeafFragmentsAndCollectResults(false);
+    }
+
+    bool SubdivisionSolver::classifyLeafFragmentsAndCollectResults(bool allowRetryFallback)
+    {
         REEMBER_PROFILE_ZONE("SubdivisionSolver::classifyLeafFragmentsAndCollectResults");
 
         resultFragments_.clear();
         classifiedFragments_.clear();
         if (discarded_ || leafFragments_.empty())
         {
-            return;
+            return true;
         }
 
         const refPoint localReference(reference_.point, reference_.wnv);
         const bool collectFailureDiagnostics = detail::isLogEnabled(LogLevel::Debug);
         BoolOperandAssumptions assumptions;
         const bool reuseSingleOperandClassification =
-            tryGetSingleOperandLeafAssumptions(assumptions) &&
+            tryGetSingleOperandAssumptions(assumptions) &&
             assumptions.noSelfIntersections &&
             assumptions.noNestedComponents;
         bool hasReusableClassification = false;
@@ -448,6 +453,13 @@ namespace ember
 
             if (!classified)
             {
+                if (allowRetryFallback && lastStatus == PATH_INVALID)
+                {
+                    resultFragments_.clear();
+                    classifiedFragments_.clear();
+                    return false;
+                }
+
                 std::ostringstream summary;
                 summary << "BoolProblem failed to classify leaf fragment "
                         << fragmentIndex
@@ -560,6 +572,57 @@ namespace ember
                         << ".";
                 return message.str();
             });
+        return true;
+    }
+
+    bool SubdivisionSolver::trySolveSingleOperandAssumptionLeaf()
+    {
+        BoolOperandAssumptions assumptions;
+        if (!tryGetSingleOperandAssumptions(assumptions) ||
+            !assumptions.noSelfIntersections ||
+            !assumptions.noNestedComponents ||
+            polygons_.size() <= leafPolygonThreshold_)
+        {
+            return false;
+        }
+
+        const BoolSolveMetrics metricsSnapshot = solveMetrics_;
+        isLeaf_ = true;
+        solveLeafArrangement();
+        if (!classifyLeafFragmentsAndCollectResults(true))
+        {
+            solveMetrics_ = metricsSnapshot;
+            ++solveMetrics_.singleOperandAssumptionFallbackCount;
+            isLeaf_ = true;
+            leafFragments_.clear();
+            classifiedFragments_.clear();
+            resultFragments_.clear();
+            logBoolDebug(
+                kBoolProblemClassifyScope,
+                [this]()
+                {
+                    std::ostringstream message;
+                    message << "Single-operand assumption stop fallback depth=" << depth_
+                            << " polygon_count=" << polygons_.size()
+                            << ".";
+                    return message.str();
+                });
+            return false;
+        }
+
+        ++solveMetrics_.singleOperandAssumptionStopCount;
+        logBoolDebug(
+            kBoolProblemClassifyScope,
+            [this]()
+            {
+                std::ostringstream message;
+                message << "Stopped subdivision by single-operand assumptions depth=" << depth_
+                        << " polygon_count=" << polygons_.size()
+                        << " result_fragments=" << resultFragments_.size()
+                        << ".";
+                return message.str();
+            });
+        return true;
     }
 
     // 将 WNV 交给当前布尔运算的二元指示函数，返回内外状态。

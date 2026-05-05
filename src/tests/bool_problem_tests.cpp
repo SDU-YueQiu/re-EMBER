@@ -932,7 +932,7 @@ void runBoolProblemTests()
         const std::vector<Polygon256> emptyRhs;
 
         {
-            ember::BoolProblem problem(6);
+            ember::BoolProblem problem(2);
             ember::BoolOperandAssumptions lhsAssumptions;
             lhsAssumptions.noSelfIntersections = true;
             problem.setOperation(BoolOp::Union);
@@ -943,10 +943,11 @@ void runBoolProblemTests()
             assert(problem.isSolved());
             assert(!problem.isDiscarded());
             assert(problem.resultFragments().size() == 6u);
+            assert(problem.solveMetrics().singleOperandAssumptionStopCount == 0u);
         }
 
         {
-            ember::BoolProblem problem(6);
+            ember::BoolProblem problem(2);
             ember::BoolOperandAssumptions lhsAssumptions;
             lhsAssumptions.noSelfIntersections = true;
             lhsAssumptions.noNestedComponents = true;
@@ -958,10 +959,15 @@ void runBoolProblemTests()
             assert(problem.isSolved());
             assert(!problem.isDiscarded());
             assert(problem.resultFragments().size() == 6u);
+            assert(problem.solveMetrics().nodeCount == 1u);
+            assert(problem.solveMetrics().leafNodeCount == 1u);
+            assert(problem.solveMetrics().maxDepth == 0u);
+            assert(problem.solveMetrics().singleOperandAssumptionStopCount == 1u);
+            assert(problem.solveMetrics().singleOperandAssumptionFallbackCount == 0u);
         }
 
         {
-            ember::BoolProblem problem(6);
+            ember::BoolProblem problem(2);
             ember::BoolOperandAssumptions lhsAssumptions;
             lhsAssumptions.noSelfIntersections = true;
             lhsAssumptions.noNestedComponents = true;
@@ -973,6 +979,11 @@ void runBoolProblemTests()
             assert(problem.isSolved());
             assert(!problem.isDiscarded());
             assert(problem.resultFragments().size() == 6u);
+            assert(problem.solveMetrics().nodeCount == 1u);
+            assert(problem.solveMetrics().leafNodeCount == 1u);
+            assert(problem.solveMetrics().maxDepth == 0u);
+            assert(problem.solveMetrics().singleOperandAssumptionStopCount == 1u);
+            assert(problem.solveMetrics().singleOperandAssumptionFallbackCount == 0u);
         }
     }
 
@@ -996,6 +1007,8 @@ void runBoolProblemTests()
         assert(baseline.isSolved());
         assert(assumed.isSolved());
         assert(baseline.resultFragments().size() == assumed.resultFragments().size());
+        assert(assumed.solveMetrics().singleOperandAssumptionStopCount == 0u);
+        assert(assumed.solveMetrics().singleOperandAssumptionFallbackCount == 0u);
     }
 
     {
