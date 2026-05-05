@@ -119,6 +119,15 @@ namespace ember
         resetSolveState();
     }
 
+    void BoolProblem::setOperandAssumptions(
+        BoolOperandAssumptions lhsAssumptions,
+        BoolOperandAssumptions rhsAssumptions) noexcept
+    {
+        lhsAssumptions_ = lhsAssumptions;
+        rhsAssumptions_ = rhsAssumptions;
+        resetSolveState();
+    }
+
     void BoolProblem::addPolygon(const Polygon256 &polygon)
     {
         Polygon256 copy = polygon;
@@ -187,7 +196,7 @@ namespace ember
             throw;
         }
 
-        SubdivisionSolver solver(op_, leafPolygonThreshold_, polygons_);
+        SubdivisionSolver solver(op_, leafPolygonThreshold_, polygons_, lhsAssumptions_, rhsAssumptions_);
         solver.solve();
 
         discarded_ = solver.isDiscarded();

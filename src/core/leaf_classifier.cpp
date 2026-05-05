@@ -163,6 +163,25 @@ namespace ember
             return;
         }
 
+        BoolOperandAssumptions assumptions;
+        if (tryGetSingleOperandLeafAssumptions(assumptions) && assumptions.noSelfIntersections)
+        {
+            leafFragments_ = polygons_;
+            logBoolDebug(
+                kBoolProblemLeafScope,
+                [this, assumptions]()
+                {
+                    std::ostringstream message;
+                    message << "Skipped leaf BSP by operand assumption depth=" << depth_
+                            << " input_polygons=" << polygons_.size()
+                            << " leaf_fragments=" << leafFragments_.size()
+                            << " no_nested_components=" << assumptions.noNestedComponents
+                            << ".";
+                    return message.str();
+                });
+            return;
+        }
+
         leafFragments_ = buildLeafArrangement(polygons_);
 
         logBoolDebug(
@@ -190,9 +209,34 @@ namespace ember
 
         const refPoint localReference(reference_.point, reference_.wnv);
         const bool collectFailureDiagnostics = detail::isLogEnabled(LogLevel::Debug);
+        BoolOperandAssumptions assumptions;
+        const bool reuseSingleOperandClassification =
+            tryGetSingleOperandLeafAssumptions(assumptions) &&
+            assumptions.noSelfIntersections &&
+            assumptions.noNestedComponents;
+        bool hasReusableClassification = false;
+        WNV reusableFrontWNV;
+        WNV reusableBackWNV;
         for (std::size_t fragmentIndex = 0; fragmentIndex < leafFragments_.size(); ++fragmentIndex)
         {
             Polygon256 &fragment = leafFragments_[fragmentIndex];
+            if (reuseSingleOperandClassification && hasReusableClassification)
+            {
+                classifiedFragments_.push_back(ClassifiedFragment{fragment, reusableFrontWNV, reusableBackWNV});
+                const ClassifiedFragment &classifiedFragment = classifiedFragments_.back();
+                const BoolStatus frontStatus = evaluateBooleanIndicator(classifiedFragment.frontWNV);
+                const BoolStatus backStatus = evaluateBooleanIndicator(classifiedFragment.backWNV);
+                if (frontStatus == OUT && backStatus == IN)
+                {
+                    resultFragments_.push_back(classifiedFragment.polygon);
+                }
+                else if (frontStatus == IN && backStatus == OUT)
+                {
+                    resultFragments_.push_back(reversePolygonOrientation(classifiedFragment.polygon));
+                }
+                continue;
+            }
+
             std::size_t pointCandidateCount = 0;
             std::size_t normalCandidateCount = 0;
             std::size_t fastCandidateCount = 0;
@@ -443,6 +487,25 @@ namespace ember
                 const std::string summaryMessage = summary.str();
                 logBoolError(kBoolProblemClassifyScope, summaryMessage);
                 throw std::runtime_error(summaryMessage);
+            }
+
+            if (reuseSingleOperandClassification && !hasReusableClassification)
+            {
+                const ClassifiedFragment &classifiedFragment = classifiedFragments_.back();
+                reusableFrontWNV = classifiedFragment.frontWNV;
+                reusableBackWNV = classifiedFragment.backWNV;
+                hasReusableClassification = true;
+                logBoolDebug(
+                    kBoolProblemClassifyScope,
+                    [this, &reusableFrontWNV, &reusableBackWNV]()
+                    {
+                        std::ostringstream message;
+                        message << "Cached single-operand leaf classification depth=" << depth_
+                                << " front_wnv_size=" << reusableFrontWNV.size()
+                                << " back_wnv_size=" << reusableBackWNV.size()
+                                << ".";
+                        return message.str();
+                    });
             }
 
             const ClassifiedFragment &classifiedFragment = classifiedFragments_.back();

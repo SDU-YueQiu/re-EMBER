@@ -36,6 +36,17 @@ namespace ember
     };
 
     /**
+     * @brief 调用方显式声明的单个二元操作数输入假设。
+     *
+     * 该结构只表示调用方承诺，求解器不会主动验证输入是否真的满足。
+     */
+    struct BoolOperandAssumptions
+    {
+        bool noSelfIntersections = false; ///< 当前操作数没有自相交。
+        bool noNestedComponents = false;  ///< 当前操作数没有嵌套连通组件。
+    };
+
+    /**
      * @brief EMBER 顶层布尔问题门面。
      *
      * `BoolProblem` 只负责接收输入、保存布尔配置并暴露最终结果。
@@ -73,6 +84,17 @@ namespace ember
          * @note 传入 `0` 时会自动收敛到 `1`。
          */
         void setLeafPolygonThreshold(std::size_t threshold) noexcept;
+
+        /**
+         * @brief 设置左右操作数可用于 4.5.1 快路径的输入假设。
+         *
+         * @param[in] lhsAssumptions 左操作数假设，对应 WNTV `{1, 0}`。
+         * @param[in] rhsAssumptions 右操作数假设，对应 WNTV `{0, 1}`。
+         * @note 这些假设不会被验证；错误声明会破坏布尔结果正确性。
+         */
+        void setOperandAssumptions(
+            BoolOperandAssumptions lhsAssumptions,
+            BoolOperandAssumptions rhsAssumptions) noexcept;
 
         /**
          * @brief 追加一个已带好 WNTV 的输入多边形。
@@ -155,6 +177,12 @@ namespace ember
 
         /// 叶子阶段停止继续细分的多边形数量阈值。
         std::size_t leafPolygonThreshold_ = 25;
+
+        /// 左操作数调用方声明的输入假设。
+        BoolOperandAssumptions lhsAssumptions_;
+
+        /// 右操作数调用方声明的输入假设。
+        BoolOperandAssumptions rhsAssumptions_;
 
         /// 当前问题是否已被判定为空。
         bool discarded_ = false;
