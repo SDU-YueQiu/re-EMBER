@@ -252,6 +252,7 @@ namespace ember
             auto traceCandidate =
                 [&](const LeafClassificationPathCandidate &candidate, const char *candidateLayer, std::size_t candidateIndex)
                 {
+                    ++solveMetrics_.leafClassificationTraceAttemptCount;
                     WNV frontWNV;
                     WNV backWNV;
                     const traceStatus status = detail::tracePathWNVToSurfacePointTrusted(
@@ -303,6 +304,7 @@ namespace ember
                 [&](const std::vector<PlanePoint3i> &pointCandidates) -> bool
                 {
                     pointCandidateCount += pointCandidates.size();
+                    solveMetrics_.leafClassificationPointCandidateCount += pointCandidates.size();
 
                     bool allowFallback = true;
                     enumerateLeafClassificationFastPathCandidatesFromPoints(
@@ -313,6 +315,7 @@ namespace ember
                         {
                             const std::size_t candidateIndex = fastCandidateCount;
                             ++fastCandidateCount;
+                            ++solveMetrics_.leafClassificationFastCandidateCount;
                             const traceStatus status = traceCandidate(candidate, "fast", candidateIndex);
                             if (status == SUCCESS)
                             {
@@ -340,6 +343,7 @@ namespace ember
                             {
                                 const std::size_t candidateIndex = fallbackCandidateCount;
                                 ++fallbackCandidateCount;
+                                ++solveMetrics_.leafClassificationFallbackCandidateCount;
                                 const traceStatus status = traceCandidate(candidate, "fallback", candidateIndex);
                                 if (status == SUCCESS)
                                 {
@@ -368,6 +372,7 @@ namespace ember
                             {
                                 const std::size_t candidateIndex = normalCandidateCount;
                                 ++normalCandidateCount;
+                                ++solveMetrics_.leafClassificationNormalCandidateCount;
                                 const traceStatus status = traceCandidate(candidate, "normal", candidateIndex);
                                 if (status == SUCCESS)
                                 {
@@ -396,6 +401,7 @@ namespace ember
                             {
                                 const std::size_t candidateIndex = interiorBridgeCandidateCount;
                                 ++interiorBridgeCandidateCount;
+                                ++solveMetrics_.leafClassificationInteriorBridgeCandidateCount;
                                 const traceStatus status = traceCandidate(candidate, "interior-bridge", candidateIndex);
                                 if (status == SUCCESS)
                                 {

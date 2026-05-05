@@ -59,9 +59,17 @@ namespace ember
         std::size_t midpointSplitCount = 0;             ///< 回退到中点切分的次数。
         std::size_t childReferenceReuseCount = 0;       ///< 直接复用子参考点的次数。
         std::size_t childReferenceTraceCount = 0;       ///< 通过路径追踪传播子参考点的次数。
+        std::size_t childReferenceCandidateCount = 0;   ///< 子参考点传播阶段生成的候选总数。
+        std::size_t childReferenceCandidateTriedCount = 0; ///< 子参考点传播阶段实际尝试追踪的候选数。
         std::size_t singleOperandLeafBspSkipCount = 0;  ///< 单操作数叶子跳过局部 BSP 的次数。
         std::size_t singleOperandClassificationReuseCount = 0; ///< 单操作数叶子复用分类结果的次数。
         std::size_t leafBspBuildCount = 0;              ///< 真实执行局部 BSP 构建的次数。
+        std::size_t leafClassificationPointCandidateCount = 0; ///< 叶片分类阶段枚举的目标点总数。
+        std::size_t leafClassificationTraceAttemptCount = 0; ///< 叶片分类阶段实际尝试的路径总数。
+        std::size_t leafClassificationFastCandidateCount = 0; ///< fast layer 候选总数。
+        std::size_t leafClassificationFallbackCandidateCount = 0; ///< fallback layer 候选总数。
+        std::size_t leafClassificationNormalCandidateCount = 0; ///< normal layer 候选总数。
+        std::size_t leafClassificationInteriorBridgeCandidateCount = 0; ///< interior bridge layer 候选总数。
     };
 
     /**

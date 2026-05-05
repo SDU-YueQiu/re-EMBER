@@ -100,9 +100,17 @@ namespace
                << "midpoint_split_count=" << timings.solveMetrics.midpointSplitCount << '\n'
                << "child_reference_reuse_count=" << timings.solveMetrics.childReferenceReuseCount << '\n'
                << "child_reference_trace_count=" << timings.solveMetrics.childReferenceTraceCount << '\n'
+               << "child_reference_candidate_count=" << timings.solveMetrics.childReferenceCandidateCount << '\n'
+               << "child_reference_candidate_tried_count=" << timings.solveMetrics.childReferenceCandidateTriedCount << '\n'
                << "single_operand_leaf_bsp_skip_count=" << timings.solveMetrics.singleOperandLeafBspSkipCount << '\n'
                << "single_operand_classification_reuse_count=" << timings.solveMetrics.singleOperandClassificationReuseCount << '\n'
-               << "leaf_bsp_build_count=" << timings.solveMetrics.leafBspBuildCount << '\n';
+               << "leaf_bsp_build_count=" << timings.solveMetrics.leafBspBuildCount << '\n'
+               << "leaf_classification_point_candidate_count=" << timings.solveMetrics.leafClassificationPointCandidateCount << '\n'
+               << "leaf_classification_trace_attempt_count=" << timings.solveMetrics.leafClassificationTraceAttemptCount << '\n'
+               << "leaf_classification_fast_candidate_count=" << timings.solveMetrics.leafClassificationFastCandidateCount << '\n'
+               << "leaf_classification_fallback_candidate_count=" << timings.solveMetrics.leafClassificationFallbackCandidateCount << '\n'
+               << "leaf_classification_normal_candidate_count=" << timings.solveMetrics.leafClassificationNormalCandidateCount << '\n'
+               << "leaf_classification_interior_bridge_candidate_count=" << timings.solveMetrics.leafClassificationInteriorBridgeCandidateCount << '\n';
         if (!output)
         {
             outError = "Failed to write timings output file: " + path;
@@ -396,6 +404,9 @@ int main(int argc, char **argv)
             << " wntv_splits=" << timings.solveMetrics.wntvAwareSplitCount
             << " center_splits=" << timings.solveMetrics.centerRangeSplitCount
             << " midpoint_splits=" << timings.solveMetrics.midpointSplitCount
+            << " child_ref_candidates=" << timings.solveMetrics.childReferenceCandidateCount
+            << " child_ref_tried=" << timings.solveMetrics.childReferenceCandidateTriedCount
+            << " leaf_trace_attempts=" << timings.solveMetrics.leafClassificationTraceAttemptCount
             << " result_fragments=" << problem.resultFragments().size()
             << " exported_faces=" << exportedFaces
             << std::endl;
