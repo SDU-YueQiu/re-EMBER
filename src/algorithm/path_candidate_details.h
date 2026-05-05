@@ -244,6 +244,33 @@ namespace ember
                    absInteger(plane.d) <= coefficientLimit / scale;
         }
 
+        inline bool isZeroPlaneEquation(const Plane3i &plane) noexcept
+        {
+            return isZero(plane.a) && isZero(plane.b) && isZero(plane.c) && isZero(plane.d);
+        }
+
+        inline Plane3i subtractPlaneEquation(const Plane3i &lhs, const Plane3i &rhs) noexcept
+        {
+            return primitivePlane(Plane3i(
+                lhs.a - rhs.a,
+                lhs.b - rhs.b,
+                lhs.c - rhs.c,
+                lhs.d - rhs.d));
+        }
+
+        inline PlanePoint3i makePointFromHomogeneousCoordinates(const HomPoint4i &point) noexcept
+        {
+            if (isZero(point.w))
+            {
+                return PlanePoint3i();
+            }
+
+            return PlanePoint3i(
+                primitivePlane(Plane3i(point.w, 0, 0, -point.x)),
+                primitivePlane(Plane3i(0, point.w, 0, -point.y)),
+                primitivePlane(Plane3i(0, 0, point.w, -point.z)));
+        }
+
         /**
          * @brief 以顶点坐标均值的整数舍入值近似论文中的浮点重心猜测。
          */
@@ -462,6 +489,86 @@ namespace ember
                     break;
                 }
                 scale += scale;
+            }
+        }
+
+        /**
+         * @brief 用所有顶点的齐次坐标正权重求和，构造一个精确严格内部点。
+         *
+         * 有效严格凸多边形的每条边至少有一个非邻接顶点在负侧。所有有限顶点
+         * 以正权重相加后仍在支撑平面内，并且对每条边的符号严格为负。
+         */
+        inline void appendHomogeneousVertexAverageInteriorPointCandidate(
+            const Polygon256 &polygon,
+            std::vector<PlanePoint3i> &candidates)
+        {
+            const std::size_t n = polygon.edgePlanes.size();
+            if (n < 3)
+            {
+                return;
+            }
+
+            HomPoint4i average;
+            for (std::size_t i = 0; i < n; ++i)
+            {
+                const PlanePoint3i vertex = getPolygonVertex(polygon, i);
+                if (!vertex.hasUniqueIntersection() || vertex.x.w <= 0)
+                {
+                    return;
+                }
+
+                average.x += vertex.x.x;
+                average.y += vertex.x.y;
+                average.z += vertex.x.z;
+                average.w += vertex.x.w;
+                average = primitiveHomPoint(average);
+            }
+
+            const PlanePoint3i candidate = makePointFromHomogeneousCoordinates(average);
+            appendUniqueStrictInteriorPoint(candidates, polygon, candidate);
+        }
+
+        /**
+         * @brief 枚举若干组边平面函数值相等的精确内部点候选。
+         *
+         * 对极薄或远离原点的片段，整数 `+1` inset 可能因 headroom 限制仍过粗。
+         * 这里不放大原平面系数，而是在支撑平面内求 `e_i = e_j = e_k` 的点，
+         * 再统一交给 `containsStrictly()` 过滤，避免把边界点当作分类目标。
+         */
+        inline void appendEqualizedEdgeInteriorPointCandidates(
+            const Polygon256 &polygon,
+            std::vector<PlanePoint3i> &candidates)
+        {
+            constexpr std::size_t maxTotalCandidates = 64;
+            const std::size_t n = polygon.edgePlanes.size();
+            if (n < 3)
+            {
+                return;
+            }
+
+            for (std::size_t i = 0; i + 2 < n && candidates.size() < maxTotalCandidates; ++i)
+            {
+                for (std::size_t j = i + 1; j + 1 < n && candidates.size() < maxTotalCandidates; ++j)
+                {
+                    for (std::size_t k = j + 1; k < n && candidates.size() < maxTotalCandidates; ++k)
+                    {
+                        const Plane3i firstEqualizer =
+                            subtractPlaneEquation(polygon.edgePlanes[i], polygon.edgePlanes[j]);
+                        const Plane3i secondEqualizer =
+                            subtractPlaneEquation(polygon.edgePlanes[j], polygon.edgePlanes[k]);
+                        if (isZeroPlaneEquation(firstEqualizer) || isZeroPlaneEquation(secondEqualizer))
+                        {
+                            continue;
+                        }
+                        if (!hasUniqueIntersection(polygon.plane, firstEqualizer, secondEqualizer))
+                        {
+                            continue;
+                        }
+
+                        const PlanePoint3i candidate(polygon.plane, firstEqualizer, secondEqualizer);
+                        appendUniqueStrictInteriorPoint(candidates, polygon, candidate);
+                    }
+                }
             }
         }
 
@@ -1393,6 +1500,14 @@ namespace ember
         {
             std::vector<PlanePoint3i> candidates = enumerateLeafClassificationPrimaryPointCandidatesUnchecked(polygon);
             appendInsetInteriorPointCandidates(polygon, candidates);
+            if (candidates.empty())
+            {
+                appendHomogeneousVertexAverageInteriorPointCandidate(polygon, candidates);
+            }
+            if (candidates.empty())
+            {
+                appendEqualizedEdgeInteriorPointCandidates(polygon, candidates);
+            }
 
             return candidates;
         }

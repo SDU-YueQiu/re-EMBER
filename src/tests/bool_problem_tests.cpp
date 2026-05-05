@@ -87,6 +87,17 @@ namespace
                 Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(-1, 0, 0))});
     }
 
+    Polygon256 makeLargeOffsetThinTriangleXY()
+    {
+        const Integer base = Integer(1) << 75;
+        return Polygon256(
+            Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, 0, 1)),
+            std::vector<Plane3i>{
+                Plane3i(0, -1, 0, 0),
+                Plane3i(1, 1, 0, -base - Integer(1)),
+                Plane3i(-1, 0, 0, base)});
+    }
+
     Polygon256 makeInvalidInwardSquareXY()
     {
         Polygon256 polygon;
@@ -210,6 +221,27 @@ void runBoolProblemTests()
         for (const PlanePoint3i &candidate : candidates)
         {
             assert(thinTriangle.containsStrictly(candidate));
+        }
+    }
+
+    {
+        const Polygon256 shiftedThinTriangle = makeLargeOffsetThinTriangleXY();
+        assert(shiftedThinTriangle.isValid());
+
+        const Integer base = Integer(1) << 75;
+        const PlanePoint3i roundedCentroid = ember::makeIntegerPoint(base, 0, 0);
+        assert(!shiftedThinTriangle.containsStrictly(roundedCentroid));
+
+        const std::vector<PlanePoint3i> primaryCandidates =
+            ember::detail::enumerateLeafClassificationPrimaryPointCandidatesUnchecked(shiftedThinTriangle);
+        assert(primaryCandidates.empty());
+
+        const std::vector<PlanePoint3i> candidates =
+            ember::enumerateLeafClassificationPointCandidates(shiftedThinTriangle);
+        assert(!candidates.empty());
+        for (const PlanePoint3i &candidate : candidates)
+        {
+            assert(shiftedThinTriangle.containsStrictly(candidate));
         }
     }
 
