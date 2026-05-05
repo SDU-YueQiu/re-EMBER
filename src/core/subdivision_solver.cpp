@@ -1222,108 +1222,155 @@ namespace ember
         }
 
         const refPoint sourceRef(reference_.point, reference_.wnv);
-        const std::vector<AABBPathCandidate> candidates = enumerateAABBPathCandidates(reference_.point, childBox);
-        solveMetrics_.childReferenceCandidateCount += candidates.size();
-        for (std::size_t candidateIndex = 0; candidateIndex < candidates.size(); ++candidateIndex)
-        {
-            const AABBPathCandidate &candidate = candidates[candidateIndex];
-            if (!sourceReferenceIsStrictInterior &&
-                candidate.path.empty() &&
-                areSamePlanePoint(candidate.targetPoint, reference_.point))
+        outReference = SubdivisionRefState();
+        std::size_t candidateCount = 0;
+        std::vector<Segment256> candidatePath;
+        candidatePath.reserve(3);
+        bool hardFailure = false;
+        auto processCandidateSeed =
+            [this,
+             &candidateCount,
+             &candidatePath,
+             &childPolygons,
+             &sourceRef,
+             &sourceReferenceIsStrictInterior,
+             &outReference,
+             &hardFailure](const detail::AABBPathCandidateSeed &candidateSeed)
             {
-                bool onSupportPlane = false;
-                for (const Polygon256 &polygon : childPolygons)
+                const std::size_t candidateIndex = candidateCount;
+                ++candidateCount;
+                ++solveMetrics_.childReferenceCandidateCount;
+
+                if (!sourceReferenceIsStrictInterior &&
+                    candidateSeed.buildMode == detail::AABBPathBuildMode::Empty &&
+                    areSamePlanePoint(candidateSeed.targetPoint, reference_.point))
                 {
-                    if (candidate.targetPoint.classify(polygon.plane) == 0)
+                    bool onSupportPlane = false;
+                    for (const Polygon256 &polygon : childPolygons)
                     {
-                        onSupportPlane = true;
-                        break;
+                        if (candidateSeed.targetPoint.classify(polygon.plane) == 0)
+                        {
+                            onSupportPlane = true;
+                            break;
+                        }
+                    }
+
+                    if (onSupportPlane)
+                    {
+                        logTracingDebug(
+                            kBoolProblemChildReferenceScope,
+                            [this, candidateIndex]()
+                            {
+                                std::ostringstream message;
+                                message << "Skipped child reference candidate depth=" << depth_
+                                        << " candidate_index=" << candidateIndex
+                                        << " path_segments=0 reason=source_on_child_surface_plane.";
+                                return message.str();
+                            });
+                        return true;
                     }
                 }
 
-                if (onSupportPlane)
+                bool onSurface = false;
+                for (const Polygon256 &polygon : childPolygons)
+                {
+                    if (polygon.classify(candidateSeed.targetPoint) == 0)
+                    {
+                        onSurface = true;
+                        break;
+                    }
+                }
+                if (onSurface)
                 {
                     logTracingDebug(
                         kBoolProblemChildReferenceScope,
-                        [this, candidateIndex]()
+                        [this, candidateIndex, &candidateSeed]()
                         {
                             std::ostringstream message;
                             message << "Skipped child reference candidate depth=" << depth_
                                     << " candidate_index=" << candidateIndex
-                                    << " path_segments=0 reason=source_on_child_surface_plane.";
+                                    << " path_segments=" << candidateSeed.axisCount
+                                    << " reason=target_on_surface.";
                             return message.str();
                         });
-                    continue;
+                    return true;
                 }
-            }
 
-            bool onSurface = false;
-            for (const Polygon256 &polygon : childPolygons)
-            {
-                if (polygon.classify(candidate.targetPoint) == 0)
+                if (!detail::buildAABBPathFromSeed(reference_.point, candidateSeed, candidatePath))
                 {
-                    onSurface = true;
-                    break;
+                    logTracingDebug(
+                        kBoolProblemChildReferenceScope,
+                        [this, candidateIndex, &candidateSeed]()
+                        {
+                            std::ostringstream message;
+                            message << "Skipped child reference candidate depth=" << depth_
+                                    << " candidate_index=" << candidateIndex
+                                    << " path_segments=" << candidateSeed.axisCount
+                                    << " reason=path_build_failed.";
+                            return message.str();
+                        });
+                    return true;
                 }
-            }
-            if (onSurface)
-            {
+
+                WNV propagatedWNV;
+                ++solveMetrics_.childReferenceCandidateTriedCount;
+                const traceStatus status = detail::tracePathWNVAllowSubdivisionClipCrossingTrusted(
+                    sourceRef,
+                    candidatePath,
+                    polygons_,
+                    propagatedWNV);
                 logTracingDebug(
                     kBoolProblemChildReferenceScope,
-                    [this, candidateIndex, &candidate]()
+                    [this, candidateIndex, &candidatePath, status]()
                     {
                         std::ostringstream message;
-                        message << "Skipped child reference candidate depth=" << depth_
+                        message << "Child reference trace depth=" << depth_
                                 << " candidate_index=" << candidateIndex
-                                << " path_segments=" << candidate.path.size()
-                                << " reason=target_on_surface.";
+                                << " path_segments=" << candidatePath.size()
+                                << " status=" << traceStatusName(status)
+                                << ".";
                         return message.str();
                     });
-                continue;
-            }
-
-            WNV propagatedWNV;
-            ++solveMetrics_.childReferenceCandidateTriedCount;
-            const traceStatus status = detail::tracePathWNVAllowSubdivisionClipCrossingTrusted(
-                sourceRef,
-                candidate.path,
-                polygons_,
-                propagatedWNV);
-            logTracingDebug(
-                kBoolProblemChildReferenceScope,
-                [this, candidateIndex, &candidate, status]()
+                if (status == SUCCESS)
                 {
-                    std::ostringstream message;
-                    message << "Child reference trace depth=" << depth_
-                            << " candidate_index=" << candidateIndex
-                            << " path_segments=" << candidate.path.size()
-                            << " status=" << traceStatusName(status)
-                            << ".";
-                    return message.str();
-                });
-            if (status == SUCCESS)
-            {
-                ++solveMetrics_.childReferenceTraceCount;
-                outReference.point = candidate.targetPoint;
-                outReference.wnv = std::move(propagatedWNV);
-                return true;
-            }
+                    ++solveMetrics_.childReferenceTraceCount;
+                    outReference.point = candidateSeed.targetPoint;
+                    outReference.wnv = std::move(propagatedWNV);
+                    return false;
+                }
 
-            if (status != PATH_INVALID)
-            {
-                break;
-            }
+                if (status != PATH_INVALID)
+                {
+                    hardFailure = true;
+                    return false;
+                }
+
+                return true;
+            };
+
+        detail::visitFastAABBPathCandidateSeeds(reference_.point, childBox, processCandidateSeed);
+        if (outReference.point.hasUniqueIntersection())
+        {
+            return true;
+        }
+        if (!hardFailure)
+        {
+            detail::visitExhaustiveAABBPathCandidateSeeds(reference_.point, childBox, processCandidateSeed);
+        }
+        if (outReference.point.hasUniqueIntersection())
+        {
+            return true;
         }
 
         outReference = SubdivisionRefState();
         logTracingDebug(
             kBoolProblemChildReferenceScope,
-            [this, &childBox, &candidates]()
+            [this, &childBox, candidateCount]()
             {
                 std::ostringstream message;
                 message << "Failed to propagate child reference depth=" << depth_
                         << " child_aabb=" << formatAABB(childBox)
-                        << " candidate_count=" << candidates.size()
+                        << " candidate_count=" << candidateCount
                         << ".";
                 return message.str();
             });

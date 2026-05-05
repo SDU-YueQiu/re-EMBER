@@ -368,7 +368,9 @@ namespace
 int main(int argc, char **argv)
 {
     REEMBER_PROFILE_ZONE("re-EMBER::main");
+#if defined(REEMBER_ENABLE_TRACY)
     TracySetProgramName("re-EMBER");
+#endif
     emitTracyDiagnostics("startup");
 
     const std::uint64_t tracyAttachWaitMs = readTracyAttachWaitMilliseconds();
