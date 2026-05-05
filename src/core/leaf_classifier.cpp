@@ -416,12 +416,15 @@ namespace ember
 
             const std::vector<PlanePoint3i> primaryPointCandidates =
                 detail::enumerateLeafClassificationPrimaryPointCandidatesUnchecked(fragment);
+            const std::size_t primaryPointCandidateCount = primaryPointCandidates.size();
+            std::size_t expandedPointCandidateCount = 0;
 
             const bool shouldTryExpandedPoints = attemptPointCandidates(primaryPointCandidates);
             if (!classified && shouldTryExpandedPoints)
             {
                 const std::vector<PlanePoint3i> expandedPointCandidates =
                     detail::enumerateLeafClassificationPointCandidatesUnchecked(fragment);
+                expandedPointCandidateCount = expandedPointCandidates.size();
                 attemptPointCandidates(expandedPointCandidates);
             }
 
@@ -443,6 +446,8 @@ namespace ember
                      interiorBridgeCandidateCount,
                      fallbackCandidateCount,
                      pointCandidateCount,
+                     primaryPointCandidateCount,
+                     expandedPointCandidateCount,
                      lastStatus,
                      &lastFailureReason,
                      &fragment]()
@@ -452,8 +457,14 @@ namespace ember
                                 << fragmentIndex
                                 << " depth="
                                 << depth_
+                                << " fragment_edges="
+                                << fragment.edgeCount()
                                 << " target_point_candidates="
                                 << pointCandidateCount
+                                << " primary_point_candidates="
+                                << primaryPointCandidateCount
+                                << " expanded_point_candidates="
+                                << expandedPointCandidateCount
                                 << " normal_candidates="
                                 << normalCandidateCount
                                 << " fast_candidates="

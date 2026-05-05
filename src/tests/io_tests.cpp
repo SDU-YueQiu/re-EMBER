@@ -604,6 +604,19 @@ void runIoTests()
         const ObjMeshData workpiece = readRepoObjMesh("assets/visual_test/workpiece_block.obj");
         const ObjMeshData tool = readRepoObjMesh("assets/visual_test/tool_box.obj");
 
+        const ObjMeshData screenshotDifferenceTool = transformObjMesh(
+            tool,
+            0.5,
+            0.208955,
+            0.35,
+            0.0,
+            80.597012,
+            0.0);
+        const ObjMeshData screenshotDifference =
+            solveObjBooleanMesh(workpiece, screenshotDifferenceTool, BoolOp::Difference, 25u);
+        assertWellFormedObjMesh(screenshotDifference);
+        assertFaceCountAtLeast(screenshotDifference, 1u, "visual screenshot difference rotated pose");
+
         const ObjMeshData screenshotPoseTool = transformObjMesh(
             tool,
             0.920000,
