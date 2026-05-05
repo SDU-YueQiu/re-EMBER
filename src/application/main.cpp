@@ -9,12 +9,14 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <exception>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace
@@ -70,6 +72,56 @@ namespace
     double elapsedMilliseconds(const Clock::time_point &start, const Clock::time_point &end)
     {
         return std::chrono::duration<double, std::milli>(end - start).count();
+    }
+
+    // 仅供性能脚本使用：让 Tracy capture 在计时开始前有时间连上客户端。
+    std::uint64_t readTracyAttachWaitMilliseconds() noexcept
+    {
+        const char *raw = std::getenv("REEMBER_TRACY_WAIT_MS");
+        if (raw == nullptr || raw[0] == '\0')
+        {
+            return 0;
+        }
+
+        try
+        {
+            std::size_t consumed = 0;
+            const unsigned long long parsed = std::stoull(raw, &consumed, 10);
+            if (consumed != std::char_traits<char>::length(raw))
+            {
+                return 0;
+            }
+
+            return static_cast<std::uint64_t>(parsed);
+        }
+        catch (...)
+        {
+            return 0;
+        }
+    }
+
+    bool tracyDiagnosticsEnabled() noexcept
+    {
+        const char *raw = std::getenv("REEMBER_TRACY_DIAG");
+        return raw != nullptr && raw[0] == '1';
+    }
+
+    void emitTracyDiagnostics(const char *phase)
+    {
+        if (!tracyDiagnosticsEnabled())
+        {
+            return;
+        }
+
+#if defined(REEMBER_ENABLE_TRACY)
+        std::cerr
+            << "[tracy] phase=" << phase
+            << " profiler_available=" << (tracy::ProfilerAvailable() ? 1 : 0)
+            << " connected=" << (TracyIsConnected ? 1 : 0)
+            << std::endl;
+#else
+        (void)phase;
+#endif
     }
 
     bool writeTimingMetrics(const std::string &path, const CliTimings &timings, std::string &outError)
@@ -316,6 +368,16 @@ namespace
 int main(int argc, char **argv)
 {
     REEMBER_PROFILE_ZONE("re-EMBER::main");
+    TracySetProgramName("re-EMBER");
+    emitTracyDiagnostics("startup");
+
+    const std::uint64_t tracyAttachWaitMs = readTracyAttachWaitMilliseconds();
+    if (tracyAttachWaitMs > 0)
+    {
+        REEMBER_PROFILE_ZONE("re-EMBER::tracy_attach_wait");
+        std::this_thread::sleep_for(std::chrono::milliseconds(tracyAttachWaitMs));
+    }
+    emitTracyDiagnostics("post_attach_wait");
 
     CliOptions options;
     if (!parseArgs(argc, argv, options))

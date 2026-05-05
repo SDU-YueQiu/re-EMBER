@@ -28,10 +28,6 @@ option(REEMBER_ENABLE_TRACY "Enable optional Tracy profiler instrumentation" OFF
 find_package(spdlog CONFIG REQUIRED)
 find_package(tinyobjloader CONFIG REQUIRED)
 
-if(REEMBER_ENABLE_TRACY)
-  find_package(Tracy CONFIG REQUIRED)
-endif()
-
 set(REEMBER_APP_SOURCE
   "${CMAKE_CURRENT_SOURCE_DIR}/src/application/main.cpp"
 )
@@ -52,6 +48,12 @@ set(REEMBER_LIBRARY_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/geometry256.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/io/io.cpp"
 )
+
+if(REEMBER_ENABLE_TRACY)
+  list(APPEND REEMBER_LIBRARY_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/tracy/public/TracyClient.cpp"
+  )
+endif()
 
 set(REEMBER_LIBRARY_HEADERS
   "${CMAKE_CURRENT_SOURCE_DIR}/include/slimcpplib/long_fixdiv.h"
@@ -130,8 +132,14 @@ if(REEMBER_ENABLE_CGAL)
 endif()
 
 if(REEMBER_ENABLE_TRACY)
+  find_package(Threads REQUIRED)
   target_compile_definitions(reember_lib PUBLIC REEMBER_ENABLE_TRACY=1 TRACY_ENABLE=1)
-  target_link_libraries(reember_lib PUBLIC Tracy::TracyClient)
+  target_compile_definitions(reember_lib PRIVATE TRACY_ONLY_IPV4 TRACY_NO_BROADCAST)
+  target_include_directories(reember_lib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/third_party/tracy/public")
+  target_link_libraries(reember_lib PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
+  if(WIN32)
+    target_link_libraries(reember_lib PRIVATE ws2_32 dbghelp)
+  endif()
 endif()
 
 add_executable(re-EMBER ${REEMBER_APP_SOURCE})
