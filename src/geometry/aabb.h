@@ -203,22 +203,20 @@ namespace ember
 
         for (const Polygon256 &poly : polygons)
         {
-            const std::size_t n = poly.edgePlanes.size();
-            for (std::size_t i = 0; i < n; ++i)
+            const std::vector<PlanePoint3i> &cachedVertices = poly.vertices();
+            for (const PlanePoint3i &vertex : cachedVertices)
             {
-                const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
-                const HomPoint4i v = intersectHomogeneous(poly.plane, poly.edgePlanes[i], poly.edgePlanes[prev]);
-                if (isZero(v.w))
+                if (!vertex.hasUniqueIntersection() || isZero(vertex.x.w))
                 {
                     continue;
                 }
 
-                const Integer fx = floorDiv(v.x, v.w);
-                const Integer cx = ceilDiv(v.x, v.w);
-                const Integer fy = floorDiv(v.y, v.w);
-                const Integer cy = ceilDiv(v.y, v.w);
-                const Integer fz = floorDiv(v.z, v.w);
-                const Integer cz = ceilDiv(v.z, v.w);
+                const Integer fx = floorDiv(vertex.x.x, vertex.x.w);
+                const Integer cx = ceilDiv(vertex.x.x, vertex.x.w);
+                const Integer fy = floorDiv(vertex.x.y, vertex.x.w);
+                const Integer cy = ceilDiv(vertex.x.y, vertex.x.w);
+                const Integer fz = floorDiv(vertex.x.z, vertex.x.w);
+                const Integer cz = ceilDiv(vertex.x.z, vertex.x.w);
 
                 if (!initialized)
                 {

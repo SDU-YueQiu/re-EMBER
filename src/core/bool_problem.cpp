@@ -53,6 +53,14 @@ namespace ember
             }
         }
 
+        void preprocessSolveInputPolygons(std::vector<Polygon256> &polygons) noexcept
+        {
+            for (Polygon256 &polygon : polygons)
+            {
+                polygon.precomputeVertices();
+            }
+        }
+
         const char *boolOpName(BoolOp op) noexcept
         {
             switch (op)
@@ -171,6 +179,8 @@ namespace ember
                 "Solve ended early because the input polygon soup is empty.");
             return;
         }
+
+        preprocessSolveInputPolygons(polygons_);
 
         try
         {

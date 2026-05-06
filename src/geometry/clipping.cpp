@@ -116,9 +116,7 @@ namespace ember
 
         for (std::size_t i = 0; i < n; ++i)
         {
-            const std::size_t last = (i == 0) ? (n - 1) : (i - 1);
-            const PlanePoint3i v(source.plane, source.edgePlanes[i], source.edgePlanes[last]);
-
+            const PlanePoint3i &v = source.vertex(i);
             sides[i] = v.classify(target);
         }
         
@@ -330,8 +328,7 @@ namespace ember
         sides.resize(source.edgeCount());
         for (std::size_t i = 0; i < source.edgeCount(); ++i)
         {
-            const std::size_t last = (i == 0) ? (source.edgeCount() - 1u) : (i - 1u);
-            const PlanePoint3i v(source.plane, source.edgePlanes[i], source.edgePlanes[last]);
+            const PlanePoint3i &v = source.vertex(i);
             sides[i] = v.classify(clipPlane);
         }
 

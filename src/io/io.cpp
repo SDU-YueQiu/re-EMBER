@@ -281,10 +281,10 @@ namespace ember
                 return false;
             }
 
-            outVertices.reserve(polygon.edgeCount());
-            for (std::size_t i = 0; i < polygon.edgeCount(); ++i)
+            const std::vector<PlanePoint3i> &cachedVertices = polygon.vertices();
+            outVertices.reserve(cachedVertices.size());
+            for (const PlanePoint3i &vertex : cachedVertices)
             {
-                const PlanePoint3i vertex = getPolygonVertex(polygon, i);
                 if (!vertex.hasUniqueIntersection() || isZero(vertex.x.w))
                 {
                     outError = "Failed to recover an ordered polygon vertex with a unique finite homogeneous point.";

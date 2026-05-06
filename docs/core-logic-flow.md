@@ -19,7 +19,7 @@
 当前对外流水线是：
 
 ```text
-OBJ -> 共享量化 -> Polygon soup -> BoolProblem -> SubdivisionSolver -> resultFragments -> OBJ n-gon
+OBJ -> 共享量化 -> Polygon soup -> BoolProblem(顶点预处理/校验) -> SubdivisionSolver -> resultFragments -> OBJ n-gon
 ```
 
 其中职责边界是：
@@ -61,24 +61,26 @@ flowchart TD
 
 ## 3. BoolProblem 门面流程
 
-`BoolProblem::solve()` 本身很薄，主要做三件事：
+`BoolProblem::solve()` 本身很薄，但现在会先做一次输入多边形预处理。主流程是四件事：
 
 1. 重置上一次求解状态。
-2. 校验输入多边形集合合法性。
-3. 构造内部 `SubdivisionSolver`，并把结果复制回公开门面。
+2. 统一预计算输入 `Polygon256` 的顶点缓存。
+3. 校验输入多边形集合合法性。
+4. 构造内部 `SubdivisionSolver`，并把结果复制回公开门面。
 
 ```mermaid
 flowchart TD
     A["BoolProblem::solve()"] --> B["resetSolveState()"]
     B --> C{"polygons_ 为空?"}
     C -->|是| D["discarded_=true; solved_=true; 返回"]
-    C -->|否| E["validateSolveInputPolygons(polygons_)"]
-    E --> F["构造 SubdivisionSolver(op, threshold, polygons, assumptions)"]
-    F --> G["solver.solve()"]
-    G --> H["复制 solver.isDiscarded()"]
-    H --> I["复制 solver.resultFragments()"]
-    I --> J["复制 solver.leafSummaries() / solveMetrics()"]
-    J --> K["solved_=true"]
+    C -->|否| E["preprocessSolveInputPolygons(polygons_)"]
+    E --> F["validateSolveInputPolygons(polygons_)"]
+    F --> G["构造 SubdivisionSolver(op, threshold, polygons, assumptions)"]
+    G --> H["solver.solve()"]
+    H --> I["复制 solver.isDiscarded()"]
+    I --> J["复制 solver.resultFragments()"]
+    J --> K["复制 solver.leafSummaries() / solveMetrics()"]
+    K --> L["solved_=true"]
 ```
 
 ## 4. SubdivisionSolver 总流程

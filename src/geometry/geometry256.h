@@ -116,6 +116,36 @@ namespace ember
         void addEdgePlane(
             const Plane3i &edge,
             PolygonEdgeProvenance provenance = PolygonEdgeProvenance::Regular);
+
+        /**
+         * @brief 标记当前顶点缓存失效。
+         *
+         * @note 只有在调用方直接改写 `plane` 或 `edgePlanes` 时才需要手动调用；
+         *       常规构造函数和 `addEdgePlane()` 会自己维护缓存状态。
+         */
+        void invalidateVertexCache() noexcept;
+
+        /**
+         * @brief 立即重建一次按边顺序排列的顶点缓存。
+         *
+         * @return 所有缓存顶点都有唯一交点时返回 `true`。
+         */
+        bool precomputeVertices() const noexcept;
+
+        /**
+         * @brief 读取指定下标的缓存顶点。
+         *
+         * @param[in] vertexIndex 0-based 顶点下标。
+         * @return 顶点越界时返回一个无唯一交点的空点引用。
+         */
+        const PlanePoint3i &vertex(std::size_t vertexIndex) const noexcept;
+
+        /**
+         * @brief 读取当前多边形按边顺序缓存的全部顶点。
+         *
+         * @return 顶点顺序满足 `v_i = (plane, edge_i, edge_{i-1})`。
+         */
+        const std::vector<PlanePoint3i> &vertices() const noexcept;
         std::size_t edgeCount() const noexcept;
         PolygonEdgeProvenance edgeProvenance(std::size_t edgeIndex) const noexcept;
 
@@ -131,6 +161,12 @@ namespace ember
         bool containsStrictly(const PlanePoint3i &point) const noexcept;
         bool containsOrOnBoundary(const PlanePoint3i &point) const noexcept;
         bool findStrictInteriorPoint(PlanePoint3i &outPoint) const noexcept;
+
+    private:
+        void rebuildVertexCache(bool force) const noexcept;
+
+        mutable std::vector<PlanePoint3i> vertexCache_;
+        mutable bool vertexCacheDirty_ = true;
     };
 
     inline Line256 makeLine(const Plane3i &p1, const Plane3i &p2) noexcept
