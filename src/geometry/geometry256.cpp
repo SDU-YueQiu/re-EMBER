@@ -15,6 +15,12 @@ namespace ember
             return value < 0 ? -value : value;
         }
 
+        const PlanePoint3i &invalidCachedVertex() noexcept
+        {
+            static const PlanePoint3i kInvalidVertex;
+            return kInvalidVertex;
+        }
+
         bool canScalePlaneWithinInsetHeadroom(const Plane3i &plane, const Integer &scale) noexcept
         {
             if (scale <= 0)
@@ -138,6 +144,7 @@ namespace ember
             edgeProvenances.assign(edgePlanes.size(), PolygonEdgeProvenance::Regular);
         }
         orientPolygonEdgesOutward(plane, edgePlanes);
+        precomputeVertices();
     }
 
     Segment256::Segment256(const Plane3i &startPlane, const Plane3i &endPlane, const Line256 &directionLine) noexcept
@@ -151,6 +158,60 @@ namespace ember
     {
         edgePlanes.push_back(primitivePlane(edge));
         edgeProvenances.push_back(provenance);
+        invalidateVertexCache();
+    }
+
+    void Polygon256::invalidateVertexCache() noexcept
+    {
+        vertexCacheDirty_ = true;
+    }
+
+    bool Polygon256::precomputeVertices() const noexcept
+    {
+        rebuildVertexCache(true);
+        for (const PlanePoint3i &cachedVertex : vertexCache_)
+        {
+            if (!cachedVertex.hasUniqueIntersection())
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    const PlanePoint3i &Polygon256::vertex(std::size_t vertexIndex) const noexcept
+    {
+        rebuildVertexCache(false);
+        if (vertexIndex >= vertexCache_.size())
+        {
+            return invalidCachedVertex();
+        }
+
+        return vertexCache_[vertexIndex];
+    }
+
+    const std::vector<PlanePoint3i> &Polygon256::vertices() const noexcept
+    {
+        rebuildVertexCache(false);
+        return vertexCache_;
+    }
+
+    void Polygon256::rebuildVertexCache(bool force) const noexcept
+    {
+        if (!force && !vertexCacheDirty_)
+        {
+            return;
+        }
+
+        vertexCache_.clear();
+        const std::size_t n = edgePlanes.size();
+        vertexCache_.reserve(n);
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
+            vertexCache_.emplace_back(plane, edgePlanes[i], edgePlanes[prev]);
+        }
+        vertexCacheDirty_ = false;
     }
 
     std::size_t Polygon256::edgeCount() const noexcept
@@ -189,27 +250,23 @@ namespace ember
             }
         }
 
-        std::vector<PlanePoint3i> vertices;
-        vertices.reserve(n);
-
-        // 按约定：v_i = (plane, edge_i, edge_{i-1})。
-        for (std::size_t i = 0; i < n; ++i)
+        const std::vector<PlanePoint3i> &cachedVertices = vertices();
+        if (cachedVertices.size() != n)
         {
-            // 顶点有效
-            const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
-            const PlanePoint3i v(plane, edgePlanes[i], edgePlanes[prev]);
-            if (!v.hasUniqueIntersection())
+            return false;
+        }
+        for (const PlanePoint3i &cachedVertex : cachedVertices)
+        {
+            if (!cachedVertex.hasUniqueIntersection())
             {
                 return false;
             }
-
-            vertices.push_back(v);
         }
 
         // 每个顶点都应在多边形内部或边界（用于过滤错误顺序）
-        for (const PlanePoint3i &v : vertices)
+        for (const PlanePoint3i &cachedVertex : cachedVertices)
         {
-            if (!containsOrOnBoundary(v))
+            if (!containsOrOnBoundary(cachedVertex))
             {
                 return false;
             }
@@ -221,7 +278,7 @@ namespace ember
             const std::size_t next = (i + 1 == n) ? 0 : (i + 1);
             const Plane3i &edge = edgePlanes[i];
 
-            if (vertices[i].classify(edge) != 0 || vertices[next].classify(edge) != 0)
+            if (cachedVertices[i].classify(edge) != 0 || cachedVertices[next].classify(edge) != 0)
             {
                 return false;
             }
@@ -234,7 +291,7 @@ namespace ember
                     continue;
                 }
 
-                const int side = vertices[j].classify(edge);
+                const int side = cachedVertices[j].classify(edge);
                 if (side == 0)
                 {
                     return false; // 非相邻顶点落在同一边上，非严格凸/顺序异常
@@ -316,17 +373,17 @@ namespace ember
             return false;
         }
 
-        std::vector<PlanePoint3i> vertices;
-        vertices.reserve(n);
-        for (std::size_t i = 0; i < n; ++i)
+        const std::vector<PlanePoint3i> &cachedVertices = vertices();
+        if (cachedVertices.size() != n)
         {
-            const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
-            const PlanePoint3i v(plane, edgePlanes[i], edgePlanes[prev]);
-            if (!v.hasUniqueIntersection())
+            return false;
+        }
+        for (const PlanePoint3i &cachedVertex : cachedVertices)
+        {
+            if (!cachedVertex.hasUniqueIntersection())
             {
                 return false;
             }
-            vertices.push_back(v);
         }
 
         auto findReferenceVertexForEdge = [&](std::size_t edgeIdx) -> std::size_t
@@ -399,11 +456,11 @@ namespace ember
 
             Plane3i insetA;
             Plane3i insetB;
-            if (!buildInsetEdge(edgePlanes[i], interiorSideA, vertices[i], vertices[refIdxA], insetA))
+            if (!buildInsetEdge(edgePlanes[i], interiorSideA, cachedVertices[i], cachedVertices[refIdxA], insetA))
             {
                 continue;
             }
-            if (!buildInsetEdge(edgePlanes[prev], interiorSideB, vertices[i], vertices[refIdxB], insetB))
+            if (!buildInsetEdge(edgePlanes[prev], interiorSideB, cachedVertices[i], cachedVertices[refIdxB], insetB))
             {
                 continue;
             }
