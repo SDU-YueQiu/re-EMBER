@@ -14,6 +14,15 @@
 #define REEMBER_PROFILE_ZONE(nameLiteral) ZoneScopedN(nameLiteral)
 
 /**
+ * @brief 标记 math256 这类底层热点作用域为一个可单独开关的 Tracy zone。
+ */
+#if defined(REEMBER_ENABLE_TRACY_MATH)
+#define REEMBER_PROFILE_MATH_ZONE(nameLiteral) ZoneScopedN(nameLiteral)
+#else
+#define REEMBER_PROFILE_MATH_ZONE(nameLiteral) ((void)0)
+#endif
+
+/**
  * @brief 按函数名标记当前作用域为一个 Tracy zone。
  */
 #define REEMBER_PROFILE_FUNCTION() ZoneScoped
@@ -36,6 +45,7 @@
 #else
 
 #define REEMBER_PROFILE_ZONE(nameLiteral) ((void)0)
+#define REEMBER_PROFILE_MATH_ZONE(nameLiteral) ((void)0)
 #define REEMBER_PROFILE_FUNCTION() ((void)0)
 #define REEMBER_PROFILE_VALUE(nameLiteral, value) ((void)0)
 #define REEMBER_PROFILE_MESSAGE(text, size) ((void)0)
