@@ -385,6 +385,137 @@ namespace ember
         /**
          * @brief 按相邻边平面向内偏移的论文兜底策略构造内部点候选。
          */
+        inline bool collectFinitePolygonVertices(
+            const Polygon256 &polygon,
+            std::vector<PlanePoint3i> &vertices)
+        {
+            const std::size_t edgeCount = polygon.edgePlanes.size();
+            vertices.clear();
+            vertices.reserve(edgeCount);
+            for (std::size_t edgeIndex = 0; edgeIndex < edgeCount; ++edgeIndex)
+            {
+                const PlanePoint3i vertex = getPolygonVertex(polygon, edgeIndex);
+                if (!vertex.hasUniqueIntersection())
+                {
+                    return false;
+                }
+
+                vertices.push_back(vertex);
+            }
+
+            return true;
+        }
+
+        inline std::size_t findInsetReferenceVertex(std::size_t edgeIndex, std::size_t edgeCount) noexcept
+        {
+            const std::size_t next = (edgeIndex + 1 == edgeCount) ? 0 : (edgeIndex + 1);
+            for (std::size_t vertexIndex = 0; vertexIndex < edgeCount; ++vertexIndex)
+            {
+                if (vertexIndex != edgeIndex && vertexIndex != next)
+                {
+                    return vertexIndex;
+                }
+            }
+
+            return edgeCount;
+        }
+
+        inline bool buildScaledInsetEdgePlanes(
+            const Polygon256 &polygon,
+            std::size_t edgeIndex,
+            std::size_t prevEdgeIndex,
+            const Integer &scale,
+            Plane3i &scaledA,
+            Plane3i &scaledB) noexcept
+        {
+            if (!canScalePlaneWithinInsetHeadroom(polygon.edgePlanes[edgeIndex], scale) ||
+                !canScalePlaneWithinInsetHeadroom(polygon.edgePlanes[prevEdgeIndex], scale))
+            {
+                return false;
+            }
+
+            scaledA = Plane3i(
+                polygon.edgePlanes[edgeIndex].a * scale,
+                polygon.edgePlanes[edgeIndex].b * scale,
+                polygon.edgePlanes[edgeIndex].c * scale,
+                polygon.edgePlanes[edgeIndex].d * scale);
+            scaledB = Plane3i(
+                polygon.edgePlanes[prevEdgeIndex].a * scale,
+                polygon.edgePlanes[prevEdgeIndex].b * scale,
+                polygon.edgePlanes[prevEdgeIndex].c * scale,
+                polygon.edgePlanes[prevEdgeIndex].d * scale);
+            return true;
+        }
+
+        inline void appendInsetCandidatesForEdge(
+            const Polygon256 &polygon,
+            const std::vector<PlanePoint3i> &vertices,
+            std::size_t edgeIndex,
+            const Integer &scale,
+            const std::array<Integer, 4> &offsets,
+            std::vector<PlanePoint3i> &candidates,
+            std::size_t maxTotalCandidates,
+            bool &anyEdgeWithinHeadroom)
+        {
+            if (candidates.size() >= maxTotalCandidates)
+            {
+                return;
+            }
+
+            const std::size_t edgeCount = polygon.edgePlanes.size();
+            const std::size_t prevEdgeIndex = (edgeIndex == 0) ? (edgeCount - 1) : (edgeIndex - 1);
+            const std::size_t refIdxA = findInsetReferenceVertex(edgeIndex, edgeCount);
+            const std::size_t refIdxB = findInsetReferenceVertex(prevEdgeIndex, edgeCount);
+            if (refIdxA == edgeCount || refIdxB == edgeCount)
+            {
+                return;
+            }
+
+            Plane3i scaledA;
+            Plane3i scaledB;
+            if (!buildScaledInsetEdgePlanes(polygon, edgeIndex, prevEdgeIndex, scale, scaledA, scaledB))
+            {
+                return;
+            }
+
+            anyEdgeWithinHeadroom = true;
+            constexpr int interiorSideA = -1;
+            constexpr int interiorSideB = -1;
+            for (const Integer &offsetA : offsets)
+            {
+                if (candidates.size() >= maxTotalCandidates)
+                {
+                    break;
+                }
+
+                Plane3i insetA = scaledA;
+                insetA.d -= Integer(interiorSideA) * offsetA;
+                if (vertices[refIdxA].classify(insetA) != interiorSideA)
+                {
+                    continue;
+                }
+
+                for (const Integer &offsetB : offsets)
+                {
+                    if (candidates.size() >= maxTotalCandidates)
+                    {
+                        break;
+                    }
+
+                    Plane3i insetB = scaledB;
+                    insetB.d -= Integer(interiorSideB) * offsetB;
+                    if (vertices[refIdxB].classify(insetB) != interiorSideB ||
+                        !hasUniqueIntersection(polygon.plane, insetA, insetB))
+                    {
+                        continue;
+                    }
+
+                    const PlanePoint3i candidate(polygon.plane, insetA, insetB);
+                    appendUniqueStrictInteriorPoint(candidates, polygon, candidate);
+                }
+            }
+        }
+
         inline void appendInsetInteriorPointCandidates(const Polygon256 &polygon, std::vector<PlanePoint3i> &candidates)
         {
             constexpr std::size_t maxTotalCandidates = 32;
@@ -395,29 +526,10 @@ namespace ember
             }
 
             std::vector<PlanePoint3i> vertices;
-            vertices.reserve(n);
-            for (std::size_t i = 0; i < n; ++i)
+            if (!collectFinitePolygonVertices(polygon, vertices))
             {
-                const PlanePoint3i vertex = getPolygonVertex(polygon, i);
-                if (!vertex.hasUniqueIntersection())
-                {
-                    return;
-                }
-                vertices.push_back(vertex);
+                return;
             }
-
-            auto findReferenceVertexForEdge = [n](std::size_t edgeIdx) -> std::size_t
-            {
-                const std::size_t next = (edgeIdx + 1 == n) ? 0 : (edgeIdx + 1);
-                for (std::size_t k = 0; k < n; ++k)
-                {
-                    if (k != edgeIdx && k != next)
-                    {
-                        return k;
-                    }
-                }
-                return n;
-            };
 
             const std::array<Integer, 4> offsets = {
                 Integer(1),
@@ -431,75 +543,15 @@ namespace ember
                 bool anyEdgeWithinHeadroom = false;
                 for (std::size_t i = 0; i < n; ++i)
                 {
-                    if (candidates.size() >= maxTotalCandidates)
-                    {
-                        break;
-                    }
-
-                    const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
-                    const std::size_t refIdxA = findReferenceVertexForEdge(i);
-                    const std::size_t refIdxB = findReferenceVertexForEdge(prev);
-                    if (refIdxA == n || refIdxB == n)
-                    {
-                        continue;
-                    }
-
-                    constexpr int interiorSideA = -1;
-                    constexpr int interiorSideB = -1;
-                    if (!canScalePlaneWithinInsetHeadroom(polygon.edgePlanes[i], scale) ||
-                        !canScalePlaneWithinInsetHeadroom(polygon.edgePlanes[prev], scale))
-                    {
-                        continue;
-                    }
-                    anyEdgeWithinHeadroom = true;
-
-                    const Plane3i scaledA(
-                        polygon.edgePlanes[i].a * scale,
-                        polygon.edgePlanes[i].b * scale,
-                        polygon.edgePlanes[i].c * scale,
-                        polygon.edgePlanes[i].d * scale);
-                    const Plane3i scaledB(
-                        polygon.edgePlanes[prev].a * scale,
-                        polygon.edgePlanes[prev].b * scale,
-                        polygon.edgePlanes[prev].c * scale,
-                        polygon.edgePlanes[prev].d * scale);
-
-                    for (const Integer &offsetA : offsets)
-                    {
-                        if (candidates.size() >= maxTotalCandidates)
-                        {
-                            break;
-                        }
-
-                        Plane3i insetA = scaledA;
-                        insetA.d -= Integer(interiorSideA) * offsetA;
-                        if (vertices[refIdxA].classify(insetA) != interiorSideA)
-                        {
-                            continue;
-                        }
-
-                        for (const Integer &offsetB : offsets)
-                        {
-                            if (candidates.size() >= maxTotalCandidates)
-                            {
-                                break;
-                            }
-
-                            Plane3i insetB = scaledB;
-                            insetB.d -= Integer(interiorSideB) * offsetB;
-                            if (vertices[refIdxB].classify(insetB) != interiorSideB)
-                            {
-                                continue;
-                            }
-                            if (!hasUniqueIntersection(polygon.plane, insetA, insetB))
-                            {
-                                continue;
-                            }
-
-                            const PlanePoint3i candidate(polygon.plane, insetA, insetB);
-                            appendUniqueStrictInteriorPoint(candidates, polygon, candidate);
-                        }
-                    }
+                    appendInsetCandidatesForEdge(
+                        polygon,
+                        vertices,
+                        i,
+                        scale,
+                        offsets,
+                        candidates,
+                        maxTotalCandidates,
+                        anyEdgeWithinHeadroom);
                 }
 
                 if (!anyEdgeWithinHeadroom)
@@ -1167,6 +1219,42 @@ namespace ember
         /**
          * @brief 将单条线段裁剪到 AABB 内部。
          */
+        inline bool clipSegmentAgainstAABBPlane(
+            Segment256 &segment,
+            const Plane3i &clipPlane)
+        {
+            const PlanePoint3i startPoint = segment.getStartPoint();
+            const PlanePoint3i endPoint = segment.getEndPoint();
+            const int startSide = startPoint.classify(clipPlane);
+            const int endSide = endPoint.classify(clipPlane);
+
+            if (startSide > 0 && endSide > 0)
+            {
+                return false;
+            }
+            if (startSide <= 0 && endSide <= 0)
+            {
+                return true;
+            }
+
+            const PlanePoint3i hitPoint = intersect(segment.direction, clipPlane);
+            if (!hitPoint.hasUniqueIntersection() || !isPointOnSegment(hitPoint, segment))
+            {
+                return false;
+            }
+
+            segment = (startSide > 0)
+                          ? Segment256(clipPlane, segment.end, segment.direction)
+                          : Segment256(segment.start, clipPlane, segment.direction);
+            return segment.isValid();
+        }
+
+        inline bool isSegmentInsideOrOnAABB(const Segment256 &segment, const AABB3i &box)
+        {
+            return isPointInsideOrOnAABB(segment.getStartPoint(), box) &&
+                   isPointInsideOrOnAABB(segment.getEndPoint(), box);
+        }
+
         inline bool clipSegmentToAABB(const Segment256 &segment, const AABB3i &box, Segment256 &outSegment)
         {
             if (!segment.isValid() || !isValidAABB(box))
@@ -1178,43 +1266,13 @@ namespace ember
             const auto planes = makeAABBPlanes(box);
             for (const Plane3i &clipPlane : planes)
             {
-                const PlanePoint3i startPoint = current.getStartPoint();
-                const PlanePoint3i endPoint = current.getEndPoint();
-                const int startSide = startPoint.classify(clipPlane);
-                const int endSide = endPoint.classify(clipPlane);
-
-                if (startSide > 0 && endSide > 0)
-                {
-                    return false;
-                }
-                if (startSide <= 0 && endSide <= 0)
-                {
-                    continue;
-                }
-
-                const PlanePoint3i hitPoint = intersect(current.direction, clipPlane);
-                if (!hitPoint.hasUniqueIntersection() || !isPointOnSegment(hitPoint, current))
-                {
-                    return false;
-                }
-
-                if (startSide > 0)
-                {
-                    current = Segment256(clipPlane, current.end, current.direction);
-                }
-                else
-                {
-                    current = Segment256(current.start, clipPlane, current.direction);
-                }
-
-                if (!current.isValid())
+                if (!clipSegmentAgainstAABBPlane(current, clipPlane))
                 {
                     return false;
                 }
             }
 
-            if (!isPointInsideOrOnAABB(current.getStartPoint(), box) ||
-                !isPointInsideOrOnAABB(current.getEndPoint(), box))
+            if (!isSegmentInsideOrOnAABB(current, box))
             {
                 return false;
             }

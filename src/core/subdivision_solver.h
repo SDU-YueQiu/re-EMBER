@@ -149,9 +149,64 @@ namespace ember
         void finishCurrentNodeAsLeaf();
 
         /**
+         * @brief 当当前节点为空或 AABB 非法时直接丢弃。
+         */
+        bool tryDiscardInvalidOrEmptyNode();
+
+        /**
+         * @brief 当当前节点布尔指示函数已恒定时直接丢弃。
+         */
+        bool tryDiscardConstantIndicatorNode();
+
+        /**
+         * @brief 当当前节点满足停止条件时按叶子完成求解。
+         */
+        bool tryFinishStoppedSubdivisionNode();
+
+        /**
+         * @brief 合并已求解子节点的结果片段与丢弃状态。
+         */
+        void mergeSolvedChildren();
+
+        /**
          * @brief 根据 AABB 切分创建子求解器节点。
          */
         bool createChildrenFromSplit(const AABBSplit3i &split);
+
+        /**
+         * @brief 将当前多边形集合裁剪为左右子节点 polygon soup。
+         */
+        bool buildSplitChildPolygonSoups(
+            const Plane3i &splitPlane,
+            std::vector<Polygon256> &leftPolygons,
+            std::vector<Polygon256> &rightPolygons) const;
+
+        /**
+         * @brief 为左右子节点建立参考状态。
+         */
+        void buildChildReferenceStates(
+            const AABBSplit3i &split,
+            const std::vector<Polygon256> &leftPolygons,
+            const std::vector<Polygon256> &rightPolygons,
+            SubdivisionRefState &leftReference,
+            SubdivisionRefState &rightReference);
+
+        /**
+         * @brief 判断某个子节点是否可被常量指示函数直接丢弃。
+         */
+        bool shouldCreateChildNode(
+            const char *side,
+            const std::vector<Polygon256> &childPolygons,
+            const SubdivisionRefState &childReference);
+
+        /**
+         * @brief 构造一个子求解器实例并接管其输入状态。
+         */
+        void createChildSolver(
+            std::unique_ptr<SubdivisionSolver> &child,
+            const AABB3i &childBox,
+            std::vector<Polygon256> childPolygons,
+            SubdivisionRefState childReference);
 
         /**
          * @brief 为子 AABB 传播或重建参考点。
@@ -160,6 +215,24 @@ namespace ember
             const AABB3i &childBox,
             const std::vector<Polygon256> &childPolygons,
             SubdivisionRefState &outReference);
+
+        /**
+         * @brief 若当前参考点仍可安全用于子节点，则直接复用。
+         */
+        bool tryReuseChildReference(
+            const AABB3i &childBox,
+            const std::vector<Polygon256> &childPolygons,
+            SubdivisionRefState &outReference);
+
+        /**
+         * @brief 尝试直接复用单操作数分类结果。
+         */
+        bool tryReuseSingleOperandFragmentClassification(
+            const Polygon256 &fragment,
+            bool reuseSingleOperandClassification,
+            bool hasReusableClassification,
+            const WNV &reusableFrontWNV,
+            const WNV &reusableBackWNV);
 
         /**
          * @brief 对一个 WNV 计算当前配置的布尔指示函数。
