@@ -75,6 +75,7 @@ set(REEMBER_LIBRARY_HEADERS
   "${CMAKE_CURRENT_SOURCE_DIR}/src/core/bool_problem.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/core/logging.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/core/perf_tracing.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/core/solver_shared.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/core/subdivision_solver.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/aabb.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/clipping.h"

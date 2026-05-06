@@ -6,6 +6,7 @@
 
 #include "core/logging.h"
 #include "core/perf_tracing.h"
+#include "geometry/polygon_ops.h"
 
 #include <stdexcept>
 
@@ -15,24 +16,6 @@ namespace ember
     {
         constexpr const char *kBspInsertScope = "BSPTree::insert";
         constexpr const char *kBspAddSegmentScope = "BSPTree::addSegmentRecursive";
-    }
-
-    bool areCoplanarPolygons(const Polygon256 &lhs, const Polygon256 &rhs) noexcept
-    {
-        // 因为直接公式判断的精度未测试，所以先用这种查顶点是否落在两面上的实现。
-        // 待办：如果这里成为性能瓶颈，再改成直接公式判断。
-
-        if (!arePlaneNormalsParallel(lhs.plane, rhs.plane))
-        {
-            return false;
-        }
-
-        PlanePoint3i vertex(lhs.plane, lhs.edgePlanes[0], lhs.edgePlanes[1]);
-
-        if (!vertex.hasUniqueIntersection())
-            return false;
-
-        return vertex.classify(rhs.plane) == 0;
     }
 
     BSPNode::BSPNode() noexcept

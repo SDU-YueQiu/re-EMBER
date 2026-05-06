@@ -6,6 +6,7 @@
 
 #include "algorithm/bsp.h"
 #include "core/perf_tracing.h"
+#include "geometry/polygon_ops.h"
 
 #include <iterator>
 
@@ -26,17 +27,6 @@ namespace ember
             detail::IntersectionCarrier lhsCarrier;
             detail::IntersectionCarrier rhsCarrier;
         };
-
-        bool areCoplanarPolygonsForPairCache(const Polygon256 &lhs, const Polygon256 &rhs) noexcept
-        {
-            if (!arePlaneNormalsParallel(lhs.plane, rhs.plane))
-            {
-                return false;
-            }
-
-            const PlanePoint3i vertex(lhs.plane, lhs.edgePlanes[0], lhs.edgePlanes[1]);
-            return vertex.hasUniqueIntersection() && vertex.classify(rhs.plane) == 0;
-        }
 
         LeafPairRelation buildLeafPairRelation(const Polygon256 &lhs, const Polygon256 &rhs)
         {
@@ -70,7 +60,7 @@ namespace ember
                 return relation;
             }
 
-            if (areCoplanarPolygonsForPairCache(lhs, rhs))
+            if (areCoplanarPolygons(lhs, rhs))
             {
                 relation.kind = LeafPairRelationKind::Coplanar;
             }
