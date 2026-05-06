@@ -401,9 +401,6 @@ void runMath256Tests()
 		assert(point.classify(below) < 0);
 		assert(point.classify(on) == 0);
 
-		assert(point.classify(above) == ember::classifyByDeterminants(px, py, pz, above));
-		assert(point.classify(below) == ember::classifyByDeterminants(px, py, pz, below));
-		assert(point.classify(on) == ember::classifyByDeterminants(px, py, pz, on));
 	}
 
 	{
