@@ -36,11 +36,6 @@ namespace ember
         return value == 0;
     }
 
-    inline bool isPositive(const Integer& value) noexcept
-    {
-        return value > 0;
-    }
-
     /**
      * @brief 返回整数绝对值，用于几何系数的幅值归一化。
      */
@@ -207,118 +202,6 @@ namespace ember
         return false;
     }
 
-    struct Vec2i
-    {
-        Integer x = 0;
-        Integer y = 0;
-
-        Vec2i() noexcept = default;
-        Vec2i(const Integer& xVal, const Integer& yVal) noexcept : x(xVal), y(yVal) {}
-
-        Vec2i& operator+=(const Vec2i& rhs) noexcept
-        {
-            x += rhs.x;
-            y += rhs.y;
-            return *this;
-        }
-
-        Vec2i& operator-=(const Vec2i& rhs) noexcept
-        {
-            x -= rhs.x;
-            y -= rhs.y;
-            return *this;
-        }
-
-        Vec2i& operator*=(const Integer& k) noexcept
-        {
-            x *= k;
-            y *= k;
-            return *this;
-        }
-
-        Vec2i& operator/=(const Integer& k) noexcept
-        {
-            x /= k;
-            y /= k;
-            return *this;
-        }
-
-        Vec2i operator+() const noexcept { return *this; }
-        Vec2i operator-() const noexcept { return Vec2i(-x, -y); }
-
-        bool operator==(const Vec2i& rhs) const noexcept { return x == rhs.x && y == rhs.y; }
-        bool operator!=(const Vec2i& rhs) const noexcept { return !(*this == rhs); }
-
-        Integer lengthSquared() const noexcept
-        {
-            return x * x + y * y;
-        }
-    };
-
-    inline Vec2i operator+(Vec2i lhs, const Vec2i& rhs) noexcept
-    {
-        lhs += rhs;
-        return lhs;
-    }
-
-    inline Vec2i operator-(Vec2i lhs, const Vec2i& rhs) noexcept
-    {
-        lhs -= rhs;
-        return lhs;
-    }
-
-    inline Vec2i operator*(Vec2i v, const Integer& k) noexcept
-    {
-        v *= k;
-        return v;
-    }
-
-    inline Vec2i operator*(const Integer& k, Vec2i v) noexcept
-    {
-        v *= k;
-        return v;
-    }
-
-    inline Vec2i operator/(Vec2i v, const Integer& k) noexcept
-    {
-        v /= k;
-        return v;
-    }
-
-    inline Integer dot(const Vec2i& a, const Vec2i& b) noexcept
-    {
-        return a.x * b.x + a.y * b.y;
-    }
-
-    inline Integer cross(const Vec2i& a, const Vec2i& b) noexcept
-    {
-        return a.x * b.y - a.y * b.x;
-    }
-
-    inline Integer determinant2x2(
-        const Integer& a11,
-        const Integer& a12,
-        const Integer& a21,
-        const Integer& a22) noexcept
-    {
-        return a11 * a22 - a12 * a21;
-    }
-
-    inline Integer determinant(const Vec2i& row1, const Vec2i& row2) noexcept
-    {
-        return determinant2x2(row1.x, row1.y, row2.x, row2.y);
-    }
-
-    inline Integer orient2d(const Vec2i& a, const Vec2i& b, const Vec2i& c) noexcept
-    {
-        return cross(b - a, c - a);
-    }
-
-    inline int orient2dSign(const Vec2i& a, const Vec2i& b, const Vec2i& c) noexcept
-    {
-        return signum(orient2d(a, b, c));
-    }
-
     struct Vec3i
     {
         Integer x = 0;
@@ -366,10 +249,6 @@ namespace ember
         bool operator==(const Vec3i& rhs) const noexcept { return x == rhs.x && y == rhs.y && z == rhs.z; }
         bool operator!=(const Vec3i& rhs) const noexcept { return !(*this == rhs); }
 
-        Integer lengthSquared() const noexcept
-        {
-            return x * x + y * y + z * z;
-        }
     };
 
     inline Vec3i operator+(Vec3i lhs, const Vec3i& rhs) noexcept
@@ -415,11 +294,6 @@ namespace ember
             a.x * b.y - a.y * b.x);
     }
 
-    inline Integer scalarTriple(const Vec3i& a, const Vec3i& b, const Vec3i& c) noexcept
-    {
-        return dot(a, cross(b, c));
-    }
-
     inline Integer determinant3x3(
         const Integer& a11,
         const Integer& a12,
@@ -449,16 +323,6 @@ namespace ember
             row3.x,
             row3.y,
             row3.z);
-    }
-
-    inline int orient3dSign(const Vec3i& a, const Vec3i& b, const Vec3i& c) noexcept
-    {
-        return signum(scalarTriple(a, b, c));
-    }
-
-    inline std::ostream& operator<<(std::ostream& os, const Vec2i& v)
-    {
-        return os << '(' << v.x << ", " << v.y << ')';
     }
 
     inline std::ostream& operator<<(std::ostream& os, const Vec3i& v)
