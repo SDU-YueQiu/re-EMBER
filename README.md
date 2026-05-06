@@ -96,7 +96,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configura
 powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -EnableMathTracy
 ```
 
-`REEMBER_ENABLE_TRACY_MATH` / `-EnableMathTracy` 默认应该保持关闭。只有确认瓶颈已经落到低层数学工具时才打开，否则这些超高频 zone 本身会带来额外开销，并淹没上层算法热点。
+`REEMBER_ENABLE_TRACY_MATH` / `-EnableMathTracy` 默认应该保持关闭。只有确认瓶颈已经落到低层数学工具时才打开，否则这些超高频 zone 本身会带来一定额外开销。
 
 只想看端到端时间和 `BoolSolveMetrics`，不需要 Tracy zone 时使用 `-NoTracy`；脚本会自动改用 `build\profile_notracy\`：
 
