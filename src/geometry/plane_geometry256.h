@@ -75,18 +75,6 @@ namespace ember
                   << ", d=" << p.d << ")";
     }
 
-    inline Integer determinant4x4(
-        const Plane3i &row1,
-        const Plane3i &row2,
-        const Plane3i &row3,
-        const Plane3i &row4) noexcept
-    {
-        return determinant4x4(row1.a, row1.b, row1.c, row1.d,
-                              row2.a, row2.b, row2.c, row2.d,
-                              row3.a, row3.b, row3.c, row3.d,
-                              row4.a, row4.b, row4.c, row4.d);
-    }
-
     inline bool arePlaneNormalsParallel(const Plane3i &p, const Plane3i &q) noexcept
     {
         const auto normalCross = cross(p.normal(), q.normal());
@@ -126,15 +114,6 @@ namespace ember
     inline int classifyPointAgainstPlane(const HomPoint4i &x, const Plane3i &s) noexcept
     {
         return x.classify(s);
-    }
-
-    inline int classifyByDeterminants(
-        const Plane3i &p,
-        const Plane3i &q,
-        const Plane3i &r,
-        const Plane3i &s) noexcept
-    {
-        return signum(determinant4x4(p, q, r, s)) * signum(normalDeterminant(p, q, r));
     }
 
     struct PlanePoint3i

@@ -437,31 +437,6 @@ namespace ember
             + a13 * (a21 * a32 - a22 * a31);
     }
 
-    inline Integer determinant4x4(
-        const Integer& a11,
-        const Integer& a12,
-        const Integer& a13,
-        const Integer& a14,
-        const Integer& a21,
-        const Integer& a22,
-        const Integer& a23,
-        const Integer& a24,
-        const Integer& a31,
-        const Integer& a32,
-        const Integer& a33,
-        const Integer& a34,
-        const Integer& a41,
-        const Integer& a42,
-        const Integer& a43,
-        const Integer& a44) noexcept
-    {
-        REEMBER_PROFILE_MATH_ZONE("math256::determinant4x4");
-        return a11 * determinant3x3(a22, a23, a24, a32, a33, a34, a42, a43, a44)
-            - a12 * determinant3x3(a21, a23, a24, a31, a33, a34, a41, a43, a44)
-            + a13 * determinant3x3(a21, a22, a24, a31, a32, a34, a41, a42, a44)
-            - a14 * determinant3x3(a21, a22, a23, a31, a32, a33, a41, a42, a43);
-    }
-
     inline Integer determinant(const Vec3i& row1, const Vec3i& row2, const Vec3i& row3) noexcept
     {
         return determinant3x3(
