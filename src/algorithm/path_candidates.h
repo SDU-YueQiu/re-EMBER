@@ -714,6 +714,11 @@ namespace ember
             return emitted;
         }
 
+        Integer referenceX = 0;
+        Integer referenceY = 0;
+        Integer referenceZ = 0;
+        const bool hasExactReferencePoint =
+            detail::tryExtractExactIntegerPoint(referencePoint, referenceX, referenceY, referenceZ);
         for (const PlanePoint3i &targetPoint : targetPoints)
         {
             auto emitCandidate =
@@ -723,34 +728,34 @@ namespace ember
                 return visitor(LeafClassificationPathCandidate{targetPoint, std::move(path)});
             };
 
-            Integer referenceX, referenceY, referenceZ;
             Integer targetX, targetY, targetZ;
-            if (detail::tryExtractExactIntegerPoint(referencePoint, referenceX, referenceY, referenceZ) &&
+            if (hasExactReferencePoint &&
                 detail::tryExtractExactIntegerPoint(targetPoint, targetX, targetY, targetZ))
             {
-                std::vector<SplitAxis3i> changedAxes;
+                std::array<SplitAxis3i, 3> changedAxes = {};
+                std::size_t axisCount = 0;
                 if (referenceX != targetX)
                 {
-                    changedAxes.push_back(SplitAxis3i::X);
+                    changedAxes[axisCount++] = SplitAxis3i::X;
                 }
                 if (referenceY != targetY)
                 {
-                    changedAxes.push_back(SplitAxis3i::Y);
+                    changedAxes[axisCount++] = SplitAxis3i::Y;
                 }
                 if (referenceZ != targetZ)
                 {
-                    changedAxes.push_back(SplitAxis3i::Z);
+                    changedAxes[axisCount++] = SplitAxis3i::Z;
                 }
 
                 std::sort(
                     changedAxes.begin(),
-                    changedAxes.end(),
+                    changedAxes.begin() + static_cast<std::ptrdiff_t>(axisCount),
                     [](SplitAxis3i lhs, SplitAxis3i rhs)
                     {
                         return detail::axisOrderKey(lhs) < detail::axisOrderKey(rhs);
                     });
 
-                if (changedAxes.empty())
+                if (axisCount == 0)
                 {
                     if (!emitCandidate({}))
                     {
@@ -759,11 +764,11 @@ namespace ember
                 }
                 else
                 {
-                    std::vector<SplitAxis3i> axisOrder = changedAxes;
+                    std::array<SplitAxis3i, 3> axisOrder = changedAxes;
                     do
                     {
                         std::vector<Segment256> path;
-                        if (detail::buildAxisAlignedCoordinatePath(referencePoint, targetPoint, box, axisOrder, path))
+                        if (detail::buildAxisAlignedCornerPath(referencePoint, targetPoint, box, axisOrder, axisCount, path))
                         {
                             if (!emitCandidate(std::move(path)))
                             {
@@ -772,7 +777,7 @@ namespace ember
                         }
                     } while (std::next_permutation(
                         axisOrder.begin(),
-                        axisOrder.end(),
+                        axisOrder.begin() + static_cast<std::ptrdiff_t>(axisCount),
                         [](SplitAxis3i lhs, SplitAxis3i rhs)
                         {
                             return detail::axisOrderKey(lhs) < detail::axisOrderKey(rhs);
@@ -780,37 +785,49 @@ namespace ember
                 }
             }
 
-            std::vector<int> changedPlaneIndices;
+            std::array<int, 3> changedPlaneIndices = {};
+            std::size_t changedPlaneCount = 0;
             if (!detail::areSamePlaneEquation(referencePoint.p, targetPoint.p))
             {
-                changedPlaneIndices.push_back(0);
+                changedPlaneIndices[changedPlaneCount++] = 0;
             }
             if (!detail::areSamePlaneEquation(referencePoint.q, targetPoint.q))
             {
-                changedPlaneIndices.push_back(1);
+                changedPlaneIndices[changedPlaneCount++] = 1;
             }
             if (!detail::areSamePlaneEquation(referencePoint.r, targetPoint.r))
             {
-                changedPlaneIndices.push_back(2);
+                changedPlaneIndices[changedPlaneCount++] = 2;
             }
 
-            if (changedPlaneIndices.empty())
+            if (changedPlaneCount == 0)
             {
                 continue;
             }
 
-            std::sort(changedPlaneIndices.begin(), changedPlaneIndices.end());
+            std::sort(
+                changedPlaneIndices.begin(),
+                changedPlaneIndices.begin() + static_cast<std::ptrdiff_t>(changedPlaneCount));
+            std::array<int, 3> planeReplacementOrder = changedPlaneIndices;
             do
             {
                 std::vector<Segment256> path;
-                if (detail::buildPlaneReplacementPath(referencePoint, targetPoint, box, changedPlaneIndices, path))
+                if (detail::buildPlaneReplacementPath(
+                        referencePoint,
+                        targetPoint,
+                        box,
+                        planeReplacementOrder,
+                        changedPlaneCount,
+                        path))
                 {
                     if (!emitCandidate(std::move(path)))
                     {
                         return emitted;
                     }
                 }
-            } while (std::next_permutation(changedPlaneIndices.begin(), changedPlaneIndices.end()));
+            } while (std::next_permutation(
+                planeReplacementOrder.begin(),
+                planeReplacementOrder.begin() + static_cast<std::ptrdiff_t>(changedPlaneCount)));
         }
 
         return emitted;

@@ -39,12 +39,13 @@ namespace ember
             {
                 return "empty_path";
             }
-            if (!areSamePlanePoint(path.front().getStartPoint(), refpoint.point))
+            const PlanePoint3i &pathStartPoint = path.front().getStartPointRef();
+            if (!areSamePlanePoint(pathStartPoint, refpoint.point))
             {
                 return "path_start_mismatch";
             }
 
-            const PlanePoint3i targetPoint = path.back().getEndPoint();
+            const PlanePoint3i &targetPoint = path.back().getEndPointRef();
             if (!targetPoint.hasUniqueIntersection() || targetPoint.classify(referencePlane) != 0)
             {
                 return "target_not_on_reference_plane";
@@ -53,8 +54,7 @@ namespace ember
             for (std::size_t polygonIndex = 0; polygonIndex < polygons.size(); ++polygonIndex)
             {
                 const Polygon256 &poly = polygons[polygonIndex];
-                PlanePoint3i startPoint = path[0].getStartPoint();
-                int pcs = poly.classify(startPoint);
+                int pcs = poly.classify(pathStartPoint);
                 if (pcs == 0)
                 {
                     std::ostringstream message;
@@ -65,7 +65,7 @@ namespace ember
                 for (std::size_t segmentIndex = 0; segmentIndex < path.size(); ++segmentIndex)
                 {
                     const Segment256 &seg = path[segmentIndex];
-                    const PlanePoint3i endPoint = seg.getEndPoint();
+                    const PlanePoint3i &endPoint = seg.getEndPointRef();
                     const int pce = poly.classify(endPoint);
                     const bool isLastSegment = (segmentIndex + 1 == path.size());
 
@@ -111,7 +111,7 @@ namespace ember
                 }
             }
 
-            const PlanePoint3i lastStartPoint = path.back().getStartPoint();
+            const PlanePoint3i &lastStartPoint = path.back().getStartPointRef();
             if (lastStartPoint.classify(referencePlane) == 0)
             {
                 return "last_start_on_reference_plane";

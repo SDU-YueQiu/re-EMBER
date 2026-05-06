@@ -28,18 +28,14 @@ namespace ember
             const AABB3i &box,
             std::vector<Segment256> &outPath);
         inline bool buildAxisAlignedSegment(
-            const PlanePoint3i &startPoint,
-            const PlanePoint3i &endPoint,
+            const Integer &x0,
+            const Integer &y0,
+            const Integer &z0,
+            const Integer &x1,
+            const Integer &y1,
+            const Integer &z1,
             Segment256 &outSegment)
         {
-            Integer x0, y0, z0;
-            Integer x1, y1, z1;
-            if (!tryExtractExactIntegerPoint(startPoint, x0, y0, z0) ||
-                !tryExtractExactIntegerPoint(endPoint, x1, y1, z1))
-            {
-                return false;
-            }
-
             const bool diffX = (x0 != x1);
             const bool diffY = (y0 != y1);
             const bool diffZ = (z0 != z1);
@@ -74,26 +70,54 @@ namespace ember
             return outSegment.isValid();
         }
 
-        /**
-         * @brief 按给定轴顺序构造一条曼哈顿风格的角点路径。
-         */
-        inline bool buildAxisAlignedCornerPath(
+        inline bool buildAxisAlignedSegment(
             const PlanePoint3i &startPoint,
-            const PlanePoint3i &targetPoint,
+            const PlanePoint3i &endPoint,
+            Segment256 &outSegment)
+        {
+            Integer x0, y0, z0;
+            Integer x1, y1, z1;
+            if (!tryExtractExactIntegerPoint(startPoint, x0, y0, z0) ||
+                !tryExtractExactIntegerPoint(endPoint, x1, y1, z1))
+            {
+                return false;
+            }
+
+            return buildAxisAlignedSegment(x0, y0, z0, x1, y1, z1, outSegment);
+        }
+
+        inline bool isIntegerPointInsideOrOnAABB(
+            const Integer &x,
+            const Integer &y,
+            const Integer &z,
+            const AABB3i &box) noexcept
+        {
+            return isValidAABB(box) &&
+                   x >= box.xMin && x <= box.xMax &&
+                   y >= box.yMin && y <= box.yMax &&
+                   z >= box.zMin && z <= box.zMax;
+        }
+
+        inline bool buildAxisAlignedCornerPathFromIntegers(
+            Integer currentX,
+            Integer currentY,
+            Integer currentZ,
+            const Integer &targetX,
+            const Integer &targetY,
+            const Integer &targetZ,
             const std::array<SplitAxis3i, 3> &axisOrder,
             std::size_t axisCount,
+            const AABB3i *box,
             std::vector<Segment256> &outPath)
         {
-            Integer currentX, currentY, currentZ;
-            Integer targetX, targetY, targetZ;
-            if (!tryExtractExactIntegerPoint(startPoint, currentX, currentY, currentZ) ||
-                !tryExtractExactIntegerPoint(targetPoint, targetX, targetY, targetZ))
+            if (box != nullptr &&
+                (!isIntegerPointInsideOrOnAABB(currentX, currentY, currentZ, *box) ||
+                 !isIntegerPointInsideOrOnAABB(targetX, targetY, targetZ, *box)))
             {
                 return false;
             }
 
             outPath.clear();
-            PlanePoint3i currentPoint = startPoint;
             for (std::size_t axisIndex = 0; axisIndex < axisCount; ++axisIndex)
             {
                 const SplitAxis3i axis = axisOrder[axisIndex];
@@ -119,22 +143,86 @@ namespace ember
                     continue;
                 }
 
-                const PlanePoint3i nextPoint = makeIntegerPoint(nextX, nextY, nextZ);
+                if (box != nullptr && !isIntegerPointInsideOrOnAABB(nextX, nextY, nextZ, *box))
+                {
+                    outPath.clear();
+                    return false;
+                }
+
                 Segment256 segment;
-                if (!buildAxisAlignedSegment(currentPoint, nextPoint, segment))
+                if (!buildAxisAlignedSegment(currentX, currentY, currentZ, nextX, nextY, nextZ, segment))
                 {
                     outPath.clear();
                     return false;
                 }
 
                 outPath.push_back(std::move(segment));
-                currentPoint = nextPoint;
                 currentX = nextX;
                 currentY = nextY;
                 currentZ = nextZ;
             }
 
-            return areSamePlanePoint(currentPoint, targetPoint);
+            return currentX == targetX && currentY == targetY && currentZ == targetZ;
+        }
+
+        /**
+         * @brief 按给定轴顺序构造一条曼哈顿风格的角点路径。
+         */
+        inline bool buildAxisAlignedCornerPath(
+            const PlanePoint3i &startPoint,
+            const PlanePoint3i &targetPoint,
+            const std::array<SplitAxis3i, 3> &axisOrder,
+            std::size_t axisCount,
+            std::vector<Segment256> &outPath)
+        {
+            Integer currentX, currentY, currentZ;
+            Integer targetX, targetY, targetZ;
+            if (!tryExtractExactIntegerPoint(startPoint, currentX, currentY, currentZ) ||
+                !tryExtractExactIntegerPoint(targetPoint, targetX, targetY, targetZ))
+            {
+                return false;
+            }
+
+            return buildAxisAlignedCornerPathFromIntegers(
+                currentX,
+                currentY,
+                currentZ,
+                targetX,
+                targetY,
+                targetZ,
+                axisOrder,
+                axisCount,
+                nullptr,
+                outPath);
+        }
+
+        inline bool buildAxisAlignedCornerPath(
+            const PlanePoint3i &startPoint,
+            const PlanePoint3i &targetPoint,
+            const AABB3i &box,
+            const std::array<SplitAxis3i, 3> &axisOrder,
+            std::size_t axisCount,
+            std::vector<Segment256> &outPath)
+        {
+            Integer currentX, currentY, currentZ;
+            Integer targetX, targetY, targetZ;
+            if (!tryExtractExactIntegerPoint(startPoint, currentX, currentY, currentZ) ||
+                !tryExtractExactIntegerPoint(targetPoint, targetX, targetY, targetZ))
+            {
+                return false;
+            }
+
+            return buildAxisAlignedCornerPathFromIntegers(
+                currentX,
+                currentY,
+                currentZ,
+                targetX,
+                targetY,
+                targetZ,
+                axisOrder,
+                axisCount,
+                &box,
+                outPath);
         }
 
         inline bool buildAxisAlignedCornerPath(
@@ -855,39 +943,46 @@ namespace ember
                 return false;
             }
 
-            std::vector<SplitAxis3i> changedAxes;
+            std::array<SplitAxis3i, 3> changedAxes = {};
+            std::size_t axisCount = 0;
             if (startX != targetX)
             {
-                changedAxes.push_back(SplitAxis3i::X);
+                changedAxes[axisCount++] = SplitAxis3i::X;
             }
             if (startY != targetY)
             {
-                changedAxes.push_back(SplitAxis3i::Y);
+                changedAxes[axisCount++] = SplitAxis3i::Y;
             }
             if (startZ != targetZ)
             {
-                changedAxes.push_back(SplitAxis3i::Z);
+                changedAxes[axisCount++] = SplitAxis3i::Z;
+            }
+
+            if (axisCount == 0)
+            {
+                return false;
             }
 
             std::sort(
                 changedAxes.begin(),
-                changedAxes.end(),
+                changedAxes.begin() + static_cast<std::ptrdiff_t>(axisCount),
                 [](SplitAxis3i lhs, SplitAxis3i rhs)
                 {
                     return axisOrderKey(lhs) < axisOrderKey(rhs);
                 });
 
+            std::array<SplitAxis3i, 3> axisOrder = changedAxes;
             do
             {
                 std::vector<Segment256> bridge;
-                if (buildAxisAlignedCoordinatePath(startPoint, targetPoint, box, changedAxes, bridge))
+                if (buildAxisAlignedCornerPath(startPoint, targetPoint, box, axisOrder, axisCount, bridge))
                 {
                     outPath = std::move(bridge);
                     return true;
                 }
             } while (std::next_permutation(
-                changedAxes.begin(),
-                changedAxes.end(),
+                axisOrder.begin(),
+                axisOrder.begin() + static_cast<std::ptrdiff_t>(axisCount),
                 [](SplitAxis3i lhs, SplitAxis3i rhs)
                 {
                     return axisOrderKey(lhs) < axisOrderKey(rhs);
@@ -1000,12 +1095,12 @@ namespace ember
                 surfacePlane.d - signedPlaneOffset);
             Segment256 approachSegment(startPlane, surfacePlane, approachLine);
             if (!approachSegment.isValid() ||
-                !areSamePlanePoint(approachSegment.getEndPoint(), targetPoint))
+                !areSamePlanePoint(approachSegment.getEndPointRef(), targetPoint))
             {
                 return false;
             }
 
-            const PlanePoint3i approachStart = approachSegment.getStartPoint();
+            const PlanePoint3i &approachStart = approachSegment.getStartPointRef();
             if (!approachStart.hasUniqueIntersection() ||
                 !isPointInsideOrOnAABB(approachStart, box) ||
                 areSamePlanePoint(approachStart, targetPoint))
@@ -1020,14 +1115,14 @@ namespace ember
             }
 
             path.push_back(std::move(approachSegment));
-            if (!areSamePlanePoint(path.front().getStartPoint(), referencePoint) ||
-                !areSamePlanePoint(path.back().getEndPoint(), targetPoint))
+            if (!areSamePlanePoint(path.front().getStartPointRef(), referencePoint) ||
+                !areSamePlanePoint(path.back().getEndPointRef(), targetPoint))
             {
                 return false;
             }
             for (std::size_t i = 1; i < path.size(); ++i)
             {
-                if (!areSamePlanePoint(path[i - 1].getEndPoint(), path[i].getStartPoint()))
+                if (!areSamePlanePoint(path[i - 1].getEndPointRef(), path[i].getStartPointRef()))
                 {
                     return false;
                 }
@@ -1068,12 +1163,12 @@ namespace ember
                 surfacePlane.d - signedPlaneOffset);
             Segment256 approachSegment(startPlane, surfacePlane, approachLine);
             if (!approachSegment.isValid() ||
-                !areSamePlanePoint(approachSegment.getEndPoint(), targetPoint))
+                !areSamePlanePoint(approachSegment.getEndPointRef(), targetPoint))
             {
                 return false;
             }
 
-            const PlanePoint3i approachStart = approachSegment.getStartPoint();
+            const PlanePoint3i &approachStart = approachSegment.getStartPointRef();
             if (!approachStart.hasUniqueIntersection() ||
                 !isPointInsideOrOnAABB(approachStart, box) ||
                 areSamePlanePoint(approachStart, targetPoint))
@@ -1089,14 +1184,14 @@ namespace ember
             }
 
             path.push_back(std::move(approachSegment));
-            if (!areSamePlanePoint(path.front().getStartPoint(), referencePoint) ||
-                !areSamePlanePoint(path.back().getEndPoint(), targetPoint))
+            if (!areSamePlanePoint(path.front().getStartPointRef(), referencePoint) ||
+                !areSamePlanePoint(path.back().getEndPointRef(), targetPoint))
             {
                 return false;
             }
             for (std::size_t i = 1; i < path.size(); ++i)
             {
-                if (!areSamePlanePoint(path[i - 1].getEndPoint(), path[i].getStartPoint()))
+                if (!areSamePlanePoint(path[i - 1].getEndPointRef(), path[i].getStartPointRef()))
                 {
                     return false;
                 }
@@ -1223,8 +1318,8 @@ namespace ember
             Segment256 &segment,
             const Plane3i &clipPlane)
         {
-            const PlanePoint3i startPoint = segment.getStartPoint();
-            const PlanePoint3i endPoint = segment.getEndPoint();
+            const PlanePoint3i &startPoint = segment.getStartPointRef();
+            const PlanePoint3i &endPoint = segment.getEndPointRef();
             const int startSide = startPoint.classify(clipPlane);
             const int endSide = endPoint.classify(clipPlane);
 
@@ -1251,8 +1346,8 @@ namespace ember
 
         inline bool isSegmentInsideOrOnAABB(const Segment256 &segment, const AABB3i &box)
         {
-            return isPointInsideOrOnAABB(segment.getStartPoint(), box) &&
-                   isPointInsideOrOnAABB(segment.getEndPoint(), box);
+            return isPointInsideOrOnAABB(segment.getStartPointRef(), box) &&
+                   isPointInsideOrOnAABB(segment.getEndPointRef(), box);
         }
 
         inline bool clipSegmentToAABB(const Segment256 &segment, const AABB3i &box, Segment256 &outSegment)
@@ -1306,8 +1401,8 @@ namespace ember
                     continue;
                 }
 
-                const PlanePoint3i clippedStart = clipped.getStartPoint();
-                const PlanePoint3i clippedEnd = clipped.getEndPoint();
+                const PlanePoint3i &clippedStart = clipped.getStartPointRef();
+                const PlanePoint3i &clippedEnd = clipped.getEndPointRef();
                 if (!appendBridgePath(outPath, currentPoint, clippedStart, box))
                 {
                     outPath.clear();
@@ -1332,15 +1427,15 @@ namespace ember
                 return false;
             }
 
-            if (!areSamePlanePoint(outPath.front().getStartPoint(), startPoint) ||
-                !areSamePlanePoint(outPath.back().getEndPoint(), targetPoint))
+            if (!areSamePlanePoint(outPath.front().getStartPointRef(), startPoint) ||
+                !areSamePlanePoint(outPath.back().getEndPointRef(), targetPoint))
             {
                 outPath.clear();
                 return false;
             }
             for (std::size_t i = 1; i < outPath.size(); ++i)
             {
-                if (!areSamePlanePoint(outPath[i - 1].getEndPoint(), outPath[i].getStartPoint()))
+                if (!areSamePlanePoint(outPath[i - 1].getEndPointRef(), outPath[i].getStartPointRef()))
                 {
                     outPath.clear();
                     return false;
@@ -1393,8 +1488,8 @@ namespace ember
                 direction);
 
             return outSegment.isValid() &&
-                   areSamePlanePoint(outSegment.getStartPoint(), startPoint) &&
-                   areSamePlanePoint(outSegment.getEndPoint(), endPoint);
+                   areSamePlanePoint(outSegment.getStartPointRef(), startPoint) &&
+                   areSamePlanePoint(outSegment.getEndPointRef(), endPoint);
         }
 
         /**
@@ -1404,7 +1499,8 @@ namespace ember
             const PlanePoint3i &startPoint,
             const PlanePoint3i &targetPoint,
             const AABB3i &box,
-            const std::vector<int> &planeReplacementOrder,
+            const std::array<int, 3> &planeReplacementOrder,
+            std::size_t planeReplacementCount,
             std::vector<Segment256> &outPath)
         {
             outPath.clear();
@@ -1417,8 +1513,9 @@ namespace ember
             const Plane3i targetPlanes[3] = {targetPoint.p, targetPoint.q, targetPoint.r};
             PlanePoint3i currentPoint = startPoint;
 
-            for (const int replacedIndex : planeReplacementOrder)
+            for (std::size_t orderIndex = 0; orderIndex < planeReplacementCount; ++orderIndex)
             {
+                const int replacedIndex = planeReplacementOrder[orderIndex];
                 currentPlanes[replacedIndex] = targetPlanes[replacedIndex];
                 const PlanePoint3i nextPoint = makePointFromPlanes(currentPlanes);
                 if (!nextPoint.hasUniqueIntersection() || !isPointInsideOrOnAABB(nextPoint, box))
@@ -1447,6 +1544,30 @@ namespace ember
             return true;
         }
 
+        inline bool buildBoundedPlaneReplacementPathForOrder(
+            const PlanePoint3i &startPoint,
+            const PlanePoint3i &targetPoint,
+            const AABB3i &box,
+            const std::vector<int> &planeReplacementOrder,
+            std::vector<Segment256> &outPath)
+        {
+            std::array<int, 3> planeReplacementOrderArray = {};
+            const std::size_t planeReplacementCount =
+                std::min<std::size_t>(planeReplacementOrder.size(), planeReplacementOrderArray.size());
+            for (std::size_t orderIndex = 0; orderIndex < planeReplacementCount; ++orderIndex)
+            {
+                planeReplacementOrderArray[orderIndex] = planeReplacementOrder[orderIndex];
+            }
+
+            return buildBoundedPlaneReplacementPathForOrder(
+                startPoint,
+                targetPoint,
+                box,
+                planeReplacementOrderArray,
+                planeReplacementCount,
+                outPath);
+        }
+
         /**
          * @brief 在所有定义平面替换顺序中寻找一条 AABB 内桥接路径。
          */
@@ -1462,35 +1583,47 @@ namespace ember
                 return true;
             }
 
-            std::vector<int> changedPlaneIndices;
+            std::array<int, 3> changedPlaneIndices = {};
+            std::size_t changedPlaneCount = 0;
             if (!areSamePlaneEquation(startPoint.p, targetPoint.p))
             {
-                changedPlaneIndices.push_back(0);
+                changedPlaneIndices[changedPlaneCount++] = 0;
             }
             if (!areSamePlaneEquation(startPoint.q, targetPoint.q))
             {
-                changedPlaneIndices.push_back(1);
+                changedPlaneIndices[changedPlaneCount++] = 1;
             }
             if (!areSamePlaneEquation(startPoint.r, targetPoint.r))
             {
-                changedPlaneIndices.push_back(2);
+                changedPlaneIndices[changedPlaneCount++] = 2;
             }
 
-            if (changedPlaneIndices.empty())
+            if (changedPlaneCount == 0)
             {
                 return false;
             }
 
-            std::sort(changedPlaneIndices.begin(), changedPlaneIndices.end());
+            std::sort(
+                changedPlaneIndices.begin(),
+                changedPlaneIndices.begin() + static_cast<std::ptrdiff_t>(changedPlaneCount));
+            std::array<int, 3> planeReplacementOrder = changedPlaneIndices;
             do
             {
                 std::vector<Segment256> path;
-                if (buildBoundedPlaneReplacementPathForOrder(startPoint, targetPoint, box, changedPlaneIndices, path))
+                if (buildBoundedPlaneReplacementPathForOrder(
+                        startPoint,
+                        targetPoint,
+                        box,
+                        planeReplacementOrder,
+                        changedPlaneCount,
+                        path))
                 {
                     outPath = std::move(path);
                     return true;
                 }
-            } while (std::next_permutation(changedPlaneIndices.begin(), changedPlaneIndices.end()));
+            } while (std::next_permutation(
+                planeReplacementOrder.begin(),
+                planeReplacementOrder.begin() + static_cast<std::ptrdiff_t>(changedPlaneCount)));
 
             return false;
         }
@@ -1509,10 +1642,17 @@ namespace ember
             const PlanePoint3i &refPoint,
             const PlanePoint3i &targetPoint,
             const AABB3i &box,
-            const std::vector<int> &planeReplacementOrder,
+            const std::array<int, 3> &planeReplacementOrder,
+            std::size_t planeReplacementCount,
             std::vector<Segment256> &outPath)
         {
-            if (buildBoundedPlaneReplacementPathForOrder(refPoint, targetPoint, box, planeReplacementOrder, outPath))
+            if (buildBoundedPlaneReplacementPathForOrder(
+                    refPoint,
+                    targetPoint,
+                    box,
+                    planeReplacementOrder,
+                    planeReplacementCount,
+                    outPath))
             {
                 return true;
             }
@@ -1523,8 +1663,9 @@ namespace ember
             std::vector<Segment256> rawPath;
 
             rawPath.clear();
-            for (const int replacedIndex : planeReplacementOrder)
+            for (std::size_t orderIndex = 0; orderIndex < planeReplacementCount; ++orderIndex)
             {
+                const int replacedIndex = planeReplacementOrder[orderIndex];
                 currentPlanes[replacedIndex] = targetPlanes[replacedIndex];
                 const PlanePoint3i nextPoint = makePointFromPlanes(currentPlanes);
                 if (!nextPoint.hasUniqueIntersection())
@@ -1548,6 +1689,30 @@ namespace ember
             }
 
             return clipAndBridgePathToAABB(refPoint, targetPoint, box, rawPath, outPath);
+        }
+
+        inline bool buildPlaneReplacementPath(
+            const PlanePoint3i &refPoint,
+            const PlanePoint3i &targetPoint,
+            const AABB3i &box,
+            const std::vector<int> &planeReplacementOrder,
+            std::vector<Segment256> &outPath)
+        {
+            std::array<int, 3> planeReplacementOrderArray = {};
+            const std::size_t planeReplacementCount =
+                std::min<std::size_t>(planeReplacementOrder.size(), planeReplacementOrderArray.size());
+            for (std::size_t orderIndex = 0; orderIndex < planeReplacementCount; ++orderIndex)
+            {
+                planeReplacementOrderArray[orderIndex] = planeReplacementOrder[orderIndex];
+            }
+
+            return buildPlaneReplacementPath(
+                refPoint,
+                targetPoint,
+                box,
+                planeReplacementOrderArray,
+                planeReplacementCount,
+                outPath);
         }
 
         /**

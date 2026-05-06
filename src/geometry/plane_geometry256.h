@@ -144,6 +144,7 @@ namespace ember
         Plane3i r;
         HomPoint4i x;
 
+        // 仓库内默认把 PlanePoint3i 视为几何值对象；p/q/r 与缓存交点 x 必须保持一致。
         PlanePoint3i(const Plane3i &pVal, const Plane3i &qVal, const Plane3i &rVal) noexcept
             : p(pVal), q(qVal), r(rVal), x(intersectHomogeneous(pVal, qVal, rVal))
         {
@@ -153,7 +154,7 @@ namespace ember
 
         bool hasUniqueIntersection() const noexcept
         {
-            return ember::hasUniqueIntersection(p, q, r);
+            return !isZero(x.w);
         }
 
         int classify(const Plane3i &s) const noexcept
