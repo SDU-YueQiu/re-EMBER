@@ -70,22 +70,6 @@ namespace ember
             return outSegment.isValid();
         }
 
-        inline bool buildAxisAlignedSegment(
-            const PlanePoint3i &startPoint,
-            const PlanePoint3i &endPoint,
-            Segment256 &outSegment)
-        {
-            Integer x0, y0, z0;
-            Integer x1, y1, z1;
-            if (!tryExtractExactIntegerPoint(startPoint, x0, y0, z0) ||
-                !tryExtractExactIntegerPoint(endPoint, x1, y1, z1))
-            {
-                return false;
-            }
-
-            return buildAxisAlignedSegment(x0, y0, z0, x1, y1, z1, outSegment);
-        }
-
         inline bool isIntegerPointInsideOrOnAABB(
             const Integer &x,
             const Integer &y,

@@ -226,17 +226,48 @@ namespace
 
     ember::Segment256 makeAxisSegment(const PlanePoint3i &start, const PlanePoint3i &end)
     {
+        Integer x0;
+        Integer y0;
+        Integer z0;
+        Integer x1;
+        Integer y1;
+        Integer z1;
+        if (!ember::detail::tryExtractExactIntegerPoint(start, x0, y0, z0) ||
+            !ember::detail::tryExtractExactIntegerPoint(end, x1, y1, z1))
+        {
+            throw std::runtime_error("bool_problem_tests received a non-integer axis segment endpoint.");
+        }
+
         ember::Segment256 segment;
-        if (!ember::detail::buildAxisAlignedSegment(start, end, segment))
+        if (!ember::detail::buildAxisAlignedSegment(x0, y0, z0, x1, y1, z1, segment))
         {
             throw std::runtime_error("bool_problem_tests failed to build an axis-aligned segment.");
         }
-        if (!ember::areSamePlanePoint(segment.getStartPoint(), start) ||
-            !ember::areSamePlanePoint(segment.getEndPoint(), end))
+        if (!ember::areSamePlanePoint(segment.getStartPointRef(), start) ||
+            !ember::areSamePlanePoint(segment.getEndPointRef(), end))
         {
             throw std::runtime_error("bool_problem_tests built a segment with unexpected endpoints.");
         }
         return segment;
+    }
+
+    std::vector<ember::AABBPathCandidate> collectAABBPathCandidates(const PlanePoint3i &startPoint, const ember::AABB3i &box)
+    {
+        std::vector<ember::AABBPathCandidate> candidates;
+        auto materializeSeed =
+            [&](const ember::detail::AABBPathCandidateSeed &seed)
+            {
+                std::vector<ember::Segment256> path;
+                if (ember::detail::buildAABBPathFromSeed(startPoint, seed, path))
+                {
+                    candidates.push_back(ember::AABBPathCandidate{seed.targetPoint, std::move(path)});
+                }
+                return true;
+            };
+
+        ember::detail::visitFastAABBPathCandidateSeeds(startPoint, box, materializeSeed);
+        ember::detail::visitExhaustiveAABBPathCandidateSeeds(startPoint, box, materializeSeed);
+        return candidates;
     }
 
     ember::Path makeAxisPath(std::initializer_list<PlanePoint3i> points)
@@ -297,7 +328,8 @@ void runBoolProblemTests()
 
     {
         const Polygon256 square = makeFaceXY(0, 0, 2, 0, 2, 1);
-        const std::vector<PlanePoint3i> candidates = ember::enumerateLeafClassificationPointCandidates(square);
+        const std::vector<PlanePoint3i> candidates =
+            ember::detail::enumerateLeafClassificationPointCandidatesUnchecked(square);
         assert(!candidates.empty());
         assert(square.containsStrictly(candidates.front()));
         assert(ember::areSamePlanePoint(candidates.front(), ember::makeIntegerPoint(1, 1, 0)));
@@ -310,7 +342,8 @@ void runBoolProblemTests()
         const PlanePoint3i roundedCentroid = ember::makeIntegerPoint(33, 0, 0);
         assert(!thinTriangle.containsStrictly(roundedCentroid));
 
-        const std::vector<PlanePoint3i> candidates = ember::enumerateLeafClassificationPointCandidates(thinTriangle);
+        const std::vector<PlanePoint3i> candidates =
+            ember::detail::enumerateLeafClassificationPointCandidatesUnchecked(thinTriangle);
         assert(!candidates.empty());
         for (const PlanePoint3i &candidate : candidates)
         {
@@ -331,7 +364,7 @@ void runBoolProblemTests()
         assert(primaryCandidates.empty());
 
         const std::vector<PlanePoint3i> candidates =
-            ember::enumerateLeafClassificationPointCandidates(shiftedThinTriangle);
+            ember::detail::enumerateLeafClassificationPointCandidatesUnchecked(shiftedThinTriangle);
         assert(!candidates.empty());
         for (const PlanePoint3i &candidate : candidates)
         {
@@ -359,16 +392,16 @@ void runBoolProblemTests()
         assert(!ember::detail::buildPlaneReplacementPath(reference, target, box, {0, 1, 2}, path));
         assert(ember::detail::buildPlaneReplacementPath(reference, target, box, {1, 2, 0}, path));
         assert(!path.empty());
-        assert(ember::areSamePlanePoint(path.front().getStartPoint(), reference));
-        assert(ember::areSamePlanePoint(path.back().getEndPoint(), target));
+        assert(ember::areSamePlanePoint(path.front().getStartPointRef(), reference));
+        assert(ember::areSamePlanePoint(path.back().getEndPointRef(), target));
         for (std::size_t i = 0; i < path.size(); ++i)
         {
             assert(path[i].isValid());
-            assert(ember::isPointInsideOrOnAABB(path[i].getStartPoint(), box));
-            assert(ember::isPointInsideOrOnAABB(path[i].getEndPoint(), box));
+            assert(ember::isPointInsideOrOnAABB(path[i].getStartPointRef(), box));
+            assert(ember::isPointInsideOrOnAABB(path[i].getEndPointRef(), box));
             if (i != 0)
             {
-                assert(ember::areSamePlanePoint(path[i - 1].getEndPoint(), path[i].getStartPoint()));
+                assert(ember::areSamePlanePoint(path[i - 1].getEndPointRef(), path[i].getStartPointRef()));
             }
         }
     }
@@ -393,16 +426,16 @@ void runBoolProblemTests()
         for (const ember::LeafClassificationPathCandidate &candidate : fastCandidates)
         {
             assert(!candidate.path.empty());
-            assert(ember::areSamePlanePoint(candidate.path.front().getStartPoint(), reference));
-            assert(ember::areSamePlanePoint(candidate.path.back().getEndPoint(), target));
+            assert(ember::areSamePlanePoint(candidate.path.front().getStartPointRef(), reference));
+            assert(ember::areSamePlanePoint(candidate.path.back().getEndPointRef(), target));
             for (std::size_t i = 0; i < candidate.path.size(); ++i)
             {
                 assert(candidate.path[i].isValid());
-                assert(ember::isPointInsideOrOnAABB(candidate.path[i].getStartPoint(), box));
-                assert(ember::isPointInsideOrOnAABB(candidate.path[i].getEndPoint(), box));
+                assert(ember::isPointInsideOrOnAABB(candidate.path[i].getStartPointRef(), box));
+                assert(ember::isPointInsideOrOnAABB(candidate.path[i].getEndPointRef(), box));
                 if (i != 0)
                 {
-                    assert(ember::areSamePlanePoint(candidate.path[i - 1].getEndPoint(), candidate.path[i].getStartPoint()));
+                    assert(ember::areSamePlanePoint(candidate.path[i - 1].getEndPointRef(), candidate.path[i].getStartPointRef()));
                 }
             }
         }
@@ -439,8 +472,8 @@ void runBoolProblemTests()
                 {
                     ++visitedFallbackCandidates;
                     assert(!candidate.path.empty());
-                    assert(ember::areSamePlanePoint(candidate.path.front().getStartPoint(), reference));
-                    assert(ember::areSamePlanePoint(candidate.path.back().getEndPoint(), target));
+                    assert(ember::areSamePlanePoint(candidate.path.front().getStartPointRef(), reference));
+                    assert(ember::areSamePlanePoint(candidate.path.back().getEndPointRef(), target));
                     return false;
                 });
 
@@ -459,8 +492,7 @@ void runBoolProblemTests()
         box.valid = true;
 
         const PlanePoint3i start = ember::makeIntegerPoint(-1, 1, 1);
-        const std::vector<ember::AABBPathCandidate> candidates =
-            ember::enumerateAABBPathCandidates(start, box);
+        const std::vector<ember::AABBPathCandidate> candidates = collectAABBPathCandidates(start, box);
         assert(!candidates.empty());
 
         Integer x;
@@ -483,8 +515,7 @@ void runBoolProblemTests()
         box.valid = true;
 
         const PlanePoint3i start = ember::makeIntegerPoint(0, 0, 0);
-        const std::vector<ember::AABBPathCandidate> candidates =
-            ember::enumerateAABBPathCandidates(start, box);
+        const std::vector<ember::AABBPathCandidate> candidates = collectAABBPathCandidates(start, box);
         assert(!candidates.empty());
         assert(candidates.front().path.empty());
         assert(ember::areSamePlanePoint(candidates.front().targetPoint, start));

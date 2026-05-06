@@ -69,16 +69,6 @@ namespace ember
             return endPointCache_;
         }
 
-        PlanePoint3i getStartPoint() const noexcept
-        {
-            return getStartPointRef();
-        }
-
-        PlanePoint3i getEndPoint() const noexcept
-        {
-            return getEndPointRef();
-        }
-
         bool isValid() const noexcept
         {
             const PlanePoint3i &s = startPointCache_;

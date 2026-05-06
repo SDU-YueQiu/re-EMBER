@@ -20,6 +20,7 @@
 - 默认保持 OBJ 输出为 n 边面多边形集合，不主动三角化输出。
 - 默认不编辑 `third_party/tracy`、`assets`、`reference`、`Doxyfile` 或构建产物。
 - 每做一个阶段的改动后要及时commit，同样优先使用中文提交
+- 更新功能后不仅要做代码工作，也要更新readme（如果涉及）和docs里的文档相关内容
 
 ## 代码约定
 
