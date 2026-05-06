@@ -35,7 +35,7 @@ ctest --test-dir build -C Debug --output-on-failure --timeout 60
 cmake --build build --config Debug --target re-EMBER
 ```
 
-Tracy 性能插桩是编译期可选项，默认关闭；普通 Debug/Release/RelWithDebInfo 构建不会包含 Tracy 头、链接库或 profiler 线程。只有显式配置 `-DREEMBER_ENABLE_TRACY=ON` 时才启用插桩。
+Tracy 性能插桩是编译期可选项，默认关闭；普通 Debug/Release/RelWithDebInfo 构建不会包含 Tracy 头、链接库或 profiler 线程。只有显式配置 `-DREEMBER_ENABLE_TRACY=ON` 时才启用高层插桩；更细的 `math256` 底层热点桩需要再额外打开 `-DREEMBER_ENABLE_TRACY_MATH=ON`。
 
 基础 CLI smoke：
 
@@ -91,6 +91,16 @@ cmake -S . -B build -DREEMBER_ENABLE_TRACY=ON
 cmake --build build --config RelWithDebInfo --target re-EMBER
 powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -SkipBuild
 ```
+
+如果要追 `math256` 里的底层代数热点，例如 `determinant3x3`、`gcdMagnitude`、`primitiveHomPoint`，再额外打开底层桩：
+
+```powershell
+cmake -S . -B build -DREEMBER_ENABLE_TRACY=ON -DREEMBER_ENABLE_TRACY_MATH=ON
+cmake --build build --config RelWithDebInfo --target re-EMBER
+powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -SkipBuild -EnableMathTracy
+```
+
+`REEMBER_ENABLE_TRACY_MATH` / `-EnableMathTracy` 默认应该保持关闭。只有确认瓶颈已经落到低层数学工具时才打开，否则这些超高频 zone 本身会带来额外开销，并淹没上层算法热点。
 
 只想看端到端时间和 `BoolSolveMetrics`，不需要 Tracy zone 时使用 `-NoTracy`：
 
