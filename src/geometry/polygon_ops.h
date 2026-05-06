@@ -165,20 +165,4 @@ namespace ember
         return reversedPolygon;
     }
 
-    inline std::vector<Polygon256> clipPolygonsToAABB(const std::vector<Polygon256> &polygons, const AABB3i &box)
-    {
-        std::vector<Polygon256> outPolygons;
-        outPolygons.reserve(polygons.size());
-
-        for (const Polygon256 &polygon : polygons)
-        {
-            Polygon256 clipped;
-            if (clipPolygonToAABB(polygon, box, clipped))
-            {
-                outPolygons.push_back(std::move(clipped));
-            }
-        }
-
-        return outPolygons;
-    }
 }
