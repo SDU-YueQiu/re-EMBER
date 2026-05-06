@@ -20,11 +20,11 @@ namespace ember
 {
     namespace
     {
-        constexpr const char *kBoolProblemSolveScope = "SubdivisionSolver::solve";
-        constexpr const char *kBoolProblemRootReferenceScope = "SubdivisionSolver::initializeRootReference";
-        constexpr const char *kBoolProblemSolveRecursiveScope = "SubdivisionSolver::solveRecursive";
-        constexpr const char *kBoolProblemChildrenScope = "SubdivisionSolver::createChildrenFromSplit";
-        constexpr const char *kBoolProblemChildReferenceScope = "SubdivisionSolver::makeChildReference";
+        const char *kBoolProblemSolveScope = "SubdivisionSolver::solve";
+        const char *kBoolProblemRootReferenceScope = "SubdivisionSolver::initializeRootReference";
+        const char *kBoolProblemSolveRecursiveScope = "SubdivisionSolver::solveRecursive";
+        const char *kBoolProblemChildrenScope = "SubdivisionSolver::createChildrenFromSplit";
+        const char *kBoolProblemChildReferenceScope = "SubdivisionSolver::makeChildReference";
 
         std::string formatAABB(const AABB3i &box)
         {

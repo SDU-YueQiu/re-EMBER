@@ -479,8 +479,8 @@ namespace ember
             }
 
             anyEdgeWithinHeadroom = true;
-            constexpr int interiorSideA = -1;
-            constexpr int interiorSideB = -1;
+            int interiorSideA = -1;
+            int interiorSideB = -1;
             for (const Integer &offsetA : offsets)
             {
                 if (candidates.size() >= maxTotalCandidates)
@@ -518,7 +518,7 @@ namespace ember
 
         inline void appendInsetInteriorPointCandidates(const Polygon256 &polygon, std::vector<PlanePoint3i> &candidates)
         {
-            constexpr std::size_t maxTotalCandidates = 32;
+            std::size_t maxTotalCandidates = 32;
             const std::size_t n = polygon.edgePlanes.size();
             if (n < 3)
             {
@@ -609,7 +609,7 @@ namespace ember
             const Polygon256 &polygon,
             std::vector<PlanePoint3i> &candidates)
         {
-            constexpr std::size_t maxTotalCandidates = 64;
+            std::size_t maxTotalCandidates = 64;
             const std::size_t n = polygon.edgePlanes.size();
             if (n < 3)
             {

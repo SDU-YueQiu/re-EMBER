@@ -26,11 +26,11 @@ namespace ember
 {
     namespace
     {
-        constexpr const char *kReadObjMeshScope = "io::readObjMesh";
-        constexpr const char *kChooseSharedScaleScope = "io::chooseSharedScale";
-        constexpr const char *kBuildPolygonSoupScope = "io::buildPolygonSoup";
-        constexpr const char *kWritePolygonSoupObjScope = "io::writePolygonSoupObj";
-        constexpr const char *kBuildObjMeshScope = "io::buildObjMeshFromPolygonSoup";
+        const char *kReadObjMeshScope = "io::readObjMesh";
+        const char *kChooseSharedScaleScope = "io::chooseSharedScale";
+        const char *kBuildPolygonSoupScope = "io::buildPolygonSoup";
+        const char *kWritePolygonSoupObjScope = "io::writePolygonSoupObj";
+        const char *kBuildObjMeshScope = "io::buildObjMeshFromPolygonSoup";
 
         bool failIo(const char *scope, std::string &outError, const std::string &message)
         {
@@ -40,7 +40,7 @@ namespace ember
         }
 
         // 论文中给出的输入整数坐标安全范围：每个笛卡尔坐标使用 26-bit 有符号整数。
-        constexpr long long kInputCoordinateLimit = (1LL << 25) - 1;
+        long long kInputCoordinateLimit = (1LL << 25) - 1;
 
         // 按调用方给定的共享 scale 执行四舍五入量化，并同时检查 26-bit 输入界限。
         bool quantizeCoordinate(double value, std::uint64_t scale, Integer &outValue, std::string &outError)

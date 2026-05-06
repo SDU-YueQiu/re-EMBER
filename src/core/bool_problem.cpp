@@ -17,7 +17,7 @@ namespace ember
 {
     namespace
     {
-        constexpr const char *kBoolProblemSolveScope = "BoolProblem::solve";
+        const char *kBoolProblemSolveScope = "BoolProblem::solve";
 
         void validateSolveInputPolygons(const std::vector<Polygon256> &polygons)
         {

@@ -21,8 +21,8 @@ namespace ember
 {
     namespace
     {
-        constexpr const char *kBoolProblemLeafScope = "SubdivisionSolver::solveLeafArrangement";
-        constexpr const char *kBoolProblemClassifyScope = "SubdivisionSolver::classifyLeafFragmentsAndCollectResults";
+        const char *kBoolProblemLeafScope = "SubdivisionSolver::solveLeafArrangement";
+        const char *kBoolProblemClassifyScope = "SubdivisionSolver::classifyLeafFragmentsAndCollectResults";
 
         bool isSameStrictSideForDiagnostics(int lhs, int rhs) noexcept
         {

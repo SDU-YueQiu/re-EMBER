@@ -14,8 +14,8 @@ namespace ember
 {
     namespace
     {
-        constexpr const char *kBspInsertScope = "BSPTree::insert";
-        constexpr const char *kBspAddSegmentScope = "BSPTree::addSegmentRecursive";
+        const char *kBspInsertScope = "BSPTree::insert";
+        const char *kBspAddSegmentScope = "BSPTree::addSegmentRecursive";
     }
 
     BSPNode::BSPNode() noexcept

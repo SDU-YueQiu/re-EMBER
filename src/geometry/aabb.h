@@ -50,7 +50,7 @@ namespace ember
 
     namespace detail
     {
-        inline constexpr Integer clampInteger(const Integer &value, const Integer &lower, const Integer &upper) noexcept
+        inline Integer clampInteger(const Integer &value, const Integer &lower, const Integer &upper) noexcept
         {
             if (value < lower)
             {
@@ -63,7 +63,7 @@ namespace ember
             return value;
         }
 
-        inline constexpr Integer axisSpan(const AABB3i &box, SplitAxis3i axis) noexcept
+        inline Integer axisSpan(const AABB3i &box, SplitAxis3i axis) noexcept
         {
             switch (axis)
             {
@@ -77,7 +77,7 @@ namespace ember
             return 0;
         }
 
-        inline constexpr int axisOrderKey(SplitAxis3i axis) noexcept
+        inline int axisOrderKey(SplitAxis3i axis) noexcept
         {
             switch (axis)
             {
@@ -91,7 +91,7 @@ namespace ember
             return 0;
         }
 
-        inline constexpr bool areSamePlaneEquation(const Plane3i &lhs, const Plane3i &rhs) noexcept
+        inline bool areSamePlaneEquation(const Plane3i &lhs, const Plane3i &rhs) noexcept
         {
             return lhs.a == rhs.a && lhs.b == rhs.b && lhs.c == rhs.c && lhs.d == rhs.d;
         }
@@ -156,7 +156,7 @@ namespace ember
         }
     }
 
-    inline constexpr bool isValidAABB(const AABB3i &box) noexcept
+    inline bool isValidAABB(const AABB3i &box) noexcept
     {
         return box.valid && box.xMin <= box.xMax && box.yMin <= box.yMax && box.zMin <= box.zMax;
     }
@@ -182,7 +182,7 @@ namespace ember
             useZMax ? box.zMax : box.zMin);
     }
 
-    inline constexpr std::array<Plane3i, 6> makeAABBPlanes(const AABB3i &box) noexcept
+    inline std::array<Plane3i, 6> makeAABBPlanes(const AABB3i &box) noexcept
     {
         return {
             Plane3i(-1, 0, 0, box.xMin),
@@ -254,7 +254,7 @@ namespace ember
         return box;
     }
 
-    inline constexpr bool isPointInsideOrOnAABB(const PlanePoint3i &point, const AABB3i &box) noexcept
+    inline bool isPointInsideOrOnAABB(const PlanePoint3i &point, const AABB3i &box) noexcept
     {
         if (!point.hasUniqueIntersection() || !isValidAABB(box))
         {
