@@ -10,7 +10,7 @@
 - `path_candidates.h` 保留公开候选类型和模板枚举入口；内部候选构造在 `path_candidate_details.h`。
 - CMake 使用显式源文件列表，新增源码需要同步加入 `CMakeLists.txt`。
 - Tracy 性能插桩由 `REEMBER_ENABLE_TRACY` 控制；底层 `math256` 热点桩再由 `REEMBER_ENABLE_TRACY_MATH` 单独控制，二者默认都关闭，不影响普通发布构建。
-- 性能脚本入口是 `tools/profile-re-ember.ps1`；统一把计时、Tracy 捕获、报告和结果 OBJ 写到 `build\perf\run_<timestamp>\`。
+- 性能脚本入口是 `tools/profile-re-ember.ps1`；统一把计时、Tracy 捕获、报告和结果 OBJ 写到 `build\perf\run_<timestamp>\`，并按 `-NoTracy/-EnableMathTracy` 自动切换 `build\profile_*` 专用构建树。
 
 ## 工作规则
 
@@ -18,7 +18,7 @@
 - 仓库自有源码的文件头和解释性注释写中文；公开接口使用 Doxygen 结构。
 - 不参考旧 README 作为架构事实；如果全局 memory 仍提到 `BoolProblem::solveRecursive()` 调用链，应视为过期。
 - 默认保持 OBJ 输出为 n 边面多边形集合，不主动三角化输出。
-- 默认不编辑 `third_party/slimcpplib`、`third_party/tracy`、`assets`、`reference`、`Doxyfile` 或构建产物。
+- 默认不编辑 `third_party/tracy`、`assets`、`reference`、`Doxyfile` 或构建产物。
 - 每做一个阶段的改动后要及时commit，同样优先使用中文提交
 
 ## 代码约定
@@ -27,7 +27,7 @@
 - 仓库自有源码的文件头和解释性注释使用中文；公开接口使用 Doxygen 结构，保留 `@brief`、`@param`、`@return`、`@retval`、`@note` 等标签。
 - 不把 `BoolProblem` 当递归节点使用；运行时细分状态属于 `SubdivisionSolver`。
 - `path_candidates.h` 保留公开候选类型和模板枚举入口；内部路径构造细节在 `path_candidate_details.h`。
-- 默认不改 `third_party/slimcpplib`、`third_party/tracy`、`assets`、`reference`、`Doxyfile` 和构建产物。
+- 默认不改 `third_party/tracy`、`assets`、`reference`、`Doxyfile` 和构建产物。
 - 当前几何核心基于固定宽度整数运算；新增高阶代数或齐次点比较前必须先确认 256 位中间结果预算。
 
 ## 验证命令
@@ -46,22 +46,18 @@ build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\mo
 
 ```powershell
 vcpkg install tracy[cli-tools]:x64-windows
-cmake -S . -B build -DREEMBER_ENABLE_TRACY=ON
-cmake --build build --config RelWithDebInfo --target re-EMBER
-powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -SkipBuild
+powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo
 ```
 
 如果要抓 `math256` 这类底层代数热点，再额外打开：
 
 ```powershell
-cmake -S . -B build -DREEMBER_ENABLE_TRACY=ON -DREEMBER_ENABLE_TRACY_MATH=ON
-cmake --build build --config RelWithDebInfo --target re-EMBER
-powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -SkipBuild -EnableMathTracy
+powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -EnableMathTracy
 ```
 
 只有在确认热点落在 `determinant3x3`、`gcdMagnitude`、`primitiveHomPoint` 这类底层函数时才开 `REEMBER_ENABLE_TRACY_MATH` / `-EnableMathTracy`；平时保持关闭，避免给正常 profiling 和普通运行带来额外开销。
 
-只要端到端时间和 `BoolSolveMetrics` 时可加 `-NoTracy`；普通构建仍保持 `REEMBER_ENABLE_TRACY=OFF`、`REEMBER_ENABLE_TRACY_MATH=OFF`。
+只要端到端时间和 `BoolSolveMetrics` 时可加 `-NoTracy`；脚本会自动切到 `build\profile_notracy\`，普通构建仍保持 `REEMBER_ENABLE_TRACY=OFF`、`REEMBER_ENABLE_TRACY_MATH=OFF`。
 
 如果只想比较固定工件和固定位姿下的不同布尔运算，保持 `-Lhs/-Rhs` 不变，只切换 `-Op`：
 
