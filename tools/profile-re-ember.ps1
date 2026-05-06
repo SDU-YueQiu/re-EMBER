@@ -1421,15 +1421,21 @@ try {
         Invoke-CMakeConfigure
     }
 
-    if ((-not $NoTracy) -and (-not (Test-TracyEnabledInBuild $BuildRoot))) {
+    $script:TracyEnabledInBuild = Test-TracyEnabledInBuild $BuildRoot
+    $script:MathTracyEnabledInBuild = Test-TracyMathEnabledInBuild $BuildRoot
+
+    if ($NoTracy -and $script:TracyEnabledInBuild) {
+        throw ("The selected profiling build tree '{0}' is configured with REEMBER_ENABLE_TRACY=ON, but -NoTracy was requested. Re-run without -SkipBuild so the script can configure build\\profile_notracy\\ automatically." -f $BuildRoot)
+    }
+    if ((-not $NoTracy) -and (-not $script:TracyEnabledInBuild)) {
         throw ("The profiling build tree '{0}' is not configured with REEMBER_ENABLE_TRACY=ON. Re-run without -SkipBuild so the script can configure it automatically." -f $BuildRoot)
     }
-    if ($EnableMathTracy -and (-not (Test-TracyMathEnabledInBuild $BuildRoot))) {
+    if ($EnableMathTracy -and (-not $script:MathTracyEnabledInBuild)) {
         throw ("The profiling build tree '{0}' is not configured with REEMBER_ENABLE_TRACY_MATH=ON. Re-run without -SkipBuild so the script can configure it automatically." -f $BuildRoot)
     }
-    $script:MathTracyEnabledInBuild = (-not $NoTracy) -and (Test-TracyMathEnabledInBuild $BuildRoot)
+    $script:MathTracyEnabledInBuild = (-not $NoTracy) -and $script:MathTracyEnabledInBuild
     if ($SkipBuild -and (-not $EnableMathTracy) -and $script:MathTracyEnabledInBuild) {
-        Write-Info ("The selected profiling build tree '{0}' already has REEMBER_ENABLE_TRACY_MATH=ON; low-level math zones will still be captured." -f $BuildRoot)
+        throw ("The selected profiling build tree '{0}' already has REEMBER_ENABLE_TRACY_MATH=ON, but -EnableMathTracy was not requested. Re-run without -SkipBuild so the script can reconfigure build\\profile_tracy\\ automatically." -f $BuildRoot)
     }
 
     $script:ResolvedTracyPort = $null
