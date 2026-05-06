@@ -264,7 +264,7 @@ namespace ember
 
         if (node->isLeaf)
         {
-            // 待办：如果后续并行化，需要重新处理这里的收集写入。
+            // TODO：如果后续并行化，需要重新处理这里的收集写入。
             if (!node->disabled)
             {
                 outLeafGeometries.push_back(node->leafGeometry);

@@ -98,7 +98,7 @@ namespace ember
             return;
         }
 
-        // 待办：为点添加更多构造函数。
+        // TODO：为点添加更多构造函数。
         const PlanePoint3i startPoint(directionLine.p1, directionLine.p2, startPlane);
         const PlanePoint3i endPoint(directionLine.p1, directionLine.p2, endPlane);
         if (!startPoint.hasUniqueIntersection() || !endPoint.hasUniqueIntersection())
