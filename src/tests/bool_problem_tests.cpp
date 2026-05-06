@@ -200,6 +200,7 @@ namespace
         polygon.addEdgePlane(Plane3i::fromPointNormal(Vec3i(2, 0, 0), Vec3i(-1, 0, 0)));
         polygon.addEdgePlane(Plane3i::fromPointNormal(Vec3i(0, 2, 0), Vec3i(0, -1, 0)));
         polygon.addEdgePlane(Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(1, 0, 0)));
+        polygon.precomputeVertices();
         polygon.WNTV = {1, 0};
         return polygon;
     }

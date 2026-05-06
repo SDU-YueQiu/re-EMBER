@@ -53,7 +53,7 @@ namespace ember
             }
         }
 
-        void preprocessSolveInputPolygons(std::vector<Polygon256> &polygons) noexcept
+        void preprocessSolveInputPolygons(std::vector<Polygon256> &polygons)
         {
             for (Polygon256 &polygon : polygons)
             {
