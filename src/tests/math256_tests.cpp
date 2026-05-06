@@ -30,6 +30,17 @@ using ember::Vec3i;
 void runMath256Tests()
 {
 	{
+		assert(ember::absMagnitude(Integer(-7)) == Integer(7));
+		assert(ember::gcdMagnitude(Integer(-18), Integer(24)) == Integer(6));
+		assert(ember::gcdMagnitude(Integer(6), Integer(9), Integer(12), Integer(15)) == Integer(3));
+
+		const ember::HomPoint4i primitivePoint = ember::primitiveHomPoint(ember::HomPoint4i(2, 4, 6, 2));
+		assert(primitivePoint.x == Integer(1));
+		assert(primitivePoint.y == Integer(2));
+		assert(primitivePoint.z == Integer(3));
+		assert(primitivePoint.w == Integer(1));
+		assert(ember::areSameHomPoint(primitivePoint, ember::HomPoint4i(3, 6, 9, 3)));
+
 		const Vec2i a(3, 4);
 		const Vec2i b(-2, 5);
 
