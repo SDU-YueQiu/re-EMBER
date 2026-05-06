@@ -384,6 +384,41 @@ void runBoolProblemTests()
         box.valid = true;
 
         const PlanePoint3i reference = ember::makeIntegerPoint(1, 1, 1);
+        const PlanePoint3i target = ember::makeIntegerPoint(9, 9, 9);
+        const std::vector<PlanePoint3i> targetPoints{target};
+
+        const std::vector<ember::LeafClassificationPathCandidate> fastCandidates =
+            ember::enumerateLeafClassificationFastPathCandidatesFromPoints(reference, targetPoints, box);
+        assert(fastCandidates.size() == 12u);
+        for (const ember::LeafClassificationPathCandidate &candidate : fastCandidates)
+        {
+            assert(!candidate.path.empty());
+            assert(ember::areSamePlanePoint(candidate.path.front().getStartPoint(), reference));
+            assert(ember::areSamePlanePoint(candidate.path.back().getEndPoint(), target));
+            for (std::size_t i = 0; i < candidate.path.size(); ++i)
+            {
+                assert(candidate.path[i].isValid());
+                assert(ember::isPointInsideOrOnAABB(candidate.path[i].getStartPoint(), box));
+                assert(ember::isPointInsideOrOnAABB(candidate.path[i].getEndPoint(), box));
+                if (i != 0)
+                {
+                    assert(ember::areSamePlanePoint(candidate.path[i - 1].getEndPoint(), candidate.path[i].getStartPoint()));
+                }
+            }
+        }
+    }
+
+    {
+        ember::AABB3i box;
+        box.xMin = 0;
+        box.xMax = 10;
+        box.yMin = 0;
+        box.yMax = 10;
+        box.zMin = 0;
+        box.zMax = 10;
+        box.valid = true;
+
+        const PlanePoint3i reference = ember::makeIntegerPoint(1, 1, 1);
         const PlanePoint3i target(
             Plane3i(0, 2, 0, -9),
             Plane3i(0, 0, 2, -9),

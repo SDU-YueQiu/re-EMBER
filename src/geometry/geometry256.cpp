@@ -144,6 +144,7 @@ namespace ember
         : start(primitivePlane(startPlane)), end(primitivePlane(endPlane)), direction(directionLine)
     {
         orientSegmentBoundsOutward(start, end, direction);
+        refreshEndpointCache();
     }
 
     void Polygon256::addEdgePlane(const Plane3i &edge, PolygonEdgeProvenance provenance)

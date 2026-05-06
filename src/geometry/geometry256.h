@@ -59,20 +59,30 @@ namespace ember
         Segment256() noexcept = default;
         Segment256(const Plane3i &startPlane, const Plane3i &endPlane, const Line256 &directionLine) noexcept;
 
+        const PlanePoint3i &getStartPointRef() const noexcept
+        {
+            return startPointCache_;
+        }
+
+        const PlanePoint3i &getEndPointRef() const noexcept
+        {
+            return endPointCache_;
+        }
+
         PlanePoint3i getStartPoint() const noexcept
         {
-            return PlanePoint3i(direction.p1, direction.p2, start);
+            return getStartPointRef();
         }
 
         PlanePoint3i getEndPoint() const noexcept
         {
-            return PlanePoint3i(direction.p1, direction.p2, end);
+            return getEndPointRef();
         }
 
         bool isValid() const noexcept
         {
-            PlanePoint3i s(direction.p1, direction.p2, start);
-            PlanePoint3i e(direction.p1, direction.p2, end);
+            const PlanePoint3i &s = startPointCache_;
+            const PlanePoint3i &e = endPointCache_;
             if (!s.hasUniqueIntersection() || !e.hasUniqueIntersection())
                 return false;
 
@@ -82,6 +92,16 @@ namespace ember
 
             return true;
         }
+
+    private:
+        void refreshEndpointCache() noexcept
+        {
+            startPointCache_ = PlanePoint3i(direction.p1, direction.p2, start);
+            endPointCache_ = PlanePoint3i(direction.p1, direction.p2, end);
+        }
+
+        PlanePoint3i startPointCache_;
+        PlanePoint3i endPointCache_;
     };
 
     struct Polygon256
