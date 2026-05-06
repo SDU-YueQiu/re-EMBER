@@ -27,6 +27,7 @@ option(REEMBER_ENABLE_TRACY "Enable optional Tracy profiler instrumentation" OFF
 
 find_package(spdlog CONFIG REQUIRED)
 find_package(tinyobjloader CONFIG REQUIRED)
+find_package(Boost REQUIRED)
 
 set(REEMBER_THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 
@@ -107,6 +108,7 @@ target_include_directories(reember_lib
   PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${REEMBER_THIRD_PARTY_DIR}
+    ${Boost_INCLUDE_DIRS}
 )
 
 target_compile_features(reember_lib PUBLIC cxx_std_17)
