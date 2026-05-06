@@ -57,13 +57,15 @@ namespace ember
 
         inline std::size_t computeWNVSize(const std::vector<Polygon256> &polygons) noexcept
         {
-            std::size_t dimension = 0;
-            for (const Polygon256 &polygon : polygons)
-            {
-                dimension = std::max(dimension, polygon.WNTV.size());
-            }
+            //TODO:当前只打算实现二元运算
 
-            return dimension;
+            // std::size_t dimension = 0;
+            // for (const Polygon256 &polygon : polygons)
+            // {
+            //     dimension = std::max(dimension, polygon.WNTV.size());
+            // }
+
+            return 2;
         }
     }
 }
