@@ -74,6 +74,7 @@ namespace
         return std::chrono::duration<double, std::milli>(end - start).count();
     }
 
+#if defined(REEMBER_ENABLE_TRACY)
     // 仅供性能脚本使用：让 Tracy capture 在计时开始前有时间连上客户端。
     std::uint64_t readTracyAttachWaitMilliseconds() noexcept
     {
@@ -113,16 +114,13 @@ namespace
             return;
         }
 
-#if defined(REEMBER_ENABLE_TRACY)
         std::cerr
             << "[tracy] phase=" << phase
             << " profiler_available=" << (tracy::ProfilerAvailable() ? 1 : 0)
             << " connected=" << (TracyIsConnected ? 1 : 0)
             << std::endl;
-#else
-        (void)phase;
-#endif
     }
+#endif
 
     bool writeTimingMetrics(const std::string &path, const CliTimings &timings, std::string &outError)
     {
@@ -380,7 +378,6 @@ int main(int argc, char **argv)
     REEMBER_PROFILE_ZONE("re-EMBER::main");
 #if defined(REEMBER_ENABLE_TRACY)
     TracySetProgramName("re-EMBER");
-#endif
     emitTracyDiagnostics("startup");
 
     const std::uint64_t tracyAttachWaitMs = readTracyAttachWaitMilliseconds();
@@ -390,6 +387,7 @@ int main(int argc, char **argv)
         std::this_thread::sleep_for(std::chrono::milliseconds(tracyAttachWaitMs));
     }
     emitTracyDiagnostics("post_attach_wait");
+#endif
 
     CliOptions options;
     if (!parseArgs(argc, argv, options))
