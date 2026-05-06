@@ -15,12 +15,6 @@ namespace ember
             return value < 0 ? -value : value;
         }
 
-        const PlanePoint3i &invalidCachedVertex() noexcept
-        {
-            static const PlanePoint3i kInvalidVertex;
-            return kInvalidVertex;
-        }
-
         bool canScalePlaneWithinInsetHeadroom(const Plane3i &plane, const Integer &scale) noexcept
         {
             if (scale <= 0)
@@ -158,60 +152,28 @@ namespace ember
     {
         edgePlanes.push_back(primitivePlane(edge));
         edgeProvenances.push_back(provenance);
-        invalidateVertexCache();
     }
 
-    void Polygon256::invalidateVertexCache() noexcept
+    void Polygon256::precomputeVertices()
     {
-        vertexCacheDirty_ = true;
-    }
-
-    bool Polygon256::precomputeVertices() const noexcept
-    {
-        rebuildVertexCache(true);
-        for (const PlanePoint3i &cachedVertex : vertexCache_)
+        cachedVertices_.clear();
+        const std::size_t n = edgePlanes.size();
+        cachedVertices_.reserve(n);
+        for (std::size_t i = 0; i < n; ++i)
         {
-            if (!cachedVertex.hasUniqueIntersection())
-            {
-                return false;
-            }
+            const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
+            cachedVertices_.emplace_back(plane, edgePlanes[i], edgePlanes[prev]);
         }
-        return true;
     }
 
     const PlanePoint3i &Polygon256::vertex(std::size_t vertexIndex) const noexcept
     {
-        rebuildVertexCache(false);
-        if (vertexIndex >= vertexCache_.size())
-        {
-            return invalidCachedVertex();
-        }
-
-        return vertexCache_[vertexIndex];
+        return cachedVertices_[vertexIndex];
     }
 
     const std::vector<PlanePoint3i> &Polygon256::vertices() const noexcept
     {
-        rebuildVertexCache(false);
-        return vertexCache_;
-    }
-
-    void Polygon256::rebuildVertexCache(bool force) const noexcept
-    {
-        if (!force && !vertexCacheDirty_)
-        {
-            return;
-        }
-
-        vertexCache_.clear();
-        const std::size_t n = edgePlanes.size();
-        vertexCache_.reserve(n);
-        for (std::size_t i = 0; i < n; ++i)
-        {
-            const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
-            vertexCache_.emplace_back(plane, edgePlanes[i], edgePlanes[prev]);
-        }
-        vertexCacheDirty_ = false;
+        return cachedVertices_;
     }
 
     std::size_t Polygon256::edgeCount() const noexcept
