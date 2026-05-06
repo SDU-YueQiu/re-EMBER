@@ -6,9 +6,9 @@
 
 #include "core/logging.h"
 #include "core/perf_tracing.h"
+#include "core/solver_shared.h"
 #include "core/subdivision_solver.h"
 
-#include <algorithm>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -19,26 +19,9 @@ namespace ember
     {
         constexpr const char *kBoolProblemSolveScope = "BoolProblem::solve";
 
-        template <typename Builder>
-        void logBoolInfo(const char *scope, Builder &&builder)
-        {
-            emitLogLazy(LogLevel::Info, LogCategory::BoolProblem, scope, std::forward<Builder>(builder));
-        }
-
-        std::size_t computeWNVSize(const std::vector<Polygon256> &polygons) noexcept
-        {
-            std::size_t dimension = 0;
-            for (const Polygon256 &polygon : polygons)
-            {
-                dimension = std::max(dimension, polygon.WNTV.size());
-            }
-
-            return dimension;
-        }
-
         void validateSolveInputPolygons(const std::vector<Polygon256> &polygons)
         {
-            const std::size_t wnvDimension = computeWNVSize(polygons);
+            const std::size_t wnvDimension = detail::computeWNVSize(polygons);
             if (wnvDimension < 2)
             {
                 throw std::runtime_error("BoolProblem requires at least two WNV dimensions.");
@@ -165,7 +148,7 @@ namespace ember
 
         resetSolveState();
 
-        logBoolInfo(
+        detail::logBoolInfo(
             kBoolProblemSolveScope,
             [this]()
             {
@@ -208,7 +191,7 @@ namespace ember
         solveMetrics_ = solver.solveMetrics();
         solved_ = true;
 
-        logBoolInfo(
+        detail::logBoolInfo(
             kBoolProblemSolveScope,
             [this]()
             {

@@ -9,6 +9,7 @@
 #include "algorithm/WNV_tracing.h"
 #include "core/logging.h"
 #include "core/perf_tracing.h"
+#include "core/solver_shared.h"
 #include "geometry/polygon_ops.h"
 
 #include <sstream>
@@ -22,40 +23,6 @@ namespace ember
     {
         constexpr const char *kBoolProblemLeafScope = "SubdivisionSolver::solveLeafArrangement";
         constexpr const char *kBoolProblemClassifyScope = "SubdivisionSolver::classifyLeafFragmentsAndCollectResults";
-
-        template <typename Builder>
-        void logBoolDebug(const char *scope, Builder &&builder)
-        {
-            emitLogLazy(LogLevel::Debug, LogCategory::BoolProblem, scope, std::forward<Builder>(builder));
-        }
-
-        template <typename Builder>
-        void logTracingDebug(const char *scope, Builder &&builder)
-        {
-            emitLogLazy(LogLevel::Debug, LogCategory::Tracing, scope, std::forward<Builder>(builder));
-        }
-
-        void logBoolError(const char *scope, const std::string &message)
-        {
-            emitLog(LogLevel::Error, LogCategory::BoolProblem, scope, message);
-        }
-
-        const char *traceStatusName(traceStatus status) noexcept
-        {
-            switch (status)
-            {
-            case SUCCESS:
-                return "SUCCESS";
-            case PATH_INVALID:
-                return "PATH_INVALID";
-            case INPUT_INVALID:
-                return "INPUT_INVALID";
-            case FAIL:
-                return "FAIL";
-            }
-
-            return "UNKNOWN";
-        }
 
         bool isSameStrictSideForDiagnostics(int lhs, int rhs) noexcept
         {
@@ -171,7 +138,7 @@ namespace ember
         {
             ++solveMetrics_.singleOperandLeafBspSkipCount;
             leafFragments_ = polygons_;
-            logBoolDebug(
+            detail::logBoolDebug(
                 kBoolProblemLeafScope,
                 [this, assumptions]()
                 {
@@ -189,7 +156,7 @@ namespace ember
         ++solveMetrics_.leafBspBuildCount;
         leafFragments_ = buildLeafArrangement(polygons_);
 
-        logBoolDebug(
+        detail::logBoolDebug(
             kBoolProblemLeafScope,
             [this]()
             {
@@ -200,6 +167,20 @@ namespace ember
                         << ".";
                 return message.str();
             });
+    }
+
+    void SubdivisionSolver::appendResultFragmentFromClassification(const ClassifiedFragment &classifiedFragment)
+    {
+        const BoolStatus frontStatus = evaluateBooleanIndicator(classifiedFragment.frontWNV);
+        const BoolStatus backStatus = evaluateBooleanIndicator(classifiedFragment.backWNV);
+        if (frontStatus == OUT && backStatus == IN)
+        {
+            resultFragments_.push_back(classifiedFragment.polygon);
+        }
+        else if (frontStatus == IN && backStatus == OUT)
+        {
+            resultFragments_.push_back(reversePolygonOrientation(classifiedFragment.polygon));
+        }
     }
 
     // 对每个叶片片段追踪到严格内部点；分类失败属于不可恢复错误。
@@ -236,17 +217,7 @@ namespace ember
             {
                 ++solveMetrics_.singleOperandClassificationReuseCount;
                 classifiedFragments_.push_back(ClassifiedFragment{fragment, reusableFrontWNV, reusableBackWNV});
-                const ClassifiedFragment &classifiedFragment = classifiedFragments_.back();
-                const BoolStatus frontStatus = evaluateBooleanIndicator(classifiedFragment.frontWNV);
-                const BoolStatus backStatus = evaluateBooleanIndicator(classifiedFragment.backWNV);
-                if (frontStatus == OUT && backStatus == IN)
-                {
-                    resultFragments_.push_back(classifiedFragment.polygon);
-                }
-                else if (frontStatus == IN && backStatus == OUT)
-                {
-                    resultFragments_.push_back(reversePolygonOrientation(classifiedFragment.polygon));
-                }
+                appendResultFragmentFromClassification(classifiedFragments_.back());
                 continue;
             }
 
@@ -283,7 +254,7 @@ namespace ember
                             fragment.plane);
                     }
 
-                    logTracingDebug(
+                    detail::logTracingDebug(
                         kBoolProblemClassifyScope,
                         [fragmentIndex, candidateLayer, candidateIndex, &candidate, status, &lastFailureReason]()
                         {
@@ -292,7 +263,7 @@ namespace ember
                                     << " candidate_layer=" << candidateLayer
                                     << " candidate_index=" << candidateIndex
                                     << " path_segments=" << candidate.path.size()
-                                    << " status=" << traceStatusName(status);
+                                    << " status=" << detail::traceStatusName(status);
                             if (status != SUCCESS)
                             {
                                 message << " reason=" << lastFailureReason;
@@ -467,7 +438,7 @@ namespace ember
                         << depth_
                         << ".";
 
-                logBoolDebug(
+                detail::logBoolDebug(
                     kBoolProblemClassifyScope,
                     [this,
                      fragmentIndex,
@@ -504,7 +475,7 @@ namespace ember
                                 << " fallback_candidates="
                                 << fallbackCandidateCount
                                 << " last_trace_status="
-                                << traceStatusName(lastStatus)
+                                << detail::traceStatusName(lastStatus)
                                 << " last_failure_reason="
                                 << lastFailureReason
                                 << " fragment_plane="
@@ -526,7 +497,7 @@ namespace ember
                     });
 
                 const std::string summaryMessage = summary.str();
-                logBoolError(kBoolProblemClassifyScope, summaryMessage);
+                detail::logBoolError(kBoolProblemClassifyScope, summaryMessage);
                 throw std::runtime_error(summaryMessage);
             }
 
@@ -536,7 +507,7 @@ namespace ember
                 reusableFrontWNV = classifiedFragment.frontWNV;
                 reusableBackWNV = classifiedFragment.backWNV;
                 hasReusableClassification = true;
-                logBoolDebug(
+                detail::logBoolDebug(
                     kBoolProblemClassifyScope,
                     [this, &reusableFrontWNV, &reusableBackWNV]()
                     {
@@ -549,20 +520,10 @@ namespace ember
                     });
             }
 
-            const ClassifiedFragment &classifiedFragment = classifiedFragments_.back();
-            const BoolStatus frontStatus = evaluateBooleanIndicator(classifiedFragment.frontWNV);
-            const BoolStatus backStatus = evaluateBooleanIndicator(classifiedFragment.backWNV);
-            if (frontStatus == OUT && backStatus == IN)
-            {
-                resultFragments_.push_back(classifiedFragment.polygon);
-            }
-            else if (frontStatus == IN && backStatus == OUT)
-            {
-                resultFragments_.push_back(reversePolygonOrientation(classifiedFragment.polygon));
-            }
+            appendResultFragmentFromClassification(classifiedFragments_.back());
         }
 
-        logBoolDebug(
+        detail::logBoolDebug(
             kBoolProblemClassifyScope,
             [this]()
             {
@@ -597,7 +558,7 @@ namespace ember
             leafFragments_.clear();
             classifiedFragments_.clear();
             resultFragments_.clear();
-            logBoolDebug(
+            detail::logBoolDebug(
                 kBoolProblemClassifyScope,
                 [this]()
                 {
@@ -611,7 +572,7 @@ namespace ember
         }
 
         ++solveMetrics_.singleOperandAssumptionStopCount;
-        logBoolDebug(
+        detail::logBoolDebug(
             kBoolProblemClassifyScope,
             [this]()
             {

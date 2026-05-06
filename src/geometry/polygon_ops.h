@@ -28,6 +28,22 @@ namespace ember
         return PlanePoint3i(poly.plane, poly.edgePlanes[index], poly.edgePlanes[prev]);
     }
 
+    /**
+     * @brief 判断两个有效多边形是否支撑在同一平面上。
+     *
+     * @pre `lhs` 与 `rhs` 都是可取顶点的有效多边形。
+     */
+    inline bool areCoplanarPolygons(const Polygon256 &lhs, const Polygon256 &rhs) noexcept
+    {
+        if (!arePlaneNormalsParallel(lhs.plane, rhs.plane))
+        {
+            return false;
+        }
+
+        const PlanePoint3i vertex = getPolygonVertex(lhs, 0);
+        return vertex.hasUniqueIntersection() && vertex.classify(rhs.plane) == 0;
+    }
+
     namespace detail
     {
         /**

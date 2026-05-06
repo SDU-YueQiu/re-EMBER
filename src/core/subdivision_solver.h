@@ -139,6 +139,16 @@ namespace ember
         bool classifyLeafFragmentsAndCollectResults(bool allowRetryFallback);
 
         /**
+         * @brief 将一个已分类叶片按 indicator 结果写入输出集合。
+         */
+        void appendResultFragmentFromClassification(const ClassifiedFragment &classifiedFragment);
+
+        /**
+         * @brief 以叶子模式完成当前节点求解。
+         */
+        void finishCurrentNodeAsLeaf();
+
+        /**
          * @brief 根据 AABB 切分创建子求解器节点。
          */
         bool createChildrenFromSplit(const AABBSplit3i &split);
