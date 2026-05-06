@@ -18,12 +18,7 @@ namespace ember
     {
         void validateSolveInputPolygons(const std::vector<Polygon256> &polygons)
         {
-            const std::size_t wnvDimension = detail::computeWNVSize(polygons);
-            if (wnvDimension < 2)
-            {
-                throw std::runtime_error("BoolProblem requires at least two WNV dimensions.");
-            }
-
+            REEMBER_PROFILE_ZONE("validateSolveInputPolygons");
             for (std::size_t polygonIndex = 0; polygonIndex < polygons.size(); ++polygonIndex)
             {
                 const Polygon256 &polygon = polygons[polygonIndex];
@@ -35,15 +30,11 @@ namespace ember
                             << ".";
                     throw std::runtime_error(message.str());
                 }
-                if (polygon.WNTV.size() != wnvDimension)
+                if (!detail::isCanonicalBinaryOperandWNTV(polygon.WNTV))
                 {
                     std::ostringstream message;
-                    message << "BoolProblem received inconsistent WNTV dimension at polygon index "
+                    message << "BoolProblem expects canonical binary WNTV tags at polygon index "
                             << polygonIndex
-                            << ": expected "
-                            << wnvDimension
-                            << ", got "
-                            << polygon.WNTV.size()
                             << ".";
                     throw std::runtime_error(message.str());
                 }
@@ -52,6 +43,7 @@ namespace ember
 
         void preprocessSolveInputPolygons(std::vector<Polygon256> &polygons)
         {
+            REEMBER_PROFILE_ZONE("preprocessSolveInputPolygons");
             for (Polygon256 &polygon : polygons)
             {
                 polygon.precomputeVertices();
@@ -102,27 +94,13 @@ namespace ember
         resetSolveState();
     }
 
-    void BoolProblem::addPolygon(const Polygon256 &polygon)
-    {
-        Polygon256 copy = polygon;
-        polygons_.push_back(std::move(copy));
-
-        resetSolveState();
-    }
-
-    void BoolProblem::setPolygons(const std::vector<Polygon256> &polygons)
-    {
-        polygons_ = polygons;
-        resetSolveState();
-    }
-
     void BoolProblem::setOperands(const std::vector<Polygon256> &lhs, const std::vector<Polygon256> &rhs)
     {
         std::vector<Polygon256> lhsCopy = lhs;
         std::vector<Polygon256> rhsCopy = rhs;
 
-        assignOperandWNTV(lhsCopy, 2, 0);
-        assignOperandWNTV(rhsCopy, 2, 1);
+        assignOperandWNTV(lhsCopy, detail::kLhsOperandIndex);
+        assignOperandWNTV(rhsCopy, detail::kRhsOperandIndex);
 
         polygons_.clear();
         polygons_.reserve(lhsCopy.size() + rhsCopy.size());
@@ -192,12 +170,12 @@ namespace ember
         solveMetrics_ = BoolSolveMetrics();
     }
 
-    void BoolProblem::assignOperandWNTV(std::vector<Polygon256> &polygons, std::size_t dimension, std::size_t hotIndex)
+    void BoolProblem::assignOperandWNTV(std::vector<Polygon256> &polygons, std::size_t hotIndex)
     {
         for (Polygon256 &polygon : polygons)
         {
-            polygon.WNTV.assign(dimension, 0);
-            if (hotIndex < dimension)
+            polygon.WNTV.assign(detail::kBinaryWnvDimension, 0);
+            if (hotIndex < detail::kBinaryWnvDimension)
             {
                 polygon.WNTV[hotIndex] = 1;
             }

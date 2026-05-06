@@ -22,7 +22,7 @@ OBJ -> 多边形集合 -> BoolProblem(顶点预处理/校验) -> SubdivisionSolv
 - `src/tests/`：仓库自定义断言测试，不依赖第三方测试框架。
 - `tools/profile-re-ember.ps1`：端到端性能测试、Tracy 捕获和报告入口。
 
-`BoolProblem` 现在只暴露应用需要的门面接口：`setOperation`、`setLeafPolygonThreshold`、`addPolygon`、`setPolygons`、`setOperands`、`solve`、`isSolved`、`isDiscarded`、`resultFragments`、`leafSummaries` 和 `solveMetrics`。`solve()` 在进入 `SubdivisionSolver` 前会先统一预计算输入 `Polygon256` 的顶点缓存，再做合法性校验，避免后续细分、裁剪、叶片分类和 OBJ 导出阶段反复从边平面重建同一批顶点。递归子问题状态属于 `SubdivisionSolver` 内部实现；测试或诊断需要看叶子结构时使用 `leafSummaries()`，需要看求解规模和剪枝/候选统计时使用 `solveMetrics()`。
+`BoolProblem` 现在只暴露应用需要的二元门面接口：`setOperation`、`setLeafPolygonThreshold`、`setOperandAssumptions`、`setOperands`、`solve`、`isSolved`、`isDiscarded`、`resultFragments`、`leafSummaries` 和 `solveMetrics`。`setOperands()` 会统一覆写输入多边形的 `WNTV`，强制收敛到 `lhs={1,0}`、`rhs={0,1}` 的二元约定，不再暴露“直接注入任意带标签 polygon 集合”的公开入口。`solve()` 在进入 `SubdivisionSolver` 前会先统一预计算输入 `Polygon256` 的顶点缓存，再做合法性校验，避免后续细分、裁剪、叶片分类和 OBJ 导出阶段反复从边平面重建同一批顶点。递归子问题状态属于 `SubdivisionSolver` 内部实现；测试或诊断需要看叶子结构时使用 `leafSummaries()`，需要看求解规模和剪枝/候选统计时使用 `solveMetrics()`。
 
 ## 构建与测试
 
@@ -186,6 +186,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 ## 已知限制
 
 - 当前公开流水线面向二元布尔；多网格表达式和通用布尔表达式解析不在计划内。
+- `BoolProblem` 公开输入固定为左右两个操作数；自定义混合 `WNTV` 标签或多输入聚合不再作为支持目标。
 - OBJ 导入只保留几何位置，不保留法线、UV、材质或拓扑连通关系。
 - CLI 为了跑通真实 OBJ，会对量化后非共面的输入面启用扇形三角化；库 API 默认仍是严格构造策略。
 - 输出是 OBJ n 边面多边形集合，不保证进行全局拓扑恢复。

@@ -147,13 +147,15 @@ namespace ember
             const std::vector<Polygon256> &polygons,
             BoolStatus &constantStatus) noexcept
         {
-            if (referenceWnv.size() < 2u)
+            if (referenceWnv.size() < detail::kBinaryWnvDimension)
             {
                 return false;
             }
 
-            const BinaryWnvDomain lhsDomain = computeBinaryWnvDomain(referenceWnv, polygons, 0u);
-            const BinaryWnvDomain rhsDomain = computeBinaryWnvDomain(referenceWnv, polygons, 1u);
+            const BinaryWnvDomain lhsDomain =
+                computeBinaryWnvDomain(referenceWnv, polygons, detail::kLhsOperandIndex);
+            const BinaryWnvDomain rhsDomain =
+                computeBinaryWnvDomain(referenceWnv, polygons, detail::kRhsOperandIndex);
 
             bool hasStatus = false;
             for (const bool lhsNonZero : {false, true})
@@ -901,7 +903,7 @@ namespace ember
         REEMBER_PROFILE_ZONE("SubdivisionSolver::initializeRootReference");
 
         reference_.point = getAABBCornerPoint(aabb_, false, false, false);
-        reference_.wnv.assign(detail::computeWNVSize(polygons_), 0);
+        reference_.wnv.assign(detail::kBinaryWnvDimension, 0);
     }
 
     void SubdivisionSolver::finishCurrentNodeAsLeaf()
@@ -1076,7 +1078,7 @@ namespace ember
         }
 
         const WNV &wntv = polygons_.front().WNTV;
-        if (wntv.size() != 2u)
+        if (!detail::isCanonicalBinaryOperandWNTV(wntv))
         {
             return false;
         }
@@ -1089,18 +1091,14 @@ namespace ember
             }
         }
 
-        if (wntv[0] == 1 && wntv[1] == 0)
+        if (detail::isLhsOperandWNTV(wntv))
         {
             outAssumptions = lhsAssumptions_;
             return true;
         }
-        if (wntv[0] == 0 && wntv[1] == 1)
-        {
-            outAssumptions = rhsAssumptions_;
-            return true;
-        }
 
-        return false;
+        outAssumptions = rhsAssumptions_;
+        return true;
     }
 
     // 裁剪当前多边形集合到左右子 AABB，并为每个非空子问题建立参考状态。
