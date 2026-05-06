@@ -516,15 +516,14 @@ namespace ember
     // 将 WNV 交给当前布尔运算的二元指示函数，返回内外状态。
     BoolStatus SubdivisionSolver::evaluateBooleanIndicator(const WNV &wnv) const noexcept
     {
-        WNV tmp = wnv;
         switch (op_)
         {
         case BoolOp::Union:
-            return f_union(tmp, 0, 1);
+            return f_union(wnv, static_cast<int>(detail::kLhsOperandIndex), static_cast<int>(detail::kRhsOperandIndex));
         case BoolOp::Intersection:
-            return f_intersection(tmp, 0, 1);
+            return f_intersection(wnv, static_cast<int>(detail::kLhsOperandIndex), static_cast<int>(detail::kRhsOperandIndex));
         case BoolOp::Difference:
-            return f_diff(tmp, 0, 1);
+            return f_diff(wnv, static_cast<int>(detail::kLhsOperandIndex), static_cast<int>(detail::kRhsOperandIndex));
         }
 
         return OUT;

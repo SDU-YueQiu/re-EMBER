@@ -383,7 +383,6 @@ int main(int argc, char **argv)
     const std::uint64_t tracyAttachWaitMs = readTracyAttachWaitMilliseconds();
     if (tracyAttachWaitMs > 0)
     {
-        REEMBER_PROFILE_ZONE("re-EMBER::tracy_attach_wait");
         std::this_thread::sleep_for(std::chrono::milliseconds(tracyAttachWaitMs));
     }
     emitTracyDiagnostics("post_attach_wait");

@@ -50,13 +50,14 @@ flowchart TD
 2. 读取左右 OBJ。
 3. 选择共享 `scale`，把左右输入放进同一个整数坐标系。
 4. 调用 `buildPolygonSoup()` 把 OBJ 面片转换为 `Polygon256` 集合。
-5. 构造 `BoolProblem`，设置布尔运算、输入假设和操作数。
+5. 构造 `BoolProblem`，设置布尔运算、输入假设和左右操作数。
 6. 调用 `problem.solve()`。
 7. 把 `problem.resultFragments()` 直接写回 OBJ。
 
 这里有两个实现细节值得单独记住：
 
 - `setOperands()` 会给左操作数写入基础 `WNTV={1,0}`，给右操作数写入 `WNTV={0,1}`。
+- `BoolProblem` 不再暴露直接注入任意 `WNTV` polygon 集合的公开入口，公开输入边界固定为二元操作数。
 - 应用层构建 polygon soup 时启用了 `triangulateNonCoplanarFaces=true`，但最终结果导出仍保持 polygon soup / n-gon 语义。
 
 ## 3. BoolProblem 门面流程
@@ -65,7 +66,7 @@ flowchart TD
 
 1. 重置上一次求解状态。
 2. 统一预计算输入 `Polygon256` 的顶点缓存。
-3. 校验输入多边形集合合法性。
+3. 校验输入多边形集合合法性，并确认所有输入都符合二元 `lhs/rhs` 标签约定。
 4. 构造内部 `SubdivisionSolver`，并把结果复制回公开门面。
 
 ```mermaid

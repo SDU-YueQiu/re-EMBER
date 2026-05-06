@@ -12,17 +12,27 @@ namespace ember
 {
     namespace detail
     {
-        inline std::size_t computeWNVSize(const std::vector<Polygon256> &polygons) noexcept
+        inline constexpr std::size_t kBinaryWnvDimension = 2u;
+        inline constexpr std::size_t kLhsOperandIndex = 0u;
+        inline constexpr std::size_t kRhsOperandIndex = 1u;
+
+        inline bool isLhsOperandWNTV(const WNV &wntv) noexcept
         {
-            //TODO:当前只打算实现二元运算
+            return wntv.size() == kBinaryWnvDimension &&
+                   wntv[kLhsOperandIndex] == 1 &&
+                   wntv[kRhsOperandIndex] == 0;
+        }
 
-            // std::size_t dimension = 0;
-            // for (const Polygon256 &polygon : polygons)
-            // {
-            //     dimension = std::max(dimension, polygon.WNTV.size());
-            // }
+        inline bool isRhsOperandWNTV(const WNV &wntv) noexcept
+        {
+            return wntv.size() == kBinaryWnvDimension &&
+                   wntv[kLhsOperandIndex] == 0 &&
+                   wntv[kRhsOperandIndex] == 1;
+        }
 
-            return 2;
+        inline bool isCanonicalBinaryOperandWNTV(const WNV &wntv) noexcept
+        {
+            return isLhsOperandWNTV(wntv) || isRhsOperandWNTV(wntv);
         }
     }
 }

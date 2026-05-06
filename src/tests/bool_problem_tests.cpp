@@ -849,7 +849,7 @@ void runBoolProblemTests()
 
         ember::BoolProblem problem(2);
         problem.setOperation(BoolOp::Union);
-        problem.setPolygons({invalidPolygon});
+        problem.setOperands({invalidPolygon}, {});
 
         assert(throwsRuntimeError(
             [&problem]()
@@ -870,7 +870,7 @@ void runBoolProblemTests()
         assert(!problem.resultFragments().empty());
 
         const Polygon256 invalidPolygon = makeInvalidInwardSquareXY();
-        problem.setPolygons({invalidPolygon});
+        problem.setOperands({invalidPolygon}, {});
         assert(throwsRuntimeError(
             [&problem]()
             {
@@ -892,12 +892,12 @@ void runBoolProblemTests()
     }
 
     {
-        Polygon256 rhsOnlySurface = makeFaceYZ(0, -1, 1, -1, 1, 1);
-        rhsOnlySurface.WNTV = {0, 1};
+        const std::vector<Polygon256> rhsOnlySurface{
+            makeFaceYZ(0, -1, 1, -1, 1, 1)};
 
         ember::BoolProblem problem(2);
         problem.setOperation(BoolOp::Difference);
-        problem.setPolygons({rhsOnlySurface});
+        problem.setOperands({}, rhsOnlySurface);
         problem.solve();
 
         assert(problem.isSolved());
@@ -1055,27 +1055,25 @@ void runBoolProblemTests()
     }
 
     {
-        std::vector<Polygon256> customWntvBox = makeAxisAlignedBox(0, 0, 0, 1, 1, 1);
-        assignWNTV(customWntvBox, ember::WNV{1, 1});
+        std::vector<Polygon256> dirtyTaggedLhs = lhs;
+        std::vector<Polygon256> dirtyTaggedRhs = rhs;
+        assignWNTV(dirtyTaggedLhs, ember::WNV{1, 1});
+        assignWNTV(dirtyTaggedRhs, ember::WNV{-3, 7});
 
-        ember::BoolProblem baseline(6);
-        baseline.setOperation(BoolOp::Union);
-        baseline.setPolygons(customWntvBox);
-        baseline.solve();
+        ember::BoolProblem clean(2);
+        clean.setOperation(BoolOp::Union);
+        clean.setOperands(lhs, rhs);
+        clean.solve();
 
-        ember::BoolProblem assumed(6);
-        assumed.setOperation(BoolOp::Union);
-        assumed.setOperandAssumptions(
-            ember::BoolOperandAssumptions{true, true},
-            ember::BoolOperandAssumptions{true, true});
-        assumed.setPolygons(customWntvBox);
-        assumed.solve();
+        ember::BoolProblem retagged(2);
+        retagged.setOperation(BoolOp::Union);
+        retagged.setOperands(dirtyTaggedLhs, dirtyTaggedRhs);
+        retagged.solve();
 
-        assert(baseline.isSolved());
-        assert(assumed.isSolved());
-        assert(baseline.resultFragments().size() == assumed.resultFragments().size());
-        assert(assumed.solveMetrics().singleOperandAssumptionStopCount == 0u);
-        assert(assumed.solveMetrics().singleOperandAssumptionFallbackCount == 0u);
+        assert(clean.isSolved());
+        assert(retagged.isSolved());
+        assert(clean.resultFragments().size() == retagged.resultFragments().size());
+        assert(clean.solveMetrics().resultFragmentCount == retagged.solveMetrics().resultFragmentCount);
     }
 
     {
