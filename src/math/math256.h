@@ -54,7 +54,7 @@ namespace ember
      */
     inline Integer gcdMagnitude(Integer lhs, Integer rhs) noexcept
     {
-        REEMBER_PROFILE_ZONE("math256::gcdMagnitude");
+        REEMBER_PROFILE_MATH_ZONE("math256::gcdMagnitude");
         lhs = absMagnitude(lhs);
         rhs = absMagnitude(rhs);
         while (!isZero(rhs))
@@ -71,13 +71,13 @@ namespace ember
      */
     inline Integer gcdMagnitude(const Integer& a, const Integer& b, const Integer& c, const Integer& d) noexcept
     {
-        REEMBER_PROFILE_ZONE("math256::gcdMagnitude4");
+        REEMBER_PROFILE_MATH_ZONE("math256::gcdMagnitude4");
         return gcdMagnitude(gcdMagnitude(a, b), gcdMagnitude(c, d));
     }
 
     inline Integer floorDiv(const Integer& a, const Integer& b) noexcept
     {
-        REEMBER_PROFILE_ZONE("math256::floorDiv");
+        REEMBER_PROFILE_MATH_ZONE("math256::floorDiv");
         Integer num = a;
         Integer den = b;
         if (den < 0)
@@ -96,7 +96,7 @@ namespace ember
 
     inline Integer ceilDiv(const Integer& a, const Integer& b) noexcept
     {
-        REEMBER_PROFILE_ZONE("math256::ceilDiv");
+        REEMBER_PROFILE_MATH_ZONE("math256::ceilDiv");
         Integer num = a;
         Integer den = b;
         if (den < 0)
@@ -145,7 +145,7 @@ namespace ember
      */
     inline HomPoint4i primitiveHomPoint(const HomPoint4i& point) noexcept
     {
-        REEMBER_PROFILE_ZONE("math256::primitiveHomPoint");
+        REEMBER_PROFILE_MATH_ZONE("math256::primitiveHomPoint");
         Integer x = point.x;
         Integer y = point.y;
         Integer z = point.z;
@@ -179,7 +179,7 @@ namespace ember
      */
     inline bool areSameHomPoint(const HomPoint4i& lhs, const HomPoint4i& rhs) noexcept
     {
-        REEMBER_PROFILE_ZONE("math256::areSameHomPoint");
+        REEMBER_PROFILE_MATH_ZONE("math256::areSameHomPoint");
         if (lhs.hasSameComponents(rhs))
         {
             return true;
@@ -431,7 +431,7 @@ namespace ember
         const Integer& a32,
         const Integer& a33) noexcept
     {
-        REEMBER_PROFILE_ZONE("math256::determinant3x3");
+        REEMBER_PROFILE_MATH_ZONE("math256::determinant3x3");
         return a11 * (a22 * a33 - a23 * a32)
             - a12 * (a21 * a33 - a23 * a31)
             + a13 * (a21 * a32 - a22 * a31);
@@ -455,7 +455,7 @@ namespace ember
         const Integer& a43,
         const Integer& a44) noexcept
     {
-        REEMBER_PROFILE_ZONE("math256::determinant4x4");
+        REEMBER_PROFILE_MATH_ZONE("math256::determinant4x4");
         return a11 * determinant3x3(a22, a23, a24, a32, a33, a34, a42, a43, a44)
             - a12 * determinant3x3(a21, a23, a24, a31, a33, a34, a41, a43, a44)
             + a13 * determinant3x3(a21, a22, a24, a31, a32, a34, a41, a42, a44)

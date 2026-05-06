@@ -14,6 +14,7 @@ param(
     [int]$TracyAttachWaitMilliseconds = 1500,
     [string]$TracyToolRoot,
     [string[]]$UnwrapZoneFilter = @(),
+    [switch]$EnableMathTracy,
     [switch]$SkipBuild,
     [switch]$ForceBuild,
     [switch]$NoTracy,
@@ -56,6 +57,7 @@ Notes:
   - Uses build\ only.
   - Tracy profiling is the default path and requires REEMBER_ENABLE_TRACY=ON.
   - When -SkipBuild is not specified, the script configures build\ with -DREEMBER_ENABLE_TRACY=ON.
+  - Use -EnableMathTracy to additionally enable low-level math256 Tracy zones; the default is OFF to avoid steady-state overhead.
   - Install the required tools with: vcpkg install tracy[cli-tools]:x64-windows
   - The script auto-selects a bindable Tracy port when the default port is reserved on the local machine.
   - The script sets REEMBER_TRACY_WAIT_MS before timed work so tracy-capture can attach without polluting read/prepare/solve/export timings.
@@ -70,6 +72,10 @@ Notes:
 if ($Help) {
     Show-Help
     exit 0
+}
+
+if ($EnableMathTracy -and $NoTracy) {
+    throw "-EnableMathTracy requires Tracy capture. Remove -NoTracy or omit -EnableMathTracy."
 }
 
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
@@ -397,6 +403,14 @@ function Test-TracyEnabledInBuild {
     return ($value -eq "ON" -or $value -eq "TRUE" -or $value -eq "1")
 }
 
+function Test-TracyMathEnabledInBuild {
+    param([string]$BuildDir)
+
+    $cachePath = Join-Path $BuildDir "CMakeCache.txt"
+    $value = Get-CMakeCacheValue $cachePath "REEMBER_ENABLE_TRACY_MATH"
+    return ($value -eq "ON" -or $value -eq "TRUE" -or $value -eq "1")
+}
+
 function Get-ReEmberExecutableCandidates {
     param(
         [string]$BuildDir,
@@ -436,6 +450,16 @@ function Invoke-CMakeConfigure {
     $args = @("-S", ".", "-B", $BuildRoot)
     if (-not $NoTracy) {
         $args += "-DREEMBER_ENABLE_TRACY=ON"
+        if ($EnableMathTracy) {
+            $args += "-DREEMBER_ENABLE_TRACY_MATH=ON"
+        }
+        else {
+            $args += "-DREEMBER_ENABLE_TRACY_MATH=OFF"
+        }
+    }
+    else {
+        $args += "-DREEMBER_ENABLE_TRACY=OFF"
+        $args += "-DREEMBER_ENABLE_TRACY_MATH=OFF"
     }
 
     Invoke-External "cmake" $args (Join-Path $PerfRoot "cmake_configure.stdout.txt") (Join-Path $PerfRoot "cmake_configure.stderr.txt") $BuildTimeoutSeconds | Out-Null
@@ -1385,6 +1409,13 @@ try {
     if ((-not $NoTracy) -and (-not (Test-TracyEnabledInBuild $BuildRoot))) {
         throw "The build tree is not configured with REEMBER_ENABLE_TRACY=ON. Re-run without -SkipBuild or configure build\ manually."
     }
+    if ($EnableMathTracy -and (-not (Test-TracyMathEnabledInBuild $BuildRoot))) {
+        throw "The build tree is not configured with REEMBER_ENABLE_TRACY_MATH=ON. Re-run without -SkipBuild or configure build\ manually."
+    }
+    $script:MathTracyEnabledInBuild = (-not $NoTracy) -and (Test-TracyMathEnabledInBuild $BuildRoot)
+    if ($SkipBuild -and (-not $EnableMathTracy) -and $script:MathTracyEnabledInBuild) {
+        Write-Info "The existing build tree already has REEMBER_ENABLE_TRACY_MATH=ON; low-level math zones will still be captured."
+    }
 
     $script:ResolvedTracyPort = $null
     if (-not $NoTracy) {
@@ -1422,6 +1453,7 @@ try {
         iterations = $Iterations
         timeoutSeconds = $TimeoutSeconds
         tracyEnabled = (-not $NoTracy)
+        mathTracyEnabled = $script:MathTracyEnabledInBuild
         tracyPort = $script:ResolvedTracyPort
         tracyCapture = $tracyCapturePath
         tracyCsvExport = $tracyCsvExportPath
