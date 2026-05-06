@@ -188,8 +188,8 @@ namespace ember
             const Polygon256 &poly) noexcept
         {
             PolygonBoundaryContact contact;
-            const PlanePoint3i startPoint = seg.getStartPoint();
-            const PlanePoint3i endPoint = seg.getEndPoint();
+            const PlanePoint3i &startPoint = seg.getStartPointRef();
+            const PlanePoint3i &endPoint = seg.getEndPointRef();
             const bool segmentInSupportPlane =
                 startPoint.classify(poly.plane) == 0 &&
                 endPoint.classify(poly.plane) == 0;

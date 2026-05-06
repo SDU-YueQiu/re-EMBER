@@ -88,7 +88,8 @@ namespace ember
                 return SUCCESS;
             }
 
-            if (validatePath && !areSamePlanePoint(path[0].getStartPoint(), refpoint.point))
+            const PlanePoint3i &pathStartPoint = path.front().getStartPointRef();
+            if (validatePath && !areSamePlanePoint(pathStartPoint, refpoint.point))
             {
                 return INPUT_INVALID;
             }
@@ -97,7 +98,7 @@ namespace ember
             {
                 for (std::size_t i = 1; i < path.size(); ++i)
                 {
-                    if (!areSamePlanePoint(path[i - 1].getEndPoint(), path[i].getStartPoint()))
+                    if (!areSamePlanePoint(path[i - 1].getEndPointRef(), path[i].getStartPointRef()))
                     {
                         return INPUT_INVALID;
                     }
@@ -108,8 +109,7 @@ namespace ember
 
             for (const Polygon256 &poly : polygons)
             {
-                PlanePoint3i startPoint = path[0].getStartPoint();
-                int pcs = poly.classify(startPoint);
+                int pcs = poly.classify(pathStartPoint);
                 if (pcs == 0)
                 {
                     return PATH_INVALID;
@@ -117,7 +117,7 @@ namespace ember
 
                 for (const Segment256 &seg : path)
                 {
-                    const PlanePoint3i endPoint = seg.getEndPoint();
+                    const PlanePoint3i &endPoint = seg.getEndPointRef();
                     const int pce = poly.classify(endPoint);
 
                     if (pce == 0)
@@ -215,23 +215,23 @@ namespace ember
                 }
             }
 
-            if (validatePath && !areSamePlanePoint(path[0].getStartPoint(), refpoint.point))
-            {
-                return INPUT_INVALID;
-            }
-
+            const PlanePoint3i &pathStartPoint = path.front().getStartPointRef();
             if (validatePath)
             {
+                if (!areSamePlanePoint(pathStartPoint, refpoint.point))
+                {
+                    return INPUT_INVALID;
+                }
                 for (std::size_t i = 1; i < path.size(); ++i)
                 {
-                    if (!areSamePlanePoint(path[i - 1].getEndPoint(), path[i].getStartPoint()))
+                    if (!areSamePlanePoint(path[i - 1].getEndPointRef(), path[i].getStartPointRef()))
                     {
                         return INPUT_INVALID;
                     }
                 }
             }
 
-            const PlanePoint3i targetPoint = path.back().getEndPoint();
+            const PlanePoint3i &targetPoint = path.back().getEndPointRef();
             if (!targetPoint.hasUniqueIntersection() || targetPoint.classify(referencePlane) != 0)
             {
                 return INPUT_INVALID;
@@ -242,8 +242,7 @@ namespace ember
 
             for (const Polygon256 &poly : polygons)
             {
-                PlanePoint3i startPoint = path[0].getStartPoint();
-                int pcs = poly.classify(startPoint);
+                int pcs = poly.classify(pathStartPoint);
                 if (pcs == 0)
                 {
                     return PATH_INVALID;
@@ -252,7 +251,7 @@ namespace ember
                 for (std::size_t segmentIndex = 0; segmentIndex < path.size(); ++segmentIndex)
                 {
                     const Segment256 &seg = path[segmentIndex];
-                    const PlanePoint3i endPoint = seg.getEndPoint();
+                    const PlanePoint3i &endPoint = seg.getEndPointRef();
                     const int pce = poly.classify(endPoint);
                     const bool isLastSegment = (segmentIndex + 1 == path.size());
 
@@ -300,7 +299,7 @@ namespace ember
                 }
             }
 
-            const PlanePoint3i lastStartPoint = path.back().getStartPoint();
+            const PlanePoint3i &lastStartPoint = path.back().getStartPointRef();
             const int referenceHitSide = lastStartPoint.classify(referencePlane);
             if (referenceHitSide == 0)
             {

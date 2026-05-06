@@ -118,6 +118,8 @@ void runMath256Tests()
 		const ember::PlanePoint3i lineHit = ember::intersect(line, pz);
 		assert(lineHit.hasUniqueIntersection());
 		assert(line.contains(lineHit));
+		const ember::PlanePoint3i degenerateLineHit(px, px, pz);
+		assert(!degenerateLineHit.hasUniqueIntersection());
 
 		const ember::Line256 otherLine(py, pz);
 		assert(!ember::areParallel(line, otherLine));
@@ -128,6 +130,12 @@ void runMath256Tests()
 			ember::Plane3i::fromPointNormal(Vec3i(0, 0, 6), Vec3i(0, 0, 1)),
 			axisSegmentLine);
 		assert(segment.isValid());
+		const ember::PlanePoint3i firstStartPoint = segment.getStartPoint();
+		const ember::PlanePoint3i firstEndPoint = segment.getEndPoint();
+		assert(ember::areSameHomPoint(segment.getStartPointRef().x, firstStartPoint.x));
+		assert(ember::areSameHomPoint(segment.getEndPointRef().x, firstEndPoint.x));
+		assert(ember::areSameHomPoint(segment.getStartPointRef().x, segment.getStartPoint().x));
+		assert(ember::areSameHomPoint(segment.getEndPointRef().x, segment.getEndPoint().x));
 
 		const ember::Plane3i sameEndpointPlane =
 			ember::Plane3i::fromPointNormal(Vec3i(0, 0, 3), Vec3i(0, 0, 1));
