@@ -60,14 +60,6 @@ if(REEMBER_ENABLE_TRACY)
 endif()
 
 set(REEMBER_LIBRARY_HEADERS
-  "${REEMBER_THIRD_PARTY_DIR}/slimcpplib/long_fixdiv.h"
-  "${REEMBER_THIRD_PARTY_DIR}/slimcpplib/long_int.h"
-  "${REEMBER_THIRD_PARTY_DIR}/slimcpplib/long_io.h"
-  "${REEMBER_THIRD_PARTY_DIR}/slimcpplib/long_math.h"
-  "${REEMBER_THIRD_PARTY_DIR}/slimcpplib/long_math_gcc.h"
-  "${REEMBER_THIRD_PARTY_DIR}/slimcpplib/long_math_long.h"
-  "${REEMBER_THIRD_PARTY_DIR}/slimcpplib/long_math_msvc.h"
-  "${REEMBER_THIRD_PARTY_DIR}/slimcpplib/long_uint.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/WNV_tracing.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/bsp.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/leaf_arrangement.h"
