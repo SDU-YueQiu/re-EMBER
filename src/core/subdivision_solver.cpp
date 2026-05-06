@@ -37,6 +37,36 @@ namespace ember
             return message.str();
         }
 
+        bool isPointOnAnyPolygonSupportPlane(
+            const PlanePoint3i &point,
+            const std::vector<Polygon256> &polygons) noexcept
+        {
+            for (const Polygon256 &polygon : polygons)
+            {
+                if (point.classify(polygon.plane) == 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        bool isPointOnAnyPolygonSurface(
+            const PlanePoint3i &point,
+            const std::vector<Polygon256> &polygons) noexcept
+        {
+            for (const Polygon256 &polygon : polygons)
+            {
+                if (polygon.classify(point) == 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         Integer axisMinimum(const AABB3i &box, SplitAxis3i axis) noexcept
         {
             switch (axis)
@@ -499,6 +529,24 @@ namespace ember
             Midpoint
         };
 
+        void recordSplitStrategyMetrics(
+            BoolSolveMetrics &metrics,
+            SubdivisionSplitStrategy splitStrategy) noexcept
+        {
+            switch (splitStrategy)
+            {
+            case SubdivisionSplitStrategy::WntvAware:
+                ++metrics.wntvAwareSplitCount;
+                break;
+            case SubdivisionSplitStrategy::CenterRange:
+                ++metrics.centerRangeSplitCount;
+                break;
+            case SubdivisionSplitStrategy::Midpoint:
+                ++metrics.midpointSplitCount;
+                break;
+            }
+        }
+
         // 无 WNTV 分离候选时，用多边形中心范围近似最大方差轴，再按平均中心切分。
         bool chooseCenterRangeSplit(
             const PolygonCenterSplitStats &stats,
@@ -642,6 +690,115 @@ namespace ember
                    x > box.xMin && x < box.xMax &&
                    y > box.yMin && y < box.yMax &&
                    z > box.zMin && z < box.zMax;
+        }
+
+        struct ChildReferenceSearchState
+        {
+            SubdivisionRefState &outReference;
+            std::size_t candidateCount = 0;
+            std::vector<Segment256> candidatePath;
+            bool hardFailure = false;
+        };
+
+        bool tryTraceChildReferenceCandidate(
+            std::size_t depth,
+            const PlanePoint3i &sourcePoint,
+            bool sourceReferenceIsStrictInterior,
+            const refPoint &sourceRef,
+            const std::vector<Polygon256> &nodePolygons,
+            const std::vector<Polygon256> &childPolygons,
+            const detail::AABBPathCandidateSeed &candidateSeed,
+            BoolSolveMetrics &solveMetrics,
+            ChildReferenceSearchState &searchState)
+        {
+            const std::size_t candidateIndex = searchState.candidateCount;
+            ++searchState.candidateCount;
+            ++solveMetrics.childReferenceCandidateCount;
+
+            if (!sourceReferenceIsStrictInterior &&
+                candidateSeed.buildMode == detail::AABBPathBuildMode::Empty &&
+                areSamePlanePoint(candidateSeed.targetPoint, sourcePoint) &&
+                isPointOnAnyPolygonSupportPlane(candidateSeed.targetPoint, childPolygons))
+            {
+                detail::logTracingDebug(
+                    kBoolProblemChildReferenceScope,
+                    [depth, candidateIndex]()
+                    {
+                        std::ostringstream message;
+                        message << "Skipped child reference candidate depth=" << depth
+                                << " candidate_index=" << candidateIndex
+                                << " path_segments=0 reason=source_on_child_surface_plane.";
+                        return message.str();
+                    });
+                return true;
+            }
+
+            if (isPointOnAnyPolygonSurface(candidateSeed.targetPoint, childPolygons))
+            {
+                detail::logTracingDebug(
+                    kBoolProblemChildReferenceScope,
+                    [depth, candidateIndex, &candidateSeed]()
+                    {
+                        std::ostringstream message;
+                        message << "Skipped child reference candidate depth=" << depth
+                                << " candidate_index=" << candidateIndex
+                                << " path_segments=" << candidateSeed.axisCount
+                                << " reason=target_on_surface.";
+                        return message.str();
+                    });
+                return true;
+            }
+
+            if (!detail::buildAABBPathFromSeed(sourcePoint, candidateSeed, searchState.candidatePath))
+            {
+                detail::logTracingDebug(
+                    kBoolProblemChildReferenceScope,
+                    [depth, candidateIndex, &candidateSeed]()
+                    {
+                        std::ostringstream message;
+                        message << "Skipped child reference candidate depth=" << depth
+                                << " candidate_index=" << candidateIndex
+                                << " path_segments=" << candidateSeed.axisCount
+                                << " reason=path_build_failed.";
+                        return message.str();
+                    });
+                return true;
+            }
+
+            WNV propagatedWNV;
+            ++solveMetrics.childReferenceCandidateTriedCount;
+            const traceStatus status = detail::tracePathWNVAllowSubdivisionClipCrossingTrusted(
+                sourceRef,
+                searchState.candidatePath,
+                nodePolygons,
+                propagatedWNV);
+            detail::logTracingDebug(
+                kBoolProblemChildReferenceScope,
+                [depth, candidateIndex, &searchState, status]()
+                {
+                    std::ostringstream message;
+                    message << "Child reference trace depth=" << depth
+                            << " candidate_index=" << candidateIndex
+                            << " path_segments=" << searchState.candidatePath.size()
+                            << " status=" << detail::traceStatusName(status)
+                            << ".";
+                    return message.str();
+                });
+            if (status == SUCCESS)
+            {
+                ++solveMetrics.childReferenceTraceCount;
+                searchState.outReference.point = candidateSeed.targetPoint;
+                searchState.outReference.wnv = std::move(propagatedWNV);
+                return false;
+            }
+
+            if (status != PATH_INVALID)
+            {
+                searchState.hardFailure = true;
+                return false;
+            }
+
+            return true;
         }
     }
 
@@ -787,49 +944,132 @@ namespace ember
         solved_ = true;
     }
 
+    bool SubdivisionSolver::tryDiscardInvalidOrEmptyNode()
+    {
+        if (!polygons_.empty() && isValidAABB(aabb_))
+        {
+            return false;
+        }
+
+        discarded_ = true;
+        isLeaf_ = true;
+        solved_ = true;
+        detail::logBoolInfo(
+            kBoolProblemSolveRecursiveScope,
+            [this]()
+            {
+                std::ostringstream message;
+                message << "Discarded node depth=" << depth_
+                        << " polygon_count=" << polygons_.size()
+                        << " aabb=" << formatAABB(aabb_)
+                        << ".";
+                return message.str();
+            });
+        return true;
+    }
+
+    bool SubdivisionSolver::tryDiscardConstantIndicatorNode()
+    {
+        BoolStatus earlyOutStatus = OUT;
+        if (!shouldDiscardSubproblemEarly(earlyOutStatus))
+        {
+            return false;
+        }
+
+        ++solveMetrics_.constantDiscardCount;
+        discarded_ = true;
+        isLeaf_ = true;
+        solved_ = true;
+        detail::logBoolInfo(
+            kBoolProblemSolveRecursiveScope,
+            [this, earlyOutStatus]()
+            {
+                std::ostringstream message;
+                message << "Discarded node depth=" << depth_
+                        << " polygon_count=" << polygons_.size()
+                        << " reason=indicator_constant_"
+                        << (earlyOutStatus == IN ? "in" : "out")
+                        << ".";
+                return message.str();
+            });
+        return true;
+    }
+
+    bool SubdivisionSolver::tryFinishStoppedSubdivisionNode()
+    {
+        if (!shouldStopSubdivision())
+        {
+            return false;
+        }
+
+        const bool stoppedByLeafThreshold = polygons_.size() <= leafPolygonThreshold_;
+        if (stoppedByLeafThreshold)
+        {
+            ++solveMetrics_.leafThresholdStopCount;
+        }
+        else
+        {
+            ++solveMetrics_.aabbNotSplittableStopCount;
+        }
+
+        detail::logBoolInfo(
+            kBoolProblemSolveRecursiveScope,
+            [this, stoppedByLeafThreshold]()
+            {
+                std::ostringstream message;
+                message << "Stopping subdivision depth=" << depth_
+                        << " polygon_count=" << polygons_.size()
+                        << " reason=" << (stoppedByLeafThreshold ? "leaf_threshold" : "aabb_not_splittable")
+                        << ".";
+                return message.str();
+            });
+        finishCurrentNodeAsLeaf();
+        return true;
+    }
+
+    void SubdivisionSolver::mergeSolvedChildren()
+    {
+        resultFragments_.clear();
+        if (leftChild_ && !leftChild_->discarded_)
+        {
+            resultFragments_.insert(
+                resultFragments_.end(),
+                leftChild_->resultFragments_.begin(),
+                leftChild_->resultFragments_.end());
+        }
+        if (rightChild_ && !rightChild_->discarded_)
+        {
+            resultFragments_.insert(
+                resultFragments_.end(),
+                rightChild_->resultFragments_.begin(),
+                rightChild_->resultFragments_.end());
+        }
+
+        discarded_ =
+            (!leftChild_ || leftChild_->discarded_) &&
+            (!rightChild_ || rightChild_->discarded_);
+        solved_ = true;
+
+        detail::logBoolDebug(
+            kBoolProblemSolveRecursiveScope,
+            [this]()
+            {
+                std::ostringstream message;
+                message << "Merged child results depth=" << depth_
+                        << " result_fragments=" << resultFragments_.size()
+                        << " discarded=" << discarded_
+                        << ".";
+                return message.str();
+            });
+    }
+
     // 递归推进 subdivision；到达叶子后立即执行局部 BSP 和 WNV 分类。
     void SubdivisionSolver::solveRecursive()
     {
         REEMBER_PROFILE_ZONE("SubdivisionSolver::solveRecursive");
 
-        if (polygons_.empty() || !isValidAABB(aabb_))
+        if (tryDiscardInvalidOrEmptyNode() || tryDiscardConstantIndicatorNode())
         {
-            discarded_ = true;
-            isLeaf_ = true;
-            solved_ = true;
-            detail::logBoolInfo(
-                kBoolProblemSolveRecursiveScope,
-                [this]()
-                {
-                    std::ostringstream message;
-                    message << "Discarded node depth=" << depth_
-                            << " polygon_count=" << polygons_.size()
-                            << " aabb=" << formatAABB(aabb_)
-                            << ".";
-                    return message.str();
-                });
-            return;
-        }
-
-        BoolStatus earlyOutStatus = OUT;
-        if (shouldDiscardSubproblemEarly(earlyOutStatus))
-        {
-            ++solveMetrics_.constantDiscardCount;
-            discarded_ = true;
-            isLeaf_ = true;
-            solved_ = true;
-            detail::logBoolInfo(
-                kBoolProblemSolveRecursiveScope,
-                [this, earlyOutStatus]()
-                {
-                    std::ostringstream message;
-                    message << "Discarded node depth=" << depth_
-                            << " polygon_count=" << polygons_.size()
-                            << " reason=indicator_constant_"
-                            << (earlyOutStatus == IN ? "in" : "out")
-                            << ".";
-                    return message.str();
-                });
             return;
         }
 
@@ -839,28 +1079,8 @@ namespace ember
             return;
         }
 
-        if (shouldStopSubdivision())
+        if (tryFinishStoppedSubdivisionNode())
         {
-            if (polygons_.size() <= leafPolygonThreshold_)
-            {
-                ++solveMetrics_.leafThresholdStopCount;
-            }
-            else
-            {
-                ++solveMetrics_.aabbNotSplittableStopCount;
-            }
-            detail::logBoolInfo(
-                kBoolProblemSolveRecursiveScope,
-                [this]()
-                {
-                    std::ostringstream message;
-                    message << "Stopping subdivision depth=" << depth_
-                            << " polygon_count=" << polygons_.size()
-                            << " reason=" << (polygons_.size() <= leafPolygonThreshold_ ? "leaf_threshold" : "aabb_not_splittable")
-                            << ".";
-                    return message.str();
-                });
-            finishCurrentNodeAsLeaf();
             return;
         }
 
@@ -883,18 +1103,7 @@ namespace ember
             return;
         }
 
-        switch (splitStrategy)
-        {
-        case SubdivisionSplitStrategy::WntvAware:
-            ++solveMetrics_.wntvAwareSplitCount;
-            break;
-        case SubdivisionSplitStrategy::CenterRange:
-            ++solveMetrics_.centerRangeSplitCount;
-            break;
-        case SubdivisionSplitStrategy::Midpoint:
-            ++solveMetrics_.midpointSplitCount;
-            break;
-        }
+        recordSplitStrategyMetrics(solveMetrics_, splitStrategy);
 
         detail::logBoolDebug(
             kBoolProblemSolveRecursiveScope,
@@ -932,38 +1141,7 @@ namespace ember
             rightChild_->solveRecursive();
         }
 
-        resultFragments_.clear();
-        if (leftChild_ && !leftChild_->discarded_)
-        {
-            resultFragments_.insert(
-                resultFragments_.end(),
-                leftChild_->resultFragments_.begin(),
-                leftChild_->resultFragments_.end());
-        }
-        if (rightChild_ && !rightChild_->discarded_)
-        {
-            resultFragments_.insert(
-                resultFragments_.end(),
-                rightChild_->resultFragments_.begin(),
-                rightChild_->resultFragments_.end());
-        }
-
-        discarded_ =
-            (!leftChild_ || leftChild_->discarded_) &&
-            (!rightChild_ || rightChild_->discarded_);
-        solved_ = true;
-
-        detail::logBoolDebug(
-            kBoolProblemSolveRecursiveScope,
-            [this]()
-            {
-                std::ostringstream message;
-                message << "Merged child results depth=" << depth_
-                        << " result_fragments=" << resultFragments_.size()
-                        << " discarded=" << discarded_
-                        << ".";
-                return message.str();
-            });
+        mergeSolvedChildren();
     }
 
     // 叶子阈值和 AABB 可切分性共同决定当前节点是否停止递归。
@@ -1019,15 +1197,9 @@ namespace ember
 
         std::vector<Polygon256> leftPolygons;
         std::vector<Polygon256> rightPolygons;
-        leftPolygons.reserve(polygons_.size());
-        rightPolygons.reserve(polygons_.size());
-
-        for (const Polygon256 &polygon : polygons_)
+        if (!buildSplitChildPolygonSoups(split.splitPlane, leftPolygons, rightPolygons))
         {
-            if (!appendSplitChildPolygons(polygon, split.splitPlane, leftPolygons, rightPolygons))
-            {
-                return false;
-            }
+            return false;
         }
 
         if (leftPolygons.empty() && rightPolygons.empty())
@@ -1050,77 +1222,20 @@ namespace ember
                         << " right_polygons=" << rightPolygons.size()
                         << ".";
                 return message.str();
-            });
+                    });
 
         SubdivisionRefState leftReference;
         SubdivisionRefState rightReference;
-        if (!leftPolygons.empty() && !makeChildReference(split.left, leftPolygons, leftReference))
+        buildChildReferenceStates(split, leftPolygons, rightPolygons, leftReference, rightReference);
+
+        if (!leftPolygons.empty() && shouldCreateChildNode("left", leftPolygons, leftReference))
         {
-            std::ostringstream message;
-            message << "Failed to propagate left child reference depth=" << depth_
-                    << " candidate_polygons=" << leftPolygons.size()
-                    << ".";
-            throw std::runtime_error(message.str());
-        }
-        if (!rightPolygons.empty() && !makeChildReference(split.right, rightPolygons, rightReference))
-        {
-            std::ostringstream message;
-            message << "Failed to propagate right child reference depth=" << depth_
-                    << " candidate_polygons=" << rightPolygons.size()
-                    << ".";
-            throw std::runtime_error(message.str());
+            createChildSolver(leftChild_, split.left, std::move(leftPolygons), std::move(leftReference));
         }
 
-        auto shouldCreateChild =
-            [this](const char *side, const std::vector<Polygon256> &childPolygons, const SubdivisionRefState &childReference)
-            {
-                BoolStatus constantStatus = OUT;
-                if (!tryEvaluateConstantBinaryIndicator(op_, childReference.wnv, childPolygons, constantStatus))
-                {
-                    return true;
-                }
-
-                ++solveMetrics_.constantDiscardCount;
-                detail::logBoolInfo(
-                    kBoolProblemChildrenScope,
-                    [this, side, &childPolygons, constantStatus]()
-                    {
-                        std::ostringstream message;
-                        message << "Discarded child node depth=" << (depth_ + 1u)
-                                << " side=" << side
-                                << " polygon_count=" << childPolygons.size()
-                                << " reason=indicator_constant_"
-                                << (constantStatus == IN ? "in" : "out")
-                                << ".";
-                        return message.str();
-                    });
-                return false;
-            };
-
-        if (!leftPolygons.empty() && shouldCreateChild("left", leftPolygons, leftReference))
+        if (!rightPolygons.empty() && shouldCreateChildNode("right", rightPolygons, rightReference))
         {
-            leftChild_.reset(new SubdivisionSolver(
-                op_,
-                leafPolygonThreshold_,
-                depth_ + 1,
-                std::move(leftPolygons),
-                split.left,
-                std::move(leftReference),
-                lhsAssumptions_,
-                rhsAssumptions_));
-        }
-
-        if (!rightPolygons.empty() && shouldCreateChild("right", rightPolygons, rightReference))
-        {
-            rightChild_.reset(new SubdivisionSolver(
-                op_,
-                leafPolygonThreshold_,
-                depth_ + 1,
-                std::move(rightPolygons),
-                split.right,
-                std::move(rightReference),
-                lhsAssumptions_,
-                rhsAssumptions_));
+            createChildSolver(rightChild_, split.right, std::move(rightPolygons), std::move(rightReference));
         }
 
         detail::logBoolDebug(
@@ -1138,6 +1253,95 @@ namespace ember
         return true;
     }
 
+    bool SubdivisionSolver::buildSplitChildPolygonSoups(
+        const Plane3i &splitPlane,
+        std::vector<Polygon256> &leftPolygons,
+        std::vector<Polygon256> &rightPolygons) const
+    {
+        leftPolygons.reserve(polygons_.size());
+        rightPolygons.reserve(polygons_.size());
+
+        for (const Polygon256 &polygon : polygons_)
+        {
+            if (!appendSplitChildPolygons(polygon, splitPlane, leftPolygons, rightPolygons))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    void SubdivisionSolver::buildChildReferenceStates(
+        const AABBSplit3i &split,
+        const std::vector<Polygon256> &leftPolygons,
+        const std::vector<Polygon256> &rightPolygons,
+        SubdivisionRefState &leftReference,
+        SubdivisionRefState &rightReference)
+    {
+        if (!leftPolygons.empty() && !makeChildReference(split.left, leftPolygons, leftReference))
+        {
+            std::ostringstream message;
+            message << "Failed to propagate left child reference depth=" << depth_
+                    << " candidate_polygons=" << leftPolygons.size()
+                    << ".";
+            throw std::runtime_error(message.str());
+        }
+        if (!rightPolygons.empty() && !makeChildReference(split.right, rightPolygons, rightReference))
+        {
+            std::ostringstream message;
+            message << "Failed to propagate right child reference depth=" << depth_
+                    << " candidate_polygons=" << rightPolygons.size()
+                    << ".";
+            throw std::runtime_error(message.str());
+        }
+    }
+
+    bool SubdivisionSolver::shouldCreateChildNode(
+        const char *side,
+        const std::vector<Polygon256> &childPolygons,
+        const SubdivisionRefState &childReference)
+    {
+        BoolStatus constantStatus = OUT;
+        if (!tryEvaluateConstantBinaryIndicator(op_, childReference.wnv, childPolygons, constantStatus))
+        {
+            return true;
+        }
+
+        ++solveMetrics_.constantDiscardCount;
+        detail::logBoolInfo(
+            kBoolProblemChildrenScope,
+            [this, side, &childPolygons, constantStatus]()
+            {
+                std::ostringstream message;
+                message << "Discarded child node depth=" << (depth_ + 1u)
+                        << " side=" << side
+                        << " polygon_count=" << childPolygons.size()
+                        << " reason=indicator_constant_"
+                        << (constantStatus == IN ? "in" : "out")
+                        << ".";
+                return message.str();
+            });
+        return false;
+    }
+
+    void SubdivisionSolver::createChildSolver(
+        std::unique_ptr<SubdivisionSolver> &child,
+        const AABB3i &childBox,
+        std::vector<Polygon256> childPolygons,
+        SubdivisionRefState childReference)
+    {
+        child.reset(new SubdivisionSolver(
+            op_,
+            leafPolygonThreshold_,
+            depth_ + 1,
+            std::move(childPolygons),
+            childBox,
+            std::move(childReference),
+            lhsAssumptions_,
+            rhsAssumptions_));
+    }
+
     // 优先复用仍在子 AABB 内且不落在表面上的参考点，否则枚举 AABB 路径传播 WNV。
     bool SubdivisionSolver::makeChildReference(
         const AABB3i &childBox,
@@ -1146,162 +1350,33 @@ namespace ember
     {
         REEMBER_PROFILE_ZONE("SubdivisionSolver::makeChildReference");
 
-        const bool sourceReferenceIsStrictInterior = isPointStrictlyInsideAABB(reference_.point, childBox);
-        if (sourceReferenceIsStrictInterior)
+        if (tryReuseChildReference(childBox, childPolygons, outReference))
         {
-            bool onSurface = false;
-            for (const Polygon256 &polygon : childPolygons)
-            {
-                if (polygon.classify(reference_.point) == 0)
-                {
-                    onSurface = true;
-                    break;
-                }
-            }
-
-            if (!onSurface)
-            {
-                ++solveMetrics_.childReferenceReuseCount;
-                outReference = reference_;
-                detail::logTracingDebug(
-                    kBoolProblemChildReferenceScope,
-                    [this, &childBox]()
-                    {
-                        std::ostringstream message;
-                        message << "Reused reference depth=" << depth_
-                                << " child_aabb=" << formatAABB(childBox)
-                                << ".";
-                        return message.str();
-                    });
-                return true;
-            }
+            return true;
         }
 
+        const bool sourceReferenceIsStrictInterior = isPointStrictlyInsideAABB(reference_.point, childBox);
         const refPoint sourceRef(reference_.point, reference_.wnv);
         outReference = SubdivisionRefState();
-        std::size_t candidateCount = 0;
-        std::vector<Segment256> candidatePath;
-        candidatePath.reserve(3);
-        bool hardFailure = false;
+        ChildReferenceSearchState searchState{outReference};
+        searchState.candidatePath.reserve(3);
         auto processCandidateSeed =
             [this,
-             &candidateCount,
-             &candidatePath,
-             &childPolygons,
+             sourceReferenceIsStrictInterior,
              &sourceRef,
-             &sourceReferenceIsStrictInterior,
-             &outReference,
-             &hardFailure](const detail::AABBPathCandidateSeed &candidateSeed)
+             &childPolygons,
+             &searchState](const detail::AABBPathCandidateSeed &candidateSeed)
             {
-                const std::size_t candidateIndex = candidateCount;
-                ++candidateCount;
-                ++solveMetrics_.childReferenceCandidateCount;
-
-                if (!sourceReferenceIsStrictInterior &&
-                    candidateSeed.buildMode == detail::AABBPathBuildMode::Empty &&
-                    areSamePlanePoint(candidateSeed.targetPoint, reference_.point))
-                {
-                    bool onSupportPlane = false;
-                    for (const Polygon256 &polygon : childPolygons)
-                    {
-                        if (candidateSeed.targetPoint.classify(polygon.plane) == 0)
-                        {
-                            onSupportPlane = true;
-                            break;
-                        }
-                    }
-
-                    if (onSupportPlane)
-                    {
-                        detail::logTracingDebug(
-                            kBoolProblemChildReferenceScope,
-                            [this, candidateIndex]()
-                            {
-                                std::ostringstream message;
-                                message << "Skipped child reference candidate depth=" << depth_
-                                        << " candidate_index=" << candidateIndex
-                                        << " path_segments=0 reason=source_on_child_surface_plane.";
-                                return message.str();
-                            });
-                        return true;
-                    }
-                }
-
-                bool onSurface = false;
-                for (const Polygon256 &polygon : childPolygons)
-                {
-                    if (polygon.classify(candidateSeed.targetPoint) == 0)
-                    {
-                        onSurface = true;
-                        break;
-                    }
-                }
-                if (onSurface)
-                {
-                    detail::logTracingDebug(
-                        kBoolProblemChildReferenceScope,
-                        [this, candidateIndex, &candidateSeed]()
-                        {
-                            std::ostringstream message;
-                            message << "Skipped child reference candidate depth=" << depth_
-                                    << " candidate_index=" << candidateIndex
-                                    << " path_segments=" << candidateSeed.axisCount
-                                    << " reason=target_on_surface.";
-                            return message.str();
-                        });
-                    return true;
-                }
-
-                if (!detail::buildAABBPathFromSeed(reference_.point, candidateSeed, candidatePath))
-                {
-                    detail::logTracingDebug(
-                        kBoolProblemChildReferenceScope,
-                        [this, candidateIndex, &candidateSeed]()
-                        {
-                            std::ostringstream message;
-                            message << "Skipped child reference candidate depth=" << depth_
-                                    << " candidate_index=" << candidateIndex
-                                    << " path_segments=" << candidateSeed.axisCount
-                                    << " reason=path_build_failed.";
-                            return message.str();
-                        });
-                    return true;
-                }
-
-                WNV propagatedWNV;
-                ++solveMetrics_.childReferenceCandidateTriedCount;
-                const traceStatus status = detail::tracePathWNVAllowSubdivisionClipCrossingTrusted(
+                return tryTraceChildReferenceCandidate(
+                    depth_,
+                    reference_.point,
+                    sourceReferenceIsStrictInterior,
                     sourceRef,
-                    candidatePath,
                     polygons_,
-                    propagatedWNV);
-                detail::logTracingDebug(
-                    kBoolProblemChildReferenceScope,
-                    [this, candidateIndex, &candidatePath, status]()
-                    {
-                        std::ostringstream message;
-                        message << "Child reference trace depth=" << depth_
-                                << " candidate_index=" << candidateIndex
-                                << " path_segments=" << candidatePath.size()
-                                << " status=" << detail::traceStatusName(status)
-                                << ".";
-                        return message.str();
-                    });
-                if (status == SUCCESS)
-                {
-                    ++solveMetrics_.childReferenceTraceCount;
-                    outReference.point = candidateSeed.targetPoint;
-                    outReference.wnv = std::move(propagatedWNV);
-                    return false;
-                }
-
-                if (status != PATH_INVALID)
-                {
-                    hardFailure = true;
-                    return false;
-                }
-
-                return true;
+                    childPolygons,
+                    candidateSeed,
+                    solveMetrics_,
+                    searchState);
             };
 
         detail::visitFastAABBPathCandidateSeeds(reference_.point, childBox, processCandidateSeed);
@@ -1309,7 +1384,7 @@ namespace ember
         {
             return true;
         }
-        if (!hardFailure)
+        if (!searchState.hardFailure)
         {
             detail::visitExhaustiveAABBPathCandidateSeeds(reference_.point, childBox, processCandidateSeed);
         }
@@ -1321,16 +1396,42 @@ namespace ember
         outReference = SubdivisionRefState();
         detail::logTracingDebug(
             kBoolProblemChildReferenceScope,
-            [this, &childBox, candidateCount]()
+            [this, &childBox, &searchState]()
             {
                 std::ostringstream message;
                 message << "Failed to propagate child reference depth=" << depth_
                         << " child_aabb=" << formatAABB(childBox)
-                        << " candidate_count=" << candidateCount
+                        << " candidate_count=" << searchState.candidateCount
                         << ".";
                 return message.str();
             });
         return false;
+    }
+
+    bool SubdivisionSolver::tryReuseChildReference(
+        const AABB3i &childBox,
+        const std::vector<Polygon256> &childPolygons,
+        SubdivisionRefState &outReference)
+    {
+        if (!isPointStrictlyInsideAABB(reference_.point, childBox) ||
+            isPointOnAnyPolygonSurface(reference_.point, childPolygons))
+        {
+            return false;
+        }
+
+        ++solveMetrics_.childReferenceReuseCount;
+        outReference = reference_;
+        detail::logTracingDebug(
+            kBoolProblemChildReferenceScope,
+            [this, &childBox]()
+            {
+                std::ostringstream message;
+                message << "Reused reference depth=" << depth_
+                        << " child_aabb=" << formatAABB(childBox)
+                        << ".";
+                return message.str();
+            });
+        return true;
     }
 
     void SubdivisionSolver::collectLeafSummaries(std::vector<BoolLeafSummary> &outSummaries) const
