@@ -34,25 +34,6 @@ namespace ember
         return (pcs != 1) && (pec != 1);
     }
 
-    inline bool isSegmentTouchPolygonVertex(const Segment256 &seg, const Polygon256 &poly) noexcept
-    {
-        if (!seg.isValid() || !poly.isValid())
-        {
-            return false;
-        }
-
-        const std::size_t n = poly.edgePlanes.size();
-        for (std::size_t i = 0; i < n; ++i)
-        {
-            const PlanePoint3i vertex = getPolygonVertex(poly, i);
-            if (vertex.hasUniqueIntersection() && isPointOnSegment(vertex, seg))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
     namespace detail
     {
         enum class PolygonSurfaceLocation
@@ -320,14 +301,4 @@ namespace ember
         }
     }
 
-    inline bool isSegmentTouchPolygonEdge(const Segment256 &seg, const Polygon256 &poly) noexcept
-    {
-        if (!seg.isValid() || !poly.isValid())
-        {
-            return false;
-        }
-
-        return detail::classifySegmentPolygonBoundaryContactUnchecked(seg, poly).type !=
-               detail::PolygonBoundaryContactType::None;
-    }
 }

@@ -254,17 +254,6 @@ namespace ember
         return box;
     }
 
-    inline std::vector<Plane3i> computeAABBPlanes(const std::vector<Polygon256> &polygons)
-    {
-        const AABB3i box = computeAABB(polygons);
-        if (!isValidAABB(box))
-        {
-            return {};
-        }
-        const auto planes = makeAABBPlanes(box);
-        return std::vector<Plane3i>(planes.begin(), planes.end());
-    }
-
     inline constexpr bool isPointInsideOrOnAABB(const PlanePoint3i &point, const AABB3i &box) noexcept
     {
         if (!point.hasUniqueIntersection() || !isValidAABB(box))

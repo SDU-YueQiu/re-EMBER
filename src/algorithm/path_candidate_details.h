@@ -591,22 +591,6 @@ namespace ember
         }
 
         /**
-         * @brief 从点的定义平面中按给定索引读取某一个平面。
-         */
-        inline constexpr Plane3i getPointDefiningPlane(const PlanePoint3i &point, int planeIndex) noexcept
-        {
-            switch (planeIndex)
-            {
-            case 0:
-                return point.p;
-            case 1:
-                return point.q;
-            default:
-                return point.r;
-            }
-        }
-
-        /**
          * @brief 用三个平面恢复一个 `PlanePoint3i`。
          */
         inline PlanePoint3i makePointFromPlanes(const std::array<Plane3i, 3> &planes) noexcept

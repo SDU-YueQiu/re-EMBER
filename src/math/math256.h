@@ -28,11 +28,6 @@ namespace ember
         return value > 0;
     }
 
-    inline constexpr bool isNegative(const Integer& value) noexcept
-    {
-        return value < 0;
-    }
-
     inline constexpr Integer floorDiv(const Integer& a, const Integer& b) noexcept
     {
         Integer num = a;
@@ -169,11 +164,6 @@ namespace ember
     inline constexpr Integer determinant(const Vec2i& row1, const Vec2i& row2) noexcept
     {
         return determinant2x2(row1.x, row1.y, row2.x, row2.y);
-    }
-
-    inline constexpr int crossSign(const Vec2i& a, const Vec2i& b) noexcept
-    {
-        return signum(cross(a, b));
     }
 
     inline constexpr Integer orient2d(const Vec2i& a, const Vec2i& b, const Vec2i& c) noexcept
