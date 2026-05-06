@@ -13,6 +13,7 @@ param(
     [int]$TracyPort = 8086,
     [int]$TracyAttachWaitMilliseconds = 1500,
     [string]$TracyToolRoot,
+    [string[]]$UnwrapZoneFilter = @(),
     [switch]$SkipBuild,
     [switch]$ForceBuild,
     [switch]$NoTracy,
@@ -23,6 +24,16 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $TracyPortWasExplicit = $PSBoundParameters.ContainsKey("TracyPort")
+$UnwrapZoneFilter = @(
+    foreach ($value in $UnwrapZoneFilter) {
+        foreach ($token in ([string]$value -split '[,;]')) {
+            $trimmed = $token.Trim()
+            if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
+                $trimmed
+            }
+        }
+    }
+)
 
 function Show-Help {
     @"
@@ -36,6 +47,8 @@ Outputs:
   build\perf\run_<timestamp>\timings.csv
   build\perf\run_<timestamp>\tracy_traces\*.tracy
   build\perf\run_<timestamp>\tracy_zones.csv
+  build\perf\run_<timestamp>\tracy_zones_self.csv
+  build\perf\run_<timestamp>\tracy_unwrap\*.csv
   build\perf\run_<timestamp>\report.md
   build\perf\run_<timestamp>\summary.txt
 
@@ -46,6 +59,8 @@ Notes:
   - Install the required tools with: vcpkg install tracy[cli-tools]:x64-windows
   - The script auto-selects a bindable Tracy port when the default port is reserved on the local machine.
   - The script sets REEMBER_TRACY_WAIT_MS before timed work so tracy-capture can attach without polluting read/prepare/solve/export timings.
+  - tracy_zones.csv keeps inclusive time; tracy_zones_self.csv uses tracy-csvexport -e for self time.
+  - Use -UnwrapZoneFilter <zone-name> to export per-event CSVs for specific hotspots only.
   - Use -NoTracy only for timing-only runs without zone capture.
   - OBJ workloads are assumed to satisfy NSI/NNC input assumptions by default.
   - Use -NoInputAssumptions only when profiling intentionally invalid or adversarial OBJ inputs.
@@ -64,6 +79,7 @@ $BuildRoot = Join-Path $RepoRoot "build"
 $RunStamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $PerfRoot = Join-Path $RepoRoot ("build\perf\run_{0}" -f $RunStamp)
 $TraceRoot = Join-Path $PerfRoot "tracy_traces"
+$UnwrapRoot = Join-Path $PerfRoot "tracy_unwrap"
 New-Item -ItemType Directory -Force -Path $PerfRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $TraceRoot | Out-Null
 
@@ -783,6 +799,8 @@ function New-TimingRow {
         classified_fragment_count = [math]::Round((Get-Metric $metrics "classified_fragment_count"), 0)
         result_fragment_count = [math]::Round((Get-Metric $metrics "result_fragment_count"), 0)
         constant_discard_count = [math]::Round((Get-Metric $metrics "constant_discard_count"), 0)
+        invalid_or_empty_discard_count = [math]::Round((Get-Metric $metrics "invalid_or_empty_discard_count"), 0)
+        child_constant_discard_count = [math]::Round((Get-Metric $metrics "child_constant_discard_count"), 0)
         leaf_threshold_stop_count = [math]::Round((Get-Metric $metrics "leaf_threshold_stop_count"), 0)
         aabb_not_splittable_stop_count = [math]::Round((Get-Metric $metrics "aabb_not_splittable_stop_count"), 0)
         split_failure_stop_count = [math]::Round((Get-Metric $metrics "split_failure_stop_count"), 0)
@@ -792,13 +810,19 @@ function New-TimingRow {
         child_reference_reuse_count = [math]::Round((Get-Metric $metrics "child_reference_reuse_count"), 0)
         child_reference_trace_count = [math]::Round((Get-Metric $metrics "child_reference_trace_count"), 0)
         child_reference_candidate_count = [math]::Round((Get-Metric $metrics "child_reference_candidate_count"), 0)
+        child_reference_fast_candidate_count = [math]::Round((Get-Metric $metrics "child_reference_fast_candidate_count"), 0)
+        child_reference_exhaustive_candidate_count = [math]::Round((Get-Metric $metrics "child_reference_exhaustive_candidate_count"), 0)
         child_reference_candidate_tried_count = [math]::Round((Get-Metric $metrics "child_reference_candidate_tried_count"), 0)
+        child_reference_fast_candidate_tried_count = [math]::Round((Get-Metric $metrics "child_reference_fast_candidate_tried_count"), 0)
+        child_reference_exhaustive_candidate_tried_count = [math]::Round((Get-Metric $metrics "child_reference_exhaustive_candidate_tried_count"), 0)
         single_operand_assumption_stop_count = [math]::Round((Get-Metric $metrics "single_operand_assumption_stop_count"), 0)
         single_operand_assumption_fallback_count = [math]::Round((Get-Metric $metrics "single_operand_assumption_fallback_count"), 0)
         single_operand_leaf_bsp_skip_count = [math]::Round((Get-Metric $metrics "single_operand_leaf_bsp_skip_count"), 0)
         single_operand_classification_reuse_count = [math]::Round((Get-Metric $metrics "single_operand_classification_reuse_count"), 0)
         leaf_bsp_build_count = [math]::Round((Get-Metric $metrics "leaf_bsp_build_count"), 0)
         leaf_classification_point_candidate_count = [math]::Round((Get-Metric $metrics "leaf_classification_point_candidate_count"), 0)
+        leaf_classification_primary_point_candidate_count = [math]::Round((Get-Metric $metrics "leaf_classification_primary_point_candidate_count"), 0)
+        leaf_classification_expanded_point_candidate_count = [math]::Round((Get-Metric $metrics "leaf_classification_expanded_point_candidate_count"), 0)
         leaf_classification_trace_attempt_count = [math]::Round((Get-Metric $metrics "leaf_classification_trace_attempt_count"), 0)
         leaf_classification_fast_candidate_count = [math]::Round((Get-Metric $metrics "leaf_classification_fast_candidate_count"), 0)
         leaf_classification_fallback_candidate_count = [math]::Round((Get-Metric $metrics "leaf_classification_fallback_candidate_count"), 0)
@@ -816,18 +840,42 @@ function New-TimingRow {
     }
 }
 
-function Export-TracyZones {
+function Convert-ToSafePathToken {
+    param([string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return "zone"
+    }
+
+    $safe = $Value -replace '[^A-Za-z0-9._-]+', '_'
+    $safe = $safe.Trim('_')
+    if ([string]::IsNullOrWhiteSpace($safe)) {
+        return "zone"
+    }
+
+    return $safe
+}
+
+function Export-TracyZoneTable {
     param(
         [string]$CsvExportPath,
-        [object[]]$TraceRecords
+        [object[]]$TraceRecords,
+        [string[]]$ExtraArguments,
+        [string]$RawSuffix,
+        [string]$OutputCsvName
     )
 
     $zoneRows = New-Object System.Collections.Generic.List[object]
     foreach ($traceRecord in $TraceRecords) {
         $tracePath = $traceRecord.TracePath
-        $rawCsvPath = Join-Path $PerfRoot ("{0}_{1}.tracy-zones.raw.csv" -f $traceRecord.Tag, $traceRecord.Workload)
-        $stderrPath = Join-Path $PerfRoot ("{0}_{1}.tracy-csvexport.stderr.txt" -f $traceRecord.Tag, $traceRecord.Workload)
-        Invoke-External $CsvExportPath @($tracePath) $rawCsvPath $stderrPath $ReportTimeoutSeconds | Out-Null
+        $rawCsvPath = Join-Path $PerfRoot ("{0}_{1}.{2}.raw.csv" -f $traceRecord.Tag, $traceRecord.Workload, $RawSuffix)
+        $stderrPath = Join-Path $PerfRoot ("{0}_{1}.{2}.stderr.txt" -f $traceRecord.Tag, $traceRecord.Workload, $RawSuffix)
+        $arguments = @()
+        if ($ExtraArguments) {
+            $arguments += $ExtraArguments
+        }
+        $arguments += @($tracePath)
+        Invoke-External $CsvExportPath $arguments $rawCsvPath $stderrPath $ReportTimeoutSeconds | Out-Null
 
         foreach ($row in Import-Csv -LiteralPath $rawCsvPath) {
             $zoneRows.Add([pscustomobject]@{
@@ -848,12 +896,71 @@ function Export-TracyZones {
         }
     }
 
-    $zonesCsvPath = Join-Path $PerfRoot "tracy_zones.csv"
+    $zonesCsvPath = Join-Path $PerfRoot $OutputCsvName
     $zoneRows | Export-Csv -LiteralPath $zonesCsvPath -NoTypeInformation -Encoding UTF8
     return [pscustomobject]@{
         Path = $zonesCsvPath
         Rows = $zoneRows.ToArray()
     }
+}
+
+function Export-TracyZones {
+    param(
+        [string]$CsvExportPath,
+        [object[]]$TraceRecords
+    )
+
+    return Export-TracyZoneTable -CsvExportPath $CsvExportPath -TraceRecords $TraceRecords -ExtraArguments @() -RawSuffix "tracy-zones" -OutputCsvName "tracy_zones.csv"
+}
+
+function Export-TracySelfZones {
+    param(
+        [string]$CsvExportPath,
+        [object[]]$TraceRecords
+    )
+
+    return Export-TracyZoneTable -CsvExportPath $CsvExportPath -TraceRecords $TraceRecords -ExtraArguments @("-e") -RawSuffix "tracy-zones-self" -OutputCsvName "tracy_zones_self.csv"
+}
+
+function Export-TracyUnwrapRows {
+    param(
+        [string]$CsvExportPath,
+        [object[]]$TraceRecords,
+        [string[]]$ZoneFilters
+    )
+
+    $unwrapExports = New-Object System.Collections.Generic.List[object]
+    if (-not $ZoneFilters -or $ZoneFilters.Count -eq 0) {
+        return $unwrapExports.ToArray()
+    }
+
+    New-Item -ItemType Directory -Force -Path $UnwrapRoot | Out-Null
+    foreach ($zoneFilter in $ZoneFilters) {
+        $safeFilter = Convert-ToSafePathToken $zoneFilter
+        foreach ($traceRecord in $TraceRecords) {
+            $tracePath = $traceRecord.TracePath
+            $rawCsvPath = Join-Path $UnwrapRoot ("{0}_{1}.{2}.unwrap.csv" -f $traceRecord.Tag, $traceRecord.Workload, $safeFilter)
+            $stderrPath = Join-Path $PerfRoot ("{0}_{1}.{2}.tracy-unwrap.stderr.txt" -f $traceRecord.Tag, $traceRecord.Workload, $safeFilter)
+            Invoke-External $CsvExportPath @("-u", "-f", $zoneFilter, $tracePath) $rawCsvPath $stderrPath $ReportTimeoutSeconds | Out-Null
+
+            $eventCount = 0
+            if (Test-Path -LiteralPath $rawCsvPath) {
+                $rows = @(Import-Csv -LiteralPath $rawCsvPath)
+                $eventCount = $rows.Count
+            }
+
+            $unwrapExports.Add([pscustomobject]@{
+                workload = $traceRecord.Workload
+                iteration = $traceRecord.Iteration
+                zone_filter = $zoneFilter
+                path = $rawCsvPath
+                trace = $tracePath
+                event_count = $eventCount
+            })
+        }
+    }
+
+    return $unwrapExports.ToArray()
 }
 
 function Get-PropertyDouble {
@@ -891,6 +998,20 @@ function Measure-SumProperty {
     return [math]::Round((($Rows | ForEach-Object { Get-PropertyDouble $_ $Property }) | Measure-Object -Sum).Sum, 3)
 }
 
+function Measure-SumProperties {
+    param(
+        [object[]]$Rows,
+        [string[]]$Properties
+    )
+
+    $sum = 0
+    foreach ($property in $Properties) {
+        $sum += (Measure-SumProperty $Rows $property)
+    }
+
+    return [math]::Round($sum, 3)
+}
+
 function Get-ZoneAggregates {
     param([object[]]$ZoneRows)
 
@@ -921,6 +1042,63 @@ function Find-ZoneAggregate {
     return $Aggregates | Where-Object { $_.name -eq $Name } | Select-Object -First 1
 }
 
+function Get-ZoneAggregateRollup {
+    param(
+        [object[]]$Aggregates,
+        [string[]]$Names
+    )
+
+    $matched = @()
+    foreach ($name in $Names) {
+        $match = Find-ZoneAggregate $Aggregates $name
+        if ($match) {
+            $matched += $match
+        }
+    }
+
+    $count = 0
+    $totalMs = 0
+    $maxMs = 0
+    foreach ($row in $matched) {
+        $count += [double]$row.counts
+        $totalMs += [double]$row.total_ms
+        if ([double]$row.max_ms -gt $maxMs) {
+            $maxMs = [double]$row.max_ms
+        }
+    }
+
+    return [pscustomobject]@{
+        zone_name = ($Names -join " + ")
+        zone_count = [math]::Round($count, 0)
+        zone_total_ms = [math]::Round($totalMs, 3)
+        zone_max_ms = [math]::Round($maxMs, 3)
+    }
+}
+
+function Get-WorkloadZoneAggregates {
+    param([object[]]$ZoneRows)
+
+    $aggregates = New-Object System.Collections.Generic.List[object]
+    foreach ($workloadGroup in ($ZoneRows | Group-Object workload)) {
+        foreach ($zoneGroup in ($workloadGroup.Group | Group-Object name)) {
+            $count = Measure-SumProperty $zoneGroup.Group "counts"
+            $totalNs = Measure-SumProperty $zoneGroup.Group "total_ns"
+            $maxNs = (($zoneGroup.Group | ForEach-Object { Get-PropertyDouble $_ "max_ns" }) | Measure-Object -Maximum).Maximum
+            $meanNs = $(if ($count -gt 0) { $totalNs / $count } else { 0 })
+            $aggregates.Add([pscustomobject]@{
+                workload = $workloadGroup.Name
+                name = $zoneGroup.Name
+                counts = [math]::Round($count, 0)
+                total_ms = [math]::Round($totalNs / 1000000.0, 3)
+                mean_us = [math]::Round($meanNs / 1000.0, 3)
+                max_ms = [math]::Round($maxNs / 1000000.0, 3)
+            })
+        }
+    }
+
+    return @($aggregates | Sort-Object workload, @{ Expression = "total_ms"; Descending = $true })
+}
+
 function Add-MarkdownTable {
     param(
         [System.Collections.Generic.List[string]]$Lines,
@@ -938,15 +1116,67 @@ function Add-MarkdownTable {
     }
 }
 
+function New-StrategySummaryRow {
+    param(
+        [object[]]$TimingRows,
+        [object[]]$InclusiveAggregates,
+        [object[]]$SelfAggregates,
+        [string]$Item,
+        [string]$MetricProperty,
+        [string[]]$ZoneNames
+    )
+
+    $metricCount = [math]::Round((Measure-SumProperty $TimingRows $MetricProperty), 0)
+    $inclusiveRollup = Get-ZoneAggregateRollup $InclusiveAggregates $ZoneNames
+    $selfRollup = Get-ZoneAggregateRollup $SelfAggregates $ZoneNames
+    return [pscustomobject]@{
+        item = $Item
+        metric_count = $metricCount
+        zone_count = $inclusiveRollup.zone_count
+        status = $(if ($metricCount -eq $inclusiveRollup.zone_count) { "ok" } else { "mismatch" })
+        zone_name = $inclusiveRollup.zone_name
+        inclusive_ms = $inclusiveRollup.zone_total_ms
+        self_ms = $selfRollup.zone_total_ms
+    }
+}
+
+function New-StrategySummaryRowFromMetricValue {
+    param(
+        [double]$MetricCount,
+        [object[]]$InclusiveAggregates,
+        [object[]]$SelfAggregates,
+        [string]$Item,
+        [string[]]$ZoneNames
+    )
+
+    $roundedMetricCount = [math]::Round($MetricCount, 0)
+    $inclusiveRollup = Get-ZoneAggregateRollup $InclusiveAggregates $ZoneNames
+    $selfRollup = Get-ZoneAggregateRollup $SelfAggregates $ZoneNames
+    return [pscustomobject]@{
+        item = $Item
+        metric_count = $roundedMetricCount
+        zone_count = $inclusiveRollup.zone_count
+        status = $(if ($roundedMetricCount -eq $inclusiveRollup.zone_count) { "ok" } else { "mismatch" })
+        zone_name = $inclusiveRollup.zone_name
+        inclusive_ms = $inclusiveRollup.zone_total_ms
+        self_ms = $selfRollup.zone_total_ms
+    }
+}
+
 function Write-Reports {
     param(
         [object[]]$TimingRows,
-        [object[]]$ZoneRows,
+        [object[]]$InclusiveZoneRows,
+        [object[]]$SelfZoneRows,
+        [object[]]$UnwrapExports,
         [string]$TimingCsvPath,
-        [string]$ZonesCsvPath
+        [string]$InclusiveZonesCsvPath,
+        [string]$SelfZonesCsvPath
     )
 
-    $zoneAggregates = @(Get-ZoneAggregates $ZoneRows)
+    $inclusiveAggregates = @(Get-ZoneAggregates $InclusiveZoneRows)
+    $selfAggregates = @(Get-ZoneAggregates $SelfZoneRows)
+    $selfWorkloadAggregates = @(Get-WorkloadZoneAggregates $SelfZoneRows)
     $reportLines = New-Object System.Collections.Generic.List[string]
     $reportLines.Add("# re-EMBER Tracy Performance Report")
     $reportLines.Add("")
@@ -954,8 +1184,14 @@ function Write-Reports {
     $reportLines.Add(("configuration={0}" -f $Configuration))
     $reportLines.Add(("iterations={0}" -f $Iterations))
     $reportLines.Add(("timings_csv={0}" -f $TimingCsvPath))
-    if ($ZonesCsvPath) {
-        $reportLines.Add(("tracy_zones_csv={0}" -f $ZonesCsvPath))
+    if ($InclusiveZonesCsvPath) {
+        $reportLines.Add(("tracy_zones_csv={0}" -f $InclusiveZonesCsvPath))
+    }
+    if ($SelfZonesCsvPath) {
+        $reportLines.Add(("tracy_zones_self_csv={0}" -f $SelfZonesCsvPath))
+    }
+    if ($UnwrapExports.Count -gt 0) {
+        $reportLines.Add(("tracy_unwrap_root={0}" -f $UnwrapRoot))
     }
     $reportLines.Add("")
 
@@ -964,12 +1200,16 @@ function Write-Reports {
         $rows = @($group.Group)
         $workloadRows.Add([pscustomobject]@{
             workload = $group.Name
+            avg_read_ms = Measure-AverageProperty $rows "read_ms"
+            avg_prepare_ms = Measure-AverageProperty $rows "prepare_ms"
             avg_elapsed_ms = Measure-AverageProperty $rows "elapsed_ms"
             avg_solve_ms = Measure-AverageProperty $rows "solve_ms"
+            avg_export_ms = Measure-AverageProperty $rows "export_ms"
             avg_nodes = Measure-AverageProperty $rows "node_count"
             avg_leaves = Measure-AverageProperty $rows "leaf_node_count"
+            avg_leaf_points = Measure-AverageProperty $rows "leaf_classification_point_candidate_count"
             avg_leaf_traces = Measure-AverageProperty $rows "leaf_classification_trace_attempt_count"
-            avg_child_ref_tried = Measure-AverageProperty $rows "child_reference_candidate_tried_count"
+            avg_child_ref_candidates = Measure-AverageProperty $rows "child_reference_candidate_count"
             avg_results = Measure-AverageProperty $rows "result_fragment_count"
         })
     }
@@ -977,18 +1217,23 @@ function Write-Reports {
     $reportLines.Add("## Workload Scale")
     Add-MarkdownTable -Lines $reportLines -Headers @(
         "workload",
+        "avg_read_ms",
+        "avg_prepare_ms",
         "avg_elapsed_ms",
         "avg_solve_ms",
+        "avg_export_ms",
         "avg_nodes",
         "avg_leaves",
+        "avg_leaf_points",
         "avg_leaf_traces",
-        "avg_child_ref_tried",
+        "avg_child_ref_candidates",
         "avg_results"
     ) -Rows ($workloadRows.ToArray())
     $reportLines.Add("")
 
-    if ($ZoneRows.Count -gt 0) {
-        $keyZoneNames = @(
+    $reportLines.Add("## Pipeline Inclusive Time")
+    if ($InclusiveZoneRows.Count -gt 0) {
+        $pipelineZoneNames = @(
             "re-EMBER::read_obj",
             "re-EMBER::prepare_polygons",
             "re-EMBER::prepare_problem",
@@ -999,46 +1244,93 @@ function Write-Reports {
             "SubdivisionSolver::createChildrenFromSplit",
             "SubdivisionSolver::makeChildReference",
             "SubdivisionSolver::solveLeafArrangement",
-            "SubdivisionSolver::classifyLeafFragmentsAndCollectResults",
-            "LeafClassification::traceCandidate",
-            "tracePathWNVAllowSubdivisionClipCrossingTrusted",
-            "tracePathWNVToSurfacePointTrusted",
-            "BSPTree::insertTrusted",
-            "BSPTree::addSegmentRecursive",
-            "enumerateAABBPathCandidates",
-            "enumerateLeafClassificationFastPathCandidatesFromPoints",
-            "enumerateLeafClassificationFallbackPathCandidatesFromPoints",
-            "enumerateLeafClassificationNormalApproachCandidatesFromPoints",
-            "enumerateLeafClassificationInteriorBridgeCandidatesFromPoints"
+            "SubdivisionSolver::classifyLeafFragmentsAndCollectResults"
         )
 
-        $keyRows = New-Object System.Collections.Generic.List[object]
-        foreach ($zoneName in $keyZoneNames) {
-            $zone = Find-ZoneAggregate $zoneAggregates $zoneName
+        $pipelineRows = New-Object System.Collections.Generic.List[object]
+        foreach ($zoneName in $pipelineZoneNames) {
+            $zone = Find-ZoneAggregate $inclusiveAggregates $zoneName
             if ($zone) {
-                $keyRows.Add($zone)
+                $pipelineRows.Add($zone)
             }
         }
 
-        $reportLines.Add("## Key Zone Counts")
-        Add-MarkdownTable -Lines $reportLines -Headers @("name", "counts", "total_ms", "mean_us", "max_ms") -Rows ($keyRows.ToArray())
-        $reportLines.Add("")
-
-        $reportLines.Add("## Top Hot Zones")
-        Add-MarkdownTable -Lines $reportLines -Headers @("name", "counts", "total_ms", "mean_us", "max_ms") -Rows @($zoneAggregates | Select-Object -First 20)
-        $reportLines.Add("")
-
-        $leafTraceMetric = Measure-SumProperty $TimingRows "leaf_classification_trace_attempt_count"
-        $leafTraceZone = Find-ZoneAggregate $zoneAggregates "LeafClassification::traceCandidate"
-        $childTraceMetric = Measure-SumProperty $TimingRows "child_reference_candidate_tried_count"
-        $childTraceZone = Find-ZoneAggregate $zoneAggregates "tracePathWNVAllowSubdivisionClipCrossingTrusted"
-        $reportLines.Add("## Cross Checks")
-        $reportLines.Add(("- leaf trace attempts: metrics={0}, zone={1}" -f $leafTraceMetric, $(if ($leafTraceZone) { $leafTraceZone.counts } else { 0 })))
-        $reportLines.Add(("- child reference trace attempts: metrics={0}, zone={1}" -f $childTraceMetric, $(if ($childTraceZone) { $childTraceZone.counts } else { 0 })))
+        Add-MarkdownTable -Lines $reportLines -Headers @("name", "counts", "total_ms", "mean_us", "max_ms") -Rows ($pipelineRows.ToArray())
     }
     else {
-        $reportLines.Add("## Tracy Zones")
-        $reportLines.Add("No Tracy zone data was captured because -NoTracy was used.")
+        $reportLines.Add("No Tracy inclusive zone data was captured because -NoTracy was used.")
+    }
+    $reportLines.Add("")
+
+    $reportLines.Add("## Strategy/Optimization Summary")
+    if ($InclusiveZoneRows.Count -gt 0) {
+        $strategyRows = New-Object System.Collections.Generic.List[object]
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "invalid_or_empty_discard" "invalid_or_empty_discard_count" @("SubdivisionSolver::discardInvalidOrEmptyNode")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "constant_discard" "constant_discard_count" @("SubdivisionSolver::discardConstantIndicatorNode", "SubdivisionSolver::discardChildConstantIndicator")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "child_constant_discard" "child_constant_discard_count" @("SubdivisionSolver::discardChildConstantIndicator")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_threshold_stop" "leaf_threshold_stop_count" @("SubdivisionSolver::stopByLeafThreshold")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "aabb_not_splittable_stop" "aabb_not_splittable_stop_count" @("SubdivisionSolver::stopByAabbNotSplittable")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "split_failure_stop" "split_failure_stop_count" @("SubdivisionSolver::stopBySplitFailure")))
+        $splitDecisionMetric = Measure-SumProperties $TimingRows @("wntv_aware_split_count", "center_range_split_count", "midpoint_split_count", "split_failure_stop_count")
+        $strategyRows.Add((New-StrategySummaryRowFromMetricValue $splitDecisionMetric $inclusiveAggregates $selfAggregates "split_decision_attempt" @("chooseSubdivisionSplit")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "wntv_aware_split" "wntv_aware_split_count" @("SubdivisionSolver::splitStrategyWntvAware")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "center_range_split" "center_range_split_count" @("SubdivisionSolver::splitStrategyCenterRange")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "midpoint_split" "midpoint_split_count" @("SubdivisionSolver::splitStrategyMidpoint")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "single_operand_assumption_stop" "single_operand_assumption_stop_count" @("SubdivisionSolver::singleOperandAssumptionStop")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "single_operand_assumption_fallback" "single_operand_assumption_fallback_count" @("SubdivisionSolver::singleOperandAssumptionFallback")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "single_operand_leaf_bsp_skip" "single_operand_leaf_bsp_skip_count" @("SubdivisionSolver::skipLeafBspBySingleOperandAssumption")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "single_operand_classification_reuse" "single_operand_classification_reuse_count" @("LeafClassification::reuseSingleOperandClassification")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_bsp_build" "leaf_bsp_build_count" @("buildLeafArrangement")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "child_reference_reuse" "child_reference_reuse_count" @("SubdivisionSolver::reuseChildReference")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "child_reference_candidate" "child_reference_candidate_count" @("SubdivisionSolver::childReferenceFastCandidate", "SubdivisionSolver::childReferenceExhaustiveCandidate")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "child_reference_fast_candidate" "child_reference_fast_candidate_count" @("SubdivisionSolver::childReferenceFastCandidate")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "child_reference_exhaustive_candidate" "child_reference_exhaustive_candidate_count" @("SubdivisionSolver::childReferenceExhaustiveCandidate")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "child_reference_candidate_tried" "child_reference_candidate_tried_count" @("SubdivisionSolver::childReferenceFastCandidateTrace", "SubdivisionSolver::childReferenceExhaustiveCandidateTrace")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "child_reference_fast_candidate_tried" "child_reference_fast_candidate_tried_count" @("SubdivisionSolver::childReferenceFastCandidateTrace")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "child_reference_exhaustive_candidate_tried" "child_reference_exhaustive_candidate_tried_count" @("SubdivisionSolver::childReferenceExhaustiveCandidateTrace")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "child_reference_trace_success" "child_reference_trace_count" @("SubdivisionSolver::childReferenceTraceSuccess")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_point_candidate" "leaf_classification_point_candidate_count" @("LeafClassification::primaryPointCandidate", "LeafClassification::expandedPointCandidate")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_primary_point_candidate" "leaf_classification_primary_point_candidate_count" @("LeafClassification::primaryPointCandidate")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_expanded_point_candidate" "leaf_classification_expanded_point_candidate_count" @("LeafClassification::expandedPointCandidate")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_trace_attempt" "leaf_classification_trace_attempt_count" @("LeafClassification::traceCandidate")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_fast_candidate" "leaf_classification_fast_candidate_count" @("LeafClassification::fastCandidate")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_fallback_candidate" "leaf_classification_fallback_candidate_count" @("LeafClassification::fallbackCandidate")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_normal_candidate" "leaf_classification_normal_candidate_count" @("LeafClassification::normalCandidate")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_interior_bridge_candidate" "leaf_classification_interior_bridge_candidate_count" @("LeafClassification::interiorBridgeCandidate")))
+
+        Add-MarkdownTable -Lines $reportLines -Headers @("item", "metric_count", "zone_count", "status", "inclusive_ms", "self_ms", "zone_name") -Rows ($strategyRows.ToArray())
+
+        $mismatchRows = @($strategyRows | Where-Object { $_.status -ne "ok" })
+        if ($mismatchRows.Count -gt 0) {
+            $reportLines.Add("")
+            $reportLines.Add("Mismatch rows:")
+            foreach ($row in $mismatchRows) {
+                $reportLines.Add(("- {0}: metrics={1}, zone={2}" -f $row.item, $row.metric_count, $row.zone_count))
+            }
+        }
+    }
+    else {
+        $reportLines.Add("No Tracy zone data was captured because -NoTracy was used; strategy timing cross-checks are unavailable.")
+    }
+    $reportLines.Add("")
+
+    $reportLines.Add("## Per-Workload Self Hot Zones")
+    if ($SelfZoneRows.Count -gt 0) {
+        foreach ($workloadGroup in ($selfWorkloadAggregates | Group-Object workload)) {
+            $reportLines.Add(("### {0}" -f $workloadGroup.Name))
+            Add-MarkdownTable -Lines $reportLines -Headers @("name", "counts", "total_ms", "mean_us", "max_ms") -Rows @($workloadGroup.Group | Sort-Object total_ms -Descending | Select-Object -First 12)
+            $reportLines.Add("")
+        }
+    }
+    else {
+        $reportLines.Add("No Tracy self-time zone data was captured because -NoTracy was used.")
+        $reportLines.Add("")
+    }
+
+    if ($UnwrapExports.Count -gt 0) {
+        $reportLines.Add("### Unwrap Exports")
+        Add-MarkdownTable -Lines $reportLines -Headers @("workload", "iteration", "zone_filter", "event_count", "path") -Rows @($UnwrapExports | Sort-Object workload, iteration, zone_filter)
+        $reportLines.Add("")
     }
 
     $reportPath = Join-Path $PerfRoot "report.md"
@@ -1049,16 +1341,29 @@ function Write-Reports {
     $summaryLines.Add(("configuration={0}" -f $Configuration))
     $summaryLines.Add(("iterations={0}" -f $Iterations))
     $summaryLines.Add(("timings_csv={0}" -f $TimingCsvPath))
-    if ($ZonesCsvPath) {
-        $summaryLines.Add(("tracy_zones_csv={0}" -f $ZonesCsvPath))
+    if ($InclusiveZonesCsvPath) {
+        $summaryLines.Add(("tracy_zones_csv={0}" -f $InclusiveZonesCsvPath))
+    }
+    if ($SelfZonesCsvPath) {
+        $summaryLines.Add(("tracy_zones_self_csv={0}" -f $SelfZonesCsvPath))
+    }
+    if ($UnwrapExports.Count -gt 0) {
+        $summaryLines.Add(("tracy_unwrap_root={0}" -f $UnwrapRoot))
     }
     $summaryLines.Add(("report={0}" -f $reportPath))
     foreach ($row in $workloadRows) {
         $summaryLines.Add(("workload={0}" -f $row.workload))
+        $summaryLines.Add(("  avg_read_ms={0}" -f $row.avg_read_ms))
+        $summaryLines.Add(("  avg_prepare_ms={0}" -f $row.avg_prepare_ms))
         $summaryLines.Add(("  avg_elapsed_ms={0}" -f $row.avg_elapsed_ms))
         $summaryLines.Add(("  avg_solve_ms={0}" -f $row.avg_solve_ms))
+        $summaryLines.Add(("  avg_export_ms={0}" -f $row.avg_export_ms))
         $summaryLines.Add(("  avg_nodes={0}" -f $row.avg_nodes))
+        $summaryLines.Add(("  avg_leaf_points={0}" -f $row.avg_leaf_points))
         $summaryLines.Add(("  avg_leaf_traces={0}" -f $row.avg_leaf_traces))
+    }
+    foreach ($unwrapExport in ($UnwrapExports | Sort-Object workload, iteration, zone_filter)) {
+        $summaryLines.Add(("unwrap={0} workload={1} iteration={2} events={3} path={4}" -f $unwrapExport.zone_filter, $unwrapExport.workload, $unwrapExport.iteration, $unwrapExport.event_count, $unwrapExport.path))
     }
     Set-Content -LiteralPath (Join-Path $PerfRoot "summary.txt") -Value $summaryLines -Encoding UTF8
 
@@ -1120,6 +1425,7 @@ try {
         tracyPort = $script:ResolvedTracyPort
         tracyCapture = $tracyCapturePath
         tracyCsvExport = $tracyCsvExportPath
+        unwrapZoneFilter = $UnwrapZoneFilter
         inputAssumptionsEnabled = (-not $NoInputAssumptions)
         workloads = $workloads
     }
@@ -1151,15 +1457,33 @@ try {
     $timingCsvPath = Join-Path $PerfRoot "timings.csv"
     $timingRows | Export-Csv -LiteralPath $timingCsvPath -NoTypeInformation -Encoding UTF8
 
-    $zoneRows = @()
-    $zonesCsvPath = $null
+    $inclusiveZoneRows = @()
+    $selfZoneRows = @()
+    $unwrapExports = @()
+    $inclusiveZonesCsvPath = $null
+    $selfZonesCsvPath = $null
     if (-not $NoTracy) {
         $zoneResult = Export-TracyZones -CsvExportPath $tracyCsvExportPath -TraceRecords ($traceRecords.ToArray())
-        $zonesCsvPath = $zoneResult.Path
-        $zoneRows = @($zoneResult.Rows)
+        $inclusiveZonesCsvPath = $zoneResult.Path
+        $inclusiveZoneRows = @($zoneResult.Rows)
+
+        $selfZoneResult = Export-TracySelfZones -CsvExportPath $tracyCsvExportPath -TraceRecords ($traceRecords.ToArray())
+        $selfZonesCsvPath = $selfZoneResult.Path
+        $selfZoneRows = @($selfZoneResult.Rows)
+
+        if ($UnwrapZoneFilter.Count -gt 0) {
+            $unwrapExports = @(Export-TracyUnwrapRows -CsvExportPath $tracyCsvExportPath -TraceRecords ($traceRecords.ToArray()) -ZoneFilters $UnwrapZoneFilter)
+        }
     }
 
-    $reportPath = Write-Reports -TimingRows ($timingRows.ToArray()) -ZoneRows @($zoneRows) -TimingCsvPath $timingCsvPath -ZonesCsvPath $zonesCsvPath
+    $reportPath = Write-Reports `
+        -TimingRows ($timingRows.ToArray()) `
+        -InclusiveZoneRows @($inclusiveZoneRows) `
+        -SelfZoneRows @($selfZoneRows) `
+        -UnwrapExports @($unwrapExports) `
+        -TimingCsvPath $timingCsvPath `
+        -InclusiveZonesCsvPath $inclusiveZonesCsvPath `
+        -SelfZonesCsvPath $selfZonesCsvPath
     Write-Info ("Done. See report: {0}" -f $reportPath)
 }
 finally {

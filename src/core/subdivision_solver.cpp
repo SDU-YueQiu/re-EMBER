@@ -334,6 +334,8 @@ namespace ember
             const std::vector<Polygon256> &polygons,
             SubdivisionSplitStats &stats)
         {
+            REEMBER_PROFILE_ZONE("buildSubdivisionSplitStats");
+
             stats.wntvGroups.clear();
             stats.centerStats = PolygonCenterSplitStats();
             stats.wntvGroups.reserve(polygons.size());
@@ -536,14 +538,23 @@ namespace ember
             switch (splitStrategy)
             {
             case SubdivisionSplitStrategy::WntvAware:
+            {
+                REEMBER_PROFILE_ZONE("SubdivisionSolver::splitStrategyWntvAware");
                 ++metrics.wntvAwareSplitCount;
                 break;
+            }
             case SubdivisionSplitStrategy::CenterRange:
+            {
+                REEMBER_PROFILE_ZONE("SubdivisionSolver::splitStrategyCenterRange");
                 ++metrics.centerRangeSplitCount;
                 break;
+            }
             case SubdivisionSplitStrategy::Midpoint:
+            {
+                REEMBER_PROFILE_ZONE("SubdivisionSolver::splitStrategyMidpoint");
                 ++metrics.midpointSplitCount;
                 break;
+            }
             }
         }
 
@@ -700,6 +711,12 @@ namespace ember
             bool hardFailure = false;
         };
 
+        enum class ChildReferenceCandidatePhase
+        {
+            Fast,
+            Exhaustive
+        };
+
         bool tryTraceChildReferenceCandidate(
             std::size_t depth,
             const PlanePoint3i &sourcePoint,
@@ -707,10 +724,22 @@ namespace ember
             const refPoint &sourceRef,
             const std::vector<Polygon256> &nodePolygons,
             const std::vector<Polygon256> &childPolygons,
+            ChildReferenceCandidatePhase candidatePhase,
             const detail::AABBPathCandidateSeed &candidateSeed,
             BoolSolveMetrics &solveMetrics,
             ChildReferenceSearchState &searchState)
         {
+            if (candidatePhase == ChildReferenceCandidatePhase::Fast)
+            {
+                REEMBER_PROFILE_ZONE("SubdivisionSolver::childReferenceFastCandidate");
+                ++solveMetrics.childReferenceFastCandidateCount;
+            }
+            else
+            {
+                REEMBER_PROFILE_ZONE("SubdivisionSolver::childReferenceExhaustiveCandidate");
+                ++solveMetrics.childReferenceExhaustiveCandidateCount;
+            }
+
             const std::size_t candidateIndex = searchState.candidateCount;
             ++searchState.candidateCount;
             ++solveMetrics.childReferenceCandidateCount;
@@ -766,12 +795,26 @@ namespace ember
             }
 
             WNV propagatedWNV;
-            ++solveMetrics.childReferenceCandidateTriedCount;
-            const traceStatus status = detail::tracePathWNVAllowSubdivisionClipCrossingTrusted(
-                sourceRef,
-                searchState.candidatePath,
-                nodePolygons,
-                propagatedWNV);
+            traceStatus status = FAIL;
+            {
+                if (candidatePhase == ChildReferenceCandidatePhase::Fast)
+                {
+                    REEMBER_PROFILE_ZONE("SubdivisionSolver::childReferenceFastCandidateTrace");
+                    ++solveMetrics.childReferenceFastCandidateTriedCount;
+                }
+                else
+                {
+                    REEMBER_PROFILE_ZONE("SubdivisionSolver::childReferenceExhaustiveCandidateTrace");
+                    ++solveMetrics.childReferenceExhaustiveCandidateTriedCount;
+                }
+
+                ++solveMetrics.childReferenceCandidateTriedCount;
+                status = detail::tracePathWNVAllowSubdivisionClipCrossingTrusted(
+                    sourceRef,
+                    searchState.candidatePath,
+                    nodePolygons,
+                    propagatedWNV);
+            }
             detail::logTracingDebug(
                 kBoolProblemChildReferenceScope,
                 [depth, candidateIndex, &searchState, status]()
@@ -786,6 +829,7 @@ namespace ember
                 });
             if (status == SUCCESS)
             {
+                REEMBER_PROFILE_ZONE("SubdivisionSolver::childReferenceTraceSuccess");
                 ++solveMetrics.childReferenceTraceCount;
                 searchState.outReference.point = candidateSeed.targetPoint;
                 searchState.outReference.wnv = std::move(propagatedWNV);
@@ -946,57 +990,70 @@ namespace ember
 
     bool SubdivisionSolver::tryDiscardInvalidOrEmptyNode()
     {
+        REEMBER_PROFILE_ZONE("SubdivisionSolver::tryDiscardInvalidOrEmptyNode");
+
         if (!polygons_.empty() && isValidAABB(aabb_))
         {
             return false;
         }
 
-        discarded_ = true;
-        isLeaf_ = true;
-        solved_ = true;
-        detail::logBoolInfo(
-            kBoolProblemSolveRecursiveScope,
-            [this]()
-            {
-                std::ostringstream message;
-                message << "Discarded node depth=" << depth_
-                        << " polygon_count=" << polygons_.size()
-                        << " aabb=" << formatAABB(aabb_)
-                        << ".";
-                return message.str();
-            });
+        {
+            REEMBER_PROFILE_ZONE("SubdivisionSolver::discardInvalidOrEmptyNode");
+            ++solveMetrics_.invalidOrEmptyDiscardCount;
+            discarded_ = true;
+            isLeaf_ = true;
+            solved_ = true;
+            detail::logBoolInfo(
+                kBoolProblemSolveRecursiveScope,
+                [this]()
+                {
+                    std::ostringstream message;
+                    message << "Discarded node depth=" << depth_
+                            << " polygon_count=" << polygons_.size()
+                            << " aabb=" << formatAABB(aabb_)
+                            << ".";
+                    return message.str();
+                });
+        }
         return true;
     }
 
     bool SubdivisionSolver::tryDiscardConstantIndicatorNode()
     {
+        REEMBER_PROFILE_ZONE("SubdivisionSolver::tryDiscardConstantIndicatorNode");
+
         BoolStatus earlyOutStatus = OUT;
         if (!shouldDiscardSubproblemEarly(earlyOutStatus))
         {
             return false;
         }
 
-        ++solveMetrics_.constantDiscardCount;
-        discarded_ = true;
-        isLeaf_ = true;
-        solved_ = true;
-        detail::logBoolInfo(
-            kBoolProblemSolveRecursiveScope,
-            [this, earlyOutStatus]()
-            {
-                std::ostringstream message;
-                message << "Discarded node depth=" << depth_
-                        << " polygon_count=" << polygons_.size()
-                        << " reason=indicator_constant_"
-                        << (earlyOutStatus == IN ? "in" : "out")
-                        << ".";
-                return message.str();
-            });
+        {
+            REEMBER_PROFILE_ZONE("SubdivisionSolver::discardConstantIndicatorNode");
+            ++solveMetrics_.constantDiscardCount;
+            discarded_ = true;
+            isLeaf_ = true;
+            solved_ = true;
+            detail::logBoolInfo(
+                kBoolProblemSolveRecursiveScope,
+                [this, earlyOutStatus]()
+                {
+                    std::ostringstream message;
+                    message << "Discarded node depth=" << depth_
+                            << " polygon_count=" << polygons_.size()
+                            << " reason=indicator_constant_"
+                            << (earlyOutStatus == IN ? "in" : "out")
+                            << ".";
+                    return message.str();
+                });
+        }
         return true;
     }
 
     bool SubdivisionSolver::tryFinishStoppedSubdivisionNode()
     {
+        REEMBER_PROFILE_ZONE("SubdivisionSolver::tryFinishStoppedSubdivisionNode");
+
         if (!shouldStopSubdivision())
         {
             return false;
@@ -1005,10 +1062,12 @@ namespace ember
         const bool stoppedByLeafThreshold = polygons_.size() <= leafPolygonThreshold_;
         if (stoppedByLeafThreshold)
         {
+            REEMBER_PROFILE_ZONE("SubdivisionSolver::stopByLeafThreshold");
             ++solveMetrics_.leafThresholdStopCount;
         }
         else
         {
+            REEMBER_PROFILE_ZONE("SubdivisionSolver::stopByAabbNotSplittable");
             ++solveMetrics_.aabbNotSplittableStopCount;
         }
 
@@ -1088,6 +1147,7 @@ namespace ember
         SubdivisionSplitStrategy splitStrategy = SubdivisionSplitStrategy::Midpoint;
         if (!chooseSubdivisionSplit(polygons_, aabb_, split, splitStrategy))
         {
+            REEMBER_PROFILE_ZONE("SubdivisionSolver::stopBySplitFailure");
             ++solveMetrics_.splitFailureStopCount;
             detail::logBoolInfo(
                 kBoolProblemSolveRecursiveScope,
@@ -1258,6 +1318,8 @@ namespace ember
         std::vector<Polygon256> &leftPolygons,
         std::vector<Polygon256> &rightPolygons) const
     {
+        REEMBER_PROFILE_ZONE("SubdivisionSolver::buildSplitChildPolygonSoups");
+
         leftPolygons.reserve(polygons_.size());
         rightPolygons.reserve(polygons_.size());
 
@@ -1279,6 +1341,8 @@ namespace ember
         SubdivisionRefState &leftReference,
         SubdivisionRefState &rightReference)
     {
+        REEMBER_PROFILE_ZONE("SubdivisionSolver::buildChildReferenceStates");
+
         if (!leftPolygons.empty() && !makeChildReference(split.left, leftPolygons, leftReference))
         {
             std::ostringstream message;
@@ -1308,7 +1372,9 @@ namespace ember
             return true;
         }
 
+        REEMBER_PROFILE_ZONE("SubdivisionSolver::discardChildConstantIndicator");
         ++solveMetrics_.constantDiscardCount;
+        ++solveMetrics_.childConstantDiscardCount;
         detail::logBoolInfo(
             kBoolProblemChildrenScope,
             [this, side, &childPolygons, constantStatus]()
@@ -1365,7 +1431,7 @@ namespace ember
              sourceReferenceIsStrictInterior,
              &sourceRef,
              &childPolygons,
-             &searchState](const detail::AABBPathCandidateSeed &candidateSeed)
+             &searchState](ChildReferenceCandidatePhase candidatePhase, const detail::AABBPathCandidateSeed &candidateSeed)
             {
                 return tryTraceChildReferenceCandidate(
                     depth_,
@@ -1374,19 +1440,36 @@ namespace ember
                     sourceRef,
                     polygons_,
                     childPolygons,
+                    candidatePhase,
                     candidateSeed,
                     solveMetrics_,
                     searchState);
             };
 
-        detail::visitFastAABBPathCandidateSeeds(reference_.point, childBox, processCandidateSeed);
+        {
+            REEMBER_PROFILE_ZONE("SubdivisionSolver::makeChildReferenceFastCandidates");
+            detail::visitFastAABBPathCandidateSeeds(
+                reference_.point,
+                childBox,
+                [&processCandidateSeed](const detail::AABBPathCandidateSeed &candidateSeed)
+                {
+                    return processCandidateSeed(ChildReferenceCandidatePhase::Fast, candidateSeed);
+                });
+        }
         if (outReference.point.hasUniqueIntersection())
         {
             return true;
         }
         if (!searchState.hardFailure)
         {
-            detail::visitExhaustiveAABBPathCandidateSeeds(reference_.point, childBox, processCandidateSeed);
+            REEMBER_PROFILE_ZONE("SubdivisionSolver::makeChildReferenceExhaustiveCandidates");
+            detail::visitExhaustiveAABBPathCandidateSeeds(
+                reference_.point,
+                childBox,
+                [&processCandidateSeed](const detail::AABBPathCandidateSeed &candidateSeed)
+                {
+                    return processCandidateSeed(ChildReferenceCandidatePhase::Exhaustive, candidateSeed);
+                });
         }
         if (outReference.point.hasUniqueIntersection())
         {
@@ -1413,24 +1496,29 @@ namespace ember
         const std::vector<Polygon256> &childPolygons,
         SubdivisionRefState &outReference)
     {
+        REEMBER_PROFILE_ZONE("SubdivisionSolver::tryReuseChildReference");
+
         if (!isPointStrictlyInsideAABB(reference_.point, childBox) ||
             isPointOnAnyPolygonSurface(reference_.point, childPolygons))
         {
             return false;
         }
 
-        ++solveMetrics_.childReferenceReuseCount;
-        outReference = reference_;
-        detail::logTracingDebug(
-            kBoolProblemChildReferenceScope,
-            [this, &childBox]()
-            {
-                std::ostringstream message;
-                message << "Reused reference depth=" << depth_
-                        << " child_aabb=" << formatAABB(childBox)
-                        << ".";
-                return message.str();
-            });
+        {
+            REEMBER_PROFILE_ZONE("SubdivisionSolver::reuseChildReference");
+            ++solveMetrics_.childReferenceReuseCount;
+            outReference = reference_;
+            detail::logTracingDebug(
+                kBoolProblemChildReferenceScope,
+                [this, &childBox]()
+                {
+                    std::ostringstream message;
+                    message << "Reused reference depth=" << depth_
+                            << " child_aabb=" << formatAABB(childBox)
+                            << ".";
+                    return message.str();
+                });
+        }
         return true;
     }
 
@@ -1462,6 +1550,8 @@ namespace ember
         REEMBER_PROFILE_ZONE("SubdivisionSolver::collectSolveMetrics");
 
         outMetrics.constantDiscardCount += solveMetrics_.constantDiscardCount;
+        outMetrics.invalidOrEmptyDiscardCount += solveMetrics_.invalidOrEmptyDiscardCount;
+        outMetrics.childConstantDiscardCount += solveMetrics_.childConstantDiscardCount;
         outMetrics.leafThresholdStopCount += solveMetrics_.leafThresholdStopCount;
         outMetrics.aabbNotSplittableStopCount += solveMetrics_.aabbNotSplittableStopCount;
         outMetrics.splitFailureStopCount += solveMetrics_.splitFailureStopCount;
@@ -1471,13 +1561,19 @@ namespace ember
         outMetrics.childReferenceReuseCount += solveMetrics_.childReferenceReuseCount;
         outMetrics.childReferenceTraceCount += solveMetrics_.childReferenceTraceCount;
         outMetrics.childReferenceCandidateCount += solveMetrics_.childReferenceCandidateCount;
+        outMetrics.childReferenceFastCandidateCount += solveMetrics_.childReferenceFastCandidateCount;
+        outMetrics.childReferenceExhaustiveCandidateCount += solveMetrics_.childReferenceExhaustiveCandidateCount;
         outMetrics.childReferenceCandidateTriedCount += solveMetrics_.childReferenceCandidateTriedCount;
+        outMetrics.childReferenceFastCandidateTriedCount += solveMetrics_.childReferenceFastCandidateTriedCount;
+        outMetrics.childReferenceExhaustiveCandidateTriedCount += solveMetrics_.childReferenceExhaustiveCandidateTriedCount;
         outMetrics.singleOperandAssumptionStopCount += solveMetrics_.singleOperandAssumptionStopCount;
         outMetrics.singleOperandAssumptionFallbackCount += solveMetrics_.singleOperandAssumptionFallbackCount;
         outMetrics.singleOperandLeafBspSkipCount += solveMetrics_.singleOperandLeafBspSkipCount;
         outMetrics.singleOperandClassificationReuseCount += solveMetrics_.singleOperandClassificationReuseCount;
         outMetrics.leafBspBuildCount += solveMetrics_.leafBspBuildCount;
         outMetrics.leafClassificationPointCandidateCount += solveMetrics_.leafClassificationPointCandidateCount;
+        outMetrics.leafClassificationPrimaryPointCandidateCount += solveMetrics_.leafClassificationPrimaryPointCandidateCount;
+        outMetrics.leafClassificationExpandedPointCandidateCount += solveMetrics_.leafClassificationExpandedPointCandidateCount;
         outMetrics.leafClassificationTraceAttemptCount += solveMetrics_.leafClassificationTraceAttemptCount;
         outMetrics.leafClassificationFastCandidateCount += solveMetrics_.leafClassificationFastCandidateCount;
         outMetrics.leafClassificationFallbackCandidateCount += solveMetrics_.leafClassificationFallbackCandidateCount;
