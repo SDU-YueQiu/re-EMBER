@@ -35,7 +35,7 @@ ctest --test-dir build -C Debug --output-on-failure --timeout 60
 cmake --build build --config Debug --target re-EMBER
 ```
 
-Tracy 性能插桩是编译期可选项，默认关闭；普通 Debug/Release/RelWithDebInfo 构建不会包含 Tracy 头、链接库或 profiler 线程。只有显式配置 `-DREEMBER_ENABLE_TRACY=ON` 时才启用高层插桩；更细的 `math256` 底层热点桩需要再额外打开 `-DREEMBER_ENABLE_TRACY_MATH=ON`。
+Tracy 性能插桩是编译期可选项，默认关闭；普通 Debug/Release/RelWithDebInfo 构建不会包含 Tracy 头、链接库或 profiler 线程。性能脚本会按输入参数自动选择专用 profiling 构建树：`build\profile_tracy\` 打开 `REEMBER_ENABLE_TRACY=ON`，`build\profile_tracy_math\` 额外打开 `REEMBER_ENABLE_TRACY_MATH=ON`，`build\profile_notracy\` 则保持两者都关闭，因此不会污染普通 `build\` 构建。
 
 基础 CLI smoke：
 
@@ -78,31 +78,27 @@ build\Debug\re-EMBER.exe --lhs <left.obj> --rhs <right.obj> --op union|intersect
 vcpkg install tracy[cli-tools]:x64-windows
 ```
 
-性能脚本默认会把 `build/` 配置为 Tracy 构建并构建 `re-EMBER`：
+性能脚本默认会配置 `build\profile_tracy\` 并构建 `re-EMBER`：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo
 ```
 
-如果已经手动配置和构建过 Tracy 版本，可以加 `-SkipBuild` 只运行 workload：
+如果对应模式的 profiling 构建树已经由脚本准备过，可以加 `-SkipBuild` 只运行 workload：
 
 ```powershell
-cmake -S . -B build -DREEMBER_ENABLE_TRACY=ON
-cmake --build build --config RelWithDebInfo --target re-EMBER
 powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -SkipBuild
 ```
 
-如果要追 `math256` 里的底层代数热点，例如 `determinant3x3`、`gcdMagnitude`、`primitiveHomPoint`，再额外打开底层桩：
+如果要追 `math256` 里的底层代数热点，例如 `determinant3x3`、`gcdMagnitude`、`primitiveHomPoint`，直接给脚本加 `-EnableMathTracy`；它会自动切到 `build\profile_tracy_math\`：
 
 ```powershell
-cmake -S . -B build -DREEMBER_ENABLE_TRACY=ON -DREEMBER_ENABLE_TRACY_MATH=ON
-cmake --build build --config RelWithDebInfo --target re-EMBER
-powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -SkipBuild -EnableMathTracy
+powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -EnableMathTracy
 ```
 
 `REEMBER_ENABLE_TRACY_MATH` / `-EnableMathTracy` 默认应该保持关闭。只有确认瓶颈已经落到低层数学工具时才打开，否则这些超高频 zone 本身会带来额外开销，并淹没上层算法热点。
 
-只想看端到端时间和 `BoolSolveMetrics`，不需要 Tracy zone 时使用 `-NoTracy`：
+只想看端到端时间和 `BoolSolveMetrics`，不需要 Tracy zone 时使用 `-NoTracy`；脚本会自动改用 `build\profile_notracy\`：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -NoTracy
