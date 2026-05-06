@@ -8,6 +8,7 @@
 #include "algorithm/WNV_tracing.h"
 #include "core/logging.h"
 #include "core/perf_tracing.h"
+#include "core/solver_shared.h"
 #include "geometry/polygon_ops.h"
 
 #include <algorithm>
@@ -25,46 +26,6 @@ namespace ember
         constexpr const char *kBoolProblemChildrenScope = "SubdivisionSolver::createChildrenFromSplit";
         constexpr const char *kBoolProblemChildReferenceScope = "SubdivisionSolver::makeChildReference";
 
-        template <typename Builder>
-        void logBoolInfo(const char *scope, Builder &&builder)
-        {
-            emitLogLazy(LogLevel::Info, LogCategory::BoolProblem, scope, std::forward<Builder>(builder));
-        }
-
-        template <typename Builder>
-        void logBoolDebug(const char *scope, Builder &&builder)
-        {
-            emitLogLazy(LogLevel::Debug, LogCategory::BoolProblem, scope, std::forward<Builder>(builder));
-        }
-
-        template <typename Builder>
-        void logTracingDebug(const char *scope, Builder &&builder)
-        {
-            emitLogLazy(LogLevel::Debug, LogCategory::Tracing, scope, std::forward<Builder>(builder));
-        }
-
-        void logBoolError(const char *scope, const std::string &message)
-        {
-            emitLog(LogLevel::Error, LogCategory::BoolProblem, scope, message);
-        }
-
-        const char *traceStatusName(traceStatus status) noexcept
-        {
-            switch (status)
-            {
-            case SUCCESS:
-                return "SUCCESS";
-            case PATH_INVALID:
-                return "PATH_INVALID";
-            case INPUT_INVALID:
-                return "INPUT_INVALID";
-            case FAIL:
-                return "FAIL";
-            }
-
-            return "UNKNOWN";
-        }
-
         std::string formatAABB(const AABB3i &box)
         {
             std::ostringstream message;
@@ -74,17 +35,6 @@ namespace ember
                     << "], z=[" << box.zMin << ", " << box.zMax
                     << "]}";
             return message.str();
-        }
-
-        std::size_t computeWNVSize(const std::vector<Polygon256> &polygons) noexcept
-        {
-            std::size_t dimension = 0;
-            for (const Polygon256 &polygon : polygons)
-            {
-                dimension = std::max(dimension, polygon.WNTV.size());
-            }
-
-            return dimension;
         }
 
         Integer axisMinimum(const AABB3i &box, SplitAxis3i axis) noexcept
@@ -753,7 +703,7 @@ namespace ember
             throw std::runtime_error(message.str());
         }
 
-        logBoolInfo(
+        detail::logBoolInfo(
             kBoolProblemSolveScope,
             [this]()
             {
@@ -814,9 +764,9 @@ namespace ember
         REEMBER_PROFILE_ZONE("SubdivisionSolver::initializeRootReference");
 
         reference_.point = getAABBCornerPoint(aabb_, false, false, false);
-        reference_.wnv.assign(computeWNVSize(polygons_), 0);
+        reference_.wnv.assign(detail::computeWNVSize(polygons_), 0);
 
-        logBoolDebug(
+        detail::logBoolDebug(
             kBoolProblemRootReferenceScope,
             [this]()
             {
@@ -829,6 +779,14 @@ namespace ember
             });
     }
 
+    void SubdivisionSolver::finishCurrentNodeAsLeaf()
+    {
+        isLeaf_ = true;
+        solveLeafArrangement();
+        classifyLeafFragmentsAndCollectResults();
+        solved_ = true;
+    }
+
     // 递归推进 subdivision；到达叶子后立即执行局部 BSP 和 WNV 分类。
     void SubdivisionSolver::solveRecursive()
     {
@@ -839,7 +797,7 @@ namespace ember
             discarded_ = true;
             isLeaf_ = true;
             solved_ = true;
-            logBoolInfo(
+            detail::logBoolInfo(
                 kBoolProblemSolveRecursiveScope,
                 [this]()
                 {
@@ -860,7 +818,7 @@ namespace ember
             discarded_ = true;
             isLeaf_ = true;
             solved_ = true;
-            logBoolInfo(
+            detail::logBoolInfo(
                 kBoolProblemSolveRecursiveScope,
                 [this, earlyOutStatus]()
                 {
@@ -891,8 +849,7 @@ namespace ember
             {
                 ++solveMetrics_.aabbNotSplittableStopCount;
             }
-            isLeaf_ = true;
-            logBoolInfo(
+            detail::logBoolInfo(
                 kBoolProblemSolveRecursiveScope,
                 [this]()
                 {
@@ -903,9 +860,7 @@ namespace ember
                             << ".";
                     return message.str();
                 });
-            solveLeafArrangement();
-            classifyLeafFragmentsAndCollectResults();
-            solved_ = true;
+            finishCurrentNodeAsLeaf();
             return;
         }
 
@@ -914,8 +869,7 @@ namespace ember
         if (!chooseSubdivisionSplit(polygons_, aabb_, split, splitStrategy))
         {
             ++solveMetrics_.splitFailureStopCount;
-            isLeaf_ = true;
-            logBoolInfo(
+            detail::logBoolInfo(
                 kBoolProblemSolveRecursiveScope,
                 [this]()
                 {
@@ -925,9 +879,7 @@ namespace ember
                             << " reason=split_aabb_failed.";
                     return message.str();
                 });
-            solveLeafArrangement();
-            classifyLeafFragmentsAndCollectResults();
-            solved_ = true;
+            finishCurrentNodeAsLeaf();
             return;
         }
 
@@ -944,7 +896,7 @@ namespace ember
             break;
         }
 
-        logBoolDebug(
+        detail::logBoolDebug(
             kBoolProblemSolveRecursiveScope,
             [this, &split]()
             {
@@ -965,7 +917,7 @@ namespace ember
             message << "Failed to create child subdivision references depth=" << depth_
                     << " polygon_count=" << polygons_.size()
                     << ".";
-            logBoolError(kBoolProblemSolveRecursiveScope, message.str());
+            detail::logBoolError(kBoolProblemSolveRecursiveScope, message.str());
             throw std::runtime_error(message.str());
         }
 
@@ -1001,7 +953,7 @@ namespace ember
             (!rightChild_ || rightChild_->discarded_);
         solved_ = true;
 
-        logBoolDebug(
+        detail::logBoolDebug(
             kBoolProblemSolveRecursiveScope,
             [this]()
             {
@@ -1088,7 +1040,7 @@ namespace ember
             return false;
         }
 
-        logBoolDebug(
+        detail::logBoolDebug(
             kBoolProblemChildrenScope,
             [this, &leftPolygons, &rightPolygons]()
             {
@@ -1129,7 +1081,7 @@ namespace ember
                 }
 
                 ++solveMetrics_.constantDiscardCount;
-                logBoolInfo(
+                detail::logBoolInfo(
                     kBoolProblemChildrenScope,
                     [this, side, &childPolygons, constantStatus]()
                     {
@@ -1171,7 +1123,7 @@ namespace ember
                 rhsAssumptions_));
         }
 
-        logBoolDebug(
+        detail::logBoolDebug(
             kBoolProblemChildrenScope,
             [this]()
             {
@@ -1211,7 +1163,7 @@ namespace ember
             {
                 ++solveMetrics_.childReferenceReuseCount;
                 outReference = reference_;
-                logTracingDebug(
+                detail::logTracingDebug(
                     kBoolProblemChildReferenceScope,
                     [this, &childBox]()
                     {
@@ -1261,7 +1213,7 @@ namespace ember
 
                     if (onSupportPlane)
                     {
-                        logTracingDebug(
+                        detail::logTracingDebug(
                             kBoolProblemChildReferenceScope,
                             [this, candidateIndex]()
                             {
@@ -1286,7 +1238,7 @@ namespace ember
                 }
                 if (onSurface)
                 {
-                    logTracingDebug(
+                    detail::logTracingDebug(
                         kBoolProblemChildReferenceScope,
                         [this, candidateIndex, &candidateSeed]()
                         {
@@ -1302,7 +1254,7 @@ namespace ember
 
                 if (!detail::buildAABBPathFromSeed(reference_.point, candidateSeed, candidatePath))
                 {
-                    logTracingDebug(
+                    detail::logTracingDebug(
                         kBoolProblemChildReferenceScope,
                         [this, candidateIndex, &candidateSeed]()
                         {
@@ -1323,7 +1275,7 @@ namespace ember
                     candidatePath,
                     polygons_,
                     propagatedWNV);
-                logTracingDebug(
+                detail::logTracingDebug(
                     kBoolProblemChildReferenceScope,
                     [this, candidateIndex, &candidatePath, status]()
                     {
@@ -1331,7 +1283,7 @@ namespace ember
                         message << "Child reference trace depth=" << depth_
                                 << " candidate_index=" << candidateIndex
                                 << " path_segments=" << candidatePath.size()
-                                << " status=" << traceStatusName(status)
+                                << " status=" << detail::traceStatusName(status)
                                 << ".";
                         return message.str();
                     });
@@ -1367,7 +1319,7 @@ namespace ember
         }
 
         outReference = SubdivisionRefState();
-        logTracingDebug(
+        detail::logTracingDebug(
             kBoolProblemChildReferenceScope,
             [this, &childBox, candidateCount]()
             {
