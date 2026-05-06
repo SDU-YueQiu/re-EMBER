@@ -648,45 +648,6 @@ namespace ember
         return emitted;
     }
 
-    inline std::vector<AABBPathCandidate> enumerateAABBPathCandidates(const PlanePoint3i &startPoint, const AABB3i &targetBox)
-    {
-        REEMBER_PROFILE_ZONE("enumerateAABBPathCandidates");
-
-        std::vector<AABBPathCandidate> candidates;
-        auto materializeSeed =
-            [&candidates, &startPoint](const detail::AABBPathCandidateSeed &seed)
-        {
-            std::vector<Segment256> path;
-            if (detail::buildAABBPathFromSeed(startPoint, seed, path))
-            {
-                candidates.push_back(AABBPathCandidate{seed.targetPoint, std::move(path)});
-            }
-            return true;
-        };
-
-        detail::visitFastAABBPathCandidateSeeds(startPoint, targetBox, materializeSeed);
-        detail::visitExhaustiveAABBPathCandidateSeeds(startPoint, targetBox, materializeSeed);
-        return candidates;
-    }
-
-    /**
-     * @brief 为叶子多边形生成严格内部分类点候选。
-     *
-     * @param[in] polygon 待分类的叶子多边形。
-     * @return 先返回论文中的重心舍入探测线命中点，再返回确定性向内偏移兜底点。
-     */
-    inline std::vector<PlanePoint3i> enumerateLeafClassificationPointCandidates(const Polygon256 &polygon)
-    {
-        REEMBER_PROFILE_ZONE("enumerateLeafClassificationPointCandidates");
-
-        if (!polygon.isValid())
-        {
-            return {};
-        }
-
-        return detail::enumerateLeafClassificationPointCandidatesUnchecked(polygon);
-    }
-
     /**
      * @brief 枚举快速分类路径候选，并逐个交给调用方处理。
      *

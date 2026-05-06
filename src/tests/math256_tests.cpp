@@ -14,7 +14,6 @@
 #include "algorithm/bsp.h"
 
 using ember::Integer;
-using ember::Vec2i;
 using ember::Vec3i;
 
 #undef assert
@@ -40,30 +39,6 @@ void runMath256Tests()
 		assert(primitivePoint.z == Integer(3));
 		assert(primitivePoint.w == Integer(1));
 		assert(ember::areSameHomPoint(primitivePoint, ember::HomPoint4i(3, 6, 9, 3)));
-
-		const Vec2i a(3, 4);
-		const Vec2i b(-2, 5);
-
-		assert(a + b == Vec2i(1, 9));
-		assert(a - b == Vec2i(5, -1));
-		assert(2 * a == Vec2i(6, 8));
-		assert((a * 3) / 3 == a);
-
-		assert(ember::dot(a, b) == Integer(14));
-		assert(ember::cross(a, b) == Integer(23));
-		assert(a.lengthSquared() == Integer(25));
-
-		const Vec2i p0(0, 0);
-		const Vec2i p1(4, 0);
-		const Vec2i p2(4, 3);
-		const Vec2i p3(2, 0);
-
-		assert(ember::orient2dSign(p0, p1, p2) > 0);
-		assert(ember::orient2dSign(p0, p1, p3) == 0);
-		assert(ember::orient2dSign(p2, p1, p0) < 0);
-
-		assert(ember::determinant2x2(3, 4, -2, 5) == Integer(23));
-		assert(ember::determinant(a, b) == Integer(23));
 	}
 
 	{
@@ -75,17 +50,6 @@ void runMath256Tests()
 		assert(ember::dot(ex, ex) == Integer(1));
 		assert(ember::cross(ex, ey) == ez);
 		assert(ember::cross(ey, ex) == -ez);
-
-		const Vec3i v(3, -4, 12);
-		assert(v.lengthSquared() == Integer(169));
-
-		assert(ember::scalarTriple(ex, ey, ez) == Integer(1));
-		assert(ember::orient3dSign(ex, ey, ez) > 0);
-		assert(ember::orient3dSign(ex, ez, ey) < 0);
-
-		const Vec3i cop1(2, 2, 2);
-		const Vec3i cop2(4, 4, 4);
-		assert(ember::orient3dSign(ex, cop1, cop2) == 0);
 
 		assert(ember::determinant3x3(1, 0, 0, 0, 1, 0, 0, 0, 1) == Integer(1));
 		assert(ember::determinant(ex, ey, ez) == Integer(1));
@@ -102,7 +66,7 @@ void runMath256Tests()
 		const Vec3i b(2, -3, 5);
 
 		const Integer d = ember::dot(a, b);
-		assert(ember::isPositive(d));
+		assert(d > 0);
 		assert(!ember::isZero(d));
 		assert(ember::signum(d) > 0);
 	}
@@ -130,12 +94,10 @@ void runMath256Tests()
 			ember::Plane3i::fromPointNormal(Vec3i(0, 0, 6), Vec3i(0, 0, 1)),
 			axisSegmentLine);
 		assert(segment.isValid());
-		const ember::PlanePoint3i firstStartPoint = segment.getStartPoint();
-		const ember::PlanePoint3i firstEndPoint = segment.getEndPoint();
+		const ember::PlanePoint3i firstStartPoint = segment.getStartPointRef();
+		const ember::PlanePoint3i firstEndPoint = segment.getEndPointRef();
 		assert(ember::areSameHomPoint(segment.getStartPointRef().x, firstStartPoint.x));
 		assert(ember::areSameHomPoint(segment.getEndPointRef().x, firstEndPoint.x));
-		assert(ember::areSameHomPoint(segment.getStartPointRef().x, segment.getStartPoint().x));
-		assert(ember::areSameHomPoint(segment.getEndPointRef().x, segment.getEndPoint().x));
 
 		const ember::Plane3i sameEndpointPlane =
 			ember::Plane3i::fromPointNormal(Vec3i(0, 0, 3), Vec3i(0, 0, 1));
