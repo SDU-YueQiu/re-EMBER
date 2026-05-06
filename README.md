@@ -187,19 +187,9 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 - `report.md` 默认先用 inclusive 看 pipeline，再用 self 看每个 workload 的热点。
 - 领域规模仍以 `timings.csv` / `metrics.txt` 中的 `BoolSolveMetrics` 为准；`report.md` 会把关键策略的 `metric_count` 和 `zone_count` 做交叉校验。
 
-## 代码约定
-
-- 当前代码、测试和新鲜构建结果是事实来源；旧 README、旧会话和全局记忆只能作为线索。
-- 仓库自有源码的文件头和解释性注释使用中文；公开接口使用 Doxygen 结构，保留 `@brief`、`@param`、`@return`、`@retval`、`@note` 等标签。
-- 不把 `BoolProblem` 当递归节点使用；运行时细分状态属于 `SubdivisionSolver`。
-- `path_candidates.h` 保留公开候选类型和模板枚举入口；内部路径构造细节在 `path_candidate_details.h`。
-- 默认不改 `third_party/slimcpplib`、`third_party/tracy`、`assets`、`reference`、`Doxyfile` 和构建产物。
-- 当前几何核心基于固定宽度整数运算；新增高阶代数或齐次点比较前必须先确认 256 位中间结果预算。
-
 ## 已知限制
 
-- 当前公开流水线面向二元布尔；多网格表达式和通用布尔表达式解析尚未实现。
+- 当前公开流水线面向二元布尔；多网格表达式和通用布尔表达式解析不在计划内。
 - OBJ 导入只保留几何位置，不保留法线、UV、材质或拓扑连通关系。
 - CLI 为了跑通真实 OBJ，会对量化后非共面的输入面启用扇形三角化；库 API 默认仍是严格构造策略。
 - 输出是 OBJ n 边面多边形集合，不保证进行全局拓扑恢复。
-- 当前已接入 4.5.1 的 NSI/NNC 快路径、4.5.2 的一部分常量 indicator 剪枝，以及 4.5.3 的 WNTV-aware / center-range 切分；但 4.5.4 并行化和 4.5.5 中“避免到处使用完整 256 位算术”的关键工程优化仍未完成。
