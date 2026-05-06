@@ -54,16 +54,17 @@ Outputs:
   build\perf\run_<timestamp>\summary.txt
 
 Notes:
-  - Uses build\ only.
-  - Tracy profiling is the default path and requires REEMBER_ENABLE_TRACY=ON.
-  - When -SkipBuild is not specified, the script configures build\ with -DREEMBER_ENABLE_TRACY=ON.
+  - Uses build\ only; profiling builds live under build\profile_* and do not reuse the ordinary build\ tree.
+  - Tracy profiling is the default path and uses build\profile_tracy\ with REEMBER_ENABLE_TRACY=ON.
+  - When -SkipBuild is not specified, the script configures the mode-matched profiling build tree automatically.
   - Use -EnableMathTracy to additionally enable low-level math256 Tracy zones; the default is OFF to avoid steady-state overhead.
+  - -EnableMathTracy uses build\profile_tracy_math\ and enables REEMBER_ENABLE_TRACY_MATH automatically.
   - Install the required tools with: vcpkg install tracy[cli-tools]:x64-windows
   - The script auto-selects a bindable Tracy port when the default port is reserved on the local machine.
   - The script sets REEMBER_TRACY_WAIT_MS before timed work so tracy-capture can attach without polluting read/prepare/solve/export timings.
   - tracy_zones.csv keeps inclusive time; tracy_zones_self.csv uses tracy-csvexport -e for self time.
   - Use -UnwrapZoneFilter <zone-name> to export per-event CSVs for specific hotspots only.
-  - Use -NoTracy only for timing-only runs without zone capture.
+  - Use -NoTracy only for timing-only runs without zone capture; that mode uses build\profile_notracy\ automatically.
   - OBJ workloads are assumed to satisfy NSI/NNC input assumptions by default.
   - Use -NoInputAssumptions only when profiling intentionally invalid or adversarial OBJ inputs.
 "@
@@ -81,7 +82,20 @@ if ($EnableMathTracy -and $NoTracy) {
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 Set-Location -LiteralPath $RepoRoot
 
-$BuildRoot = Join-Path $RepoRoot "build"
+function Get-ProfilingBuildFlavor {
+    if ($NoTracy) {
+        return "notracy"
+    }
+
+    if ($EnableMathTracy) {
+        return "tracy_math"
+    }
+
+    return "tracy"
+}
+
+$BuildFlavor = Get-ProfilingBuildFlavor
+$BuildRoot = Join-Path $RepoRoot ("build\profile_{0}" -f $BuildFlavor)
 $RunStamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $PerfRoot = Join-Path $RepoRoot ("build\perf\run_{0}" -f $RunStamp)
 $TraceRoot = Join-Path $PerfRoot "tracy_traces"
@@ -1401,20 +1415,21 @@ try {
     if (-not (Test-Path -LiteralPath $BuildRoot)) {
         New-Item -ItemType Directory -Force -Path $BuildRoot | Out-Null
     }
+    Write-Info ("Using profiling build tree: {0}" -f $BuildRoot)
 
     if (-not $SkipBuild) {
         Invoke-CMakeConfigure
     }
 
     if ((-not $NoTracy) -and (-not (Test-TracyEnabledInBuild $BuildRoot))) {
-        throw "The build tree is not configured with REEMBER_ENABLE_TRACY=ON. Re-run without -SkipBuild or configure build\ manually."
+        throw ("The profiling build tree '{0}' is not configured with REEMBER_ENABLE_TRACY=ON. Re-run without -SkipBuild so the script can configure it automatically." -f $BuildRoot)
     }
     if ($EnableMathTracy -and (-not (Test-TracyMathEnabledInBuild $BuildRoot))) {
-        throw "The build tree is not configured with REEMBER_ENABLE_TRACY_MATH=ON. Re-run without -SkipBuild or configure build\ manually."
+        throw ("The profiling build tree '{0}' is not configured with REEMBER_ENABLE_TRACY_MATH=ON. Re-run without -SkipBuild so the script can configure it automatically." -f $BuildRoot)
     }
     $script:MathTracyEnabledInBuild = (-not $NoTracy) -and (Test-TracyMathEnabledInBuild $BuildRoot)
     if ($SkipBuild -and (-not $EnableMathTracy) -and $script:MathTracyEnabledInBuild) {
-        Write-Info "The existing build tree already has REEMBER_ENABLE_TRACY_MATH=ON; low-level math zones will still be captured."
+        Write-Info ("The selected profiling build tree '{0}' already has REEMBER_ENABLE_TRACY_MATH=ON; low-level math zones will still be captured." -f $BuildRoot)
     }
 
     $script:ResolvedTracyPort = $null
@@ -1445,6 +1460,7 @@ try {
     $manifest = [pscustomobject]@{
         repoRoot = [string]$RepoRoot
         buildDir = [string]$BuildRoot
+        buildFlavor = [string]$BuildFlavor
         outputDir = [string]$PerfRoot
         timestamp = $RunStamp
         configuration = $Configuration
