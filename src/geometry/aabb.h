@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "core/perf_tracing.h"
 #include "geometry/geometry256.h"
 
 #include <array>
@@ -195,6 +196,8 @@ namespace ember
 
     inline AABB3i computeAABB(const std::vector<Polygon256> &polygons, const Integer &margin = 1)
     {
+        REEMBER_PROFILE_ZONE("computeAABB");
+
         AABB3i box;
         bool initialized = false;
 
