@@ -26,7 +26,6 @@ option(REEMBER_BUILD_VISUAL_TEST "Build the libigl-based visual-test target" ON)
 option(REEMBER_ENABLE_TRACY "Enable optional Tracy profiler instrumentation" OFF)
 option(REEMBER_ENABLE_TRACY_MATH "Enable optional low-level math256 Tracy instrumentation" OFF)
 
-find_package(spdlog CONFIG REQUIRED)
 find_package(tinyobjloader CONFIG REQUIRED)
 find_package(Boost REQUIRED)
 
@@ -46,7 +45,6 @@ set(REEMBER_LIBRARY_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/leaf_arrangement.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/core/bool_problem.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/core/leaf_classifier.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/core/logging.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/core/subdivision_solver.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/clipping.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/geometry256.cpp"
@@ -67,7 +65,6 @@ set(REEMBER_LIBRARY_HEADERS
   "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/path_candidates.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/tracing_geometry.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/core/bool_problem.h"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/core/logging.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/core/perf_tracing.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/core/solver_shared.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/core/subdivision_solver.h"
@@ -115,7 +112,6 @@ endif()
 
 target_link_libraries(reember_lib
   PRIVATE
-    spdlog::spdlog
     tinyobjloader::tinyobjloader_double
 )
 

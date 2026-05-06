@@ -4,7 +4,6 @@
  */
 #include "bsp.h"
 
-#include "core/logging.h"
 #include "core/perf_tracing.h"
 #include "geometry/polygon_ops.h"
 
@@ -12,12 +11,6 @@
 
 namespace ember
 {
-    namespace
-    {
-        const char *kBspInsertScope = "BSPTree::insert";
-        const char *kBspAddSegmentScope = "BSPTree::addSegmentRecursive";
-    }
-
     BSPNode::BSPNode() noexcept
         : isLeaf(true), disabled(false), splitPlane(), leafGeometry(), front(), back()
     {

@@ -4,8 +4,6 @@
  */
 #include "clipping.h"
 
-#include "core/logging.h"
-
 #include <sstream>
 #include <utility>
 
@@ -13,8 +11,6 @@ namespace ember
 {
     namespace
     {
-        const char *kIntersectionCarrierScope = "computePolygonIntersectionCarrier";
-
         bool tryBuildIntersectionCarrierFromCuts(
             const Polygon256& target,
             const Polygon256& incoming,
@@ -28,11 +24,6 @@ namespace ember
             const PlanePoint3i incomingPoint1(target.plane, incoming.plane, incomingCut1);
             if (!incomingPoint0.hasUniqueIntersection() || !incomingPoint1.hasUniqueIntersection())
             {
-                emitLog(
-                    LogLevel::Debug,
-                    LogCategory::Geometry,
-                    kIntersectionCarrierScope,
-                    "Rejected polygon intersection carrier because the recovered line endpoints are not unique.");
                 return false;
             }
 
@@ -82,20 +73,10 @@ namespace ember
                 }
                 else
                 {
-                    emitLog(
-                        LogLevel::Debug,
-                        LogCategory::Geometry,
-                        kIntersectionCarrierScope,
-                        "Reached the unexpected side-assignment branch while trimming the overlap segment.");
                 }
             }
             else if (!((side00 < 0) == (side11 < 0) && (side10 < 0) == (side01 < 0)))
             {
-                emitLog(
-                    LogLevel::Debug,
-                    LogCategory::Geometry,
-                    kIntersectionCarrierScope,
-                    "Rejected polygon intersection carrier because the side-consistency check failed.");
                 return false;
             }
 
@@ -141,11 +122,6 @@ namespace ember
 
             if (intersectionCarriers.size() == 2u)
             {
-                emitLog(
-                    LogLevel::Debug,
-                    LogCategory::Geometry,
-                    "computePolygonPlaneIntersection",
-                    "Rejected polygon-plane intersection because more than two intersections were detected.");
                 return false;
             }
 
@@ -216,11 +192,6 @@ namespace ember
     {
         if (!target.isValid() || !incoming.isValid())
         {
-            emitLog(
-                LogLevel::Debug,
-                LogCategory::Geometry,
-                "computePolygonIntersectionCarrier",
-                "Rejected polygon intersection carrier because one polygon is invalid.");
             return false;
         }
 
@@ -295,11 +266,6 @@ namespace ember
     {
         if (!source.isValid())
         {
-            emitLog(
-                LogLevel::Debug,
-                LogCategory::Geometry,
-                "clipLeafGeometryByPlane",
-                "Rejected leaf clipping because the source polygon is invalid.");
             return false;
         }
 
@@ -316,11 +282,6 @@ namespace ember
     {
         if (arePlaneNormalsParallel(source.plane, clipPlane))
         {
-            emitLog(
-                LogLevel::Debug,
-                LogCategory::Geometry,
-                "clipLeafGeometryByPlane",
-                "Rejected leaf clipping because the clip plane is parallel to the source polygon.");
             return false;
         }
 
@@ -359,11 +320,6 @@ namespace ember
         const std::size_t n = source.edgeCount();
         if (vertexSides.size() != n)
         {
-            emitLog(
-                LogLevel::Debug,
-                LogCategory::Geometry,
-                "clipLeafGeometryByPlane",
-                "Rejected leaf clipping because the cached vertex side count does not match the polygon edge count.");
             return false;
         }
 
@@ -382,11 +338,6 @@ namespace ember
 
 			if (sSide == 0 && eSide == 0)
             {
-                emitLog(
-                    LogLevel::Debug,
-                    LogCategory::Geometry,
-                    "clipLeafGeometryByPlane",
-                    "Rejected leaf clipping because an entire edge lies on the clip plane.");
                 frontClipped = Polygon256();
 				backClipped = Polygon256();
                 return false;
@@ -457,15 +408,10 @@ namespace ember
                 if (i != 0)
                 {
                     message << ",";
-                }
-                message << vertexSides[i];
             }
-            message << "].";
-            emitLog(
-                LogLevel::Debug,
-                LogCategory::Geometry,
-                "clipLeafGeometryByPlane",
-                message.str());
+            message << vertexSides[i];
+        }
+        message << "].";
             frontClipped = Polygon256();
             backClipped = Polygon256();
             return false;
