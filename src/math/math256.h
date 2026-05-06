@@ -4,14 +4,24 @@
  */
 #pragma once
 
-#include <slimcpplib/long_int.h>
-#include <slimcpplib/long_io.h>
+#include <boost/multiprecision/cpp_int.hpp>
 
 #include <ostream>
+#include <string>
 
 namespace ember
 {
-    using Integer = slim::int256_t;
+    using Integer = boost::multiprecision::int256_t;
+
+    inline std::string integerToString(const Integer& value)
+    {
+        return value.convert_to<std::string>();
+    }
+
+    inline long double integerToLongDouble(const Integer& value)
+    {
+        return value.convert_to<long double>();
+    }
 
     inline int signum(const Integer& value) noexcept
     {
