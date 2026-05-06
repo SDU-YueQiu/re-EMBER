@@ -200,7 +200,6 @@ namespace ember
                 for (std::size_t edgeIndex = 0; edgeIndex < edgeCount; ++edgeIndex)
                 {
                     const std::size_t nextIndex = (edgeIndex + 1 == edgeCount) ? 0 : (edgeIndex + 1);
-                    const std::size_t prevIndex = (edgeIndex == 0) ? (edgeCount - 1) : (edgeIndex - 1);
                     const Plane3i &edgePlane = poly.edgePlanes[edgeIndex];
 
                     const PlanePoint3i edgeHit = intersect(seg.direction, edgePlane);
@@ -236,8 +235,8 @@ namespace ember
                         continue;
                     }
 
-                    const PlanePoint3i edgeVertex0(poly.plane, edgePlane, poly.edgePlanes[prevIndex]);
-                    const PlanePoint3i edgeVertex1(poly.plane, poly.edgePlanes[nextIndex], edgePlane);
+                    const PlanePoint3i &edgeVertex0 = poly.vertex(edgeIndex);
+                    const PlanePoint3i &edgeVertex1 = poly.vertex(nextIndex);
                     if (isPointOnSegment(edgeVertex0, seg) || isPointOnSegment(edgeVertex1, seg))
                     {
                         mergeBoundaryContact(contact, PolygonBoundaryContactType::EdgeOverlap, edgeIndex);

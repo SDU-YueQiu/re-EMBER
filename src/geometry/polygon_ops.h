@@ -16,16 +16,9 @@ namespace ember
     /**
      * @brief 从支撑平面和相邻边平面读取一个多边形顶点。
      */
-    inline PlanePoint3i getPolygonVertex(const Polygon256 &poly, std::size_t index) noexcept
+    inline const PlanePoint3i &getPolygonVertex(const Polygon256 &poly, std::size_t index) noexcept
     {
-        const std::size_t n = poly.edgePlanes.size();
-        if (n == 0 || index >= n)
-        {
-            return PlanePoint3i();
-        }
-
-        const std::size_t prev = (index == 0) ? (n - 1) : (index - 1);
-        return PlanePoint3i(poly.plane, poly.edgePlanes[index], poly.edgePlanes[prev]);
+        return poly.vertex(index);
     }
 
     /**
@@ -40,8 +33,8 @@ namespace ember
             return false;
         }
 
-        const PlanePoint3i vertex = getPolygonVertex(lhs, 0);
-        return vertex.hasUniqueIntersection() && vertex.classify(rhs.plane) == 0;
+        const PlanePoint3i &firstVertex = getPolygonVertex(lhs, 0);
+        return firstVertex.hasUniqueIntersection() && firstVertex.classify(rhs.plane) == 0;
     }
 
     namespace detail
@@ -65,7 +58,7 @@ namespace ember
 
             for (std::size_t i = 0; i < n; ++i)
             {
-                const PlanePoint3i vertex = getPolygonVertex(source, i);
+                const PlanePoint3i &vertex = getPolygonVertex(source, i);
                 const int side = vertex.classify(clipPlane);
                 if (side > 0)
                 {

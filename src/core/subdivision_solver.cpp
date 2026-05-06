@@ -198,23 +198,20 @@ namespace ember
         bool appendPolygonBoundsToAABB(AABB3i &box, const Polygon256 &polygon) noexcept
         {
             bool hasVertex = false;
-            const std::size_t vertexCount = polygon.edgePlanes.size();
-            for (std::size_t i = 0; i < vertexCount; ++i)
+            const std::vector<PlanePoint3i> &cachedVertices = polygon.vertices();
+            for (const PlanePoint3i &vertex : cachedVertices)
             {
-                const std::size_t prev = (i == 0) ? (vertexCount - 1u) : (i - 1u);
-                const HomPoint4i vertex =
-                    intersectHomogeneous(polygon.plane, polygon.edgePlanes[i], polygon.edgePlanes[prev]);
-                if (isZero(vertex.w))
+                if (!vertex.hasUniqueIntersection() || isZero(vertex.x.w))
                 {
                     continue;
                 }
 
-                const Integer fx = floorDiv(vertex.x, vertex.w);
-                const Integer cx = ceilDiv(vertex.x, vertex.w);
-                const Integer fy = floorDiv(vertex.y, vertex.w);
-                const Integer cy = ceilDiv(vertex.y, vertex.w);
-                const Integer fz = floorDiv(vertex.z, vertex.w);
-                const Integer cz = ceilDiv(vertex.z, vertex.w);
+                const Integer fx = floorDiv(vertex.x.x, vertex.x.w);
+                const Integer cx = ceilDiv(vertex.x.x, vertex.x.w);
+                const Integer fy = floorDiv(vertex.x.y, vertex.x.w);
+                const Integer cy = ceilDiv(vertex.x.y, vertex.x.w);
+                const Integer fz = floorDiv(vertex.x.z, vertex.x.w);
+                const Integer cz = ceilDiv(vertex.x.z, vertex.x.w);
 
                 if (!box.valid)
                 {
@@ -651,7 +648,8 @@ namespace ember
             vertexSides.resize(edgeCount);
             for (std::size_t edgeIndex = 0; edgeIndex < edgeCount; ++edgeIndex)
             {
-                const int side = getPolygonVertex(polygon, edgeIndex).classify(splitPlane);
+                const PlanePoint3i &vertex = getPolygonVertex(polygon, edgeIndex);
+                const int side = vertex.classify(splitPlane);
                 vertexSides[edgeIndex] = side;
                 if (side > 0)
                 {

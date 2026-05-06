@@ -7,7 +7,7 @@
 当前代码已经具备一条可运行的基础布尔流水线：
 
 ```text
-OBJ -> 多边形集合 -> BoolProblem -> SubdivisionSolver -> resultFragments -> OBJ n 边面
+OBJ -> 多边形集合 -> BoolProblem(顶点预处理/校验) -> SubdivisionSolver -> resultFragments -> OBJ n 边面
 ```
 
 重要边界如下：
@@ -22,7 +22,7 @@ OBJ -> 多边形集合 -> BoolProblem -> SubdivisionSolver -> resultFragments ->
 - `src/tests/`：仓库自定义断言测试，不依赖第三方测试框架。
 - `tools/profile-re-ember.ps1`：端到端性能测试、Tracy 捕获和报告入口。
 
-`BoolProblem` 现在只暴露应用需要的门面接口：`setOperation`、`setLeafPolygonThreshold`、`addPolygon`、`setPolygons`、`setOperands`、`solve`、`isSolved`、`isDiscarded`、`resultFragments`、`leafSummaries` 和 `solveMetrics`。递归子问题状态属于 `SubdivisionSolver` 内部实现；测试或诊断需要看叶子结构时使用 `leafSummaries()`，需要看求解规模和剪枝/候选统计时使用 `solveMetrics()`。
+`BoolProblem` 现在只暴露应用需要的门面接口：`setOperation`、`setLeafPolygonThreshold`、`addPolygon`、`setPolygons`、`setOperands`、`solve`、`isSolved`、`isDiscarded`、`resultFragments`、`leafSummaries` 和 `solveMetrics`。`solve()` 在进入 `SubdivisionSolver` 前会先统一预计算输入 `Polygon256` 的顶点缓存，再做合法性校验，避免后续细分、裁剪、叶片分类和 OBJ 导出阶段反复从边平面重建同一批顶点。递归子问题状态属于 `SubdivisionSolver` 内部实现；测试或诊断需要看叶子结构时使用 `leafSummaries()`，需要看求解规模和剪枝/候选统计时使用 `solveMetrics()`。
 
 ## 构建与测试
 

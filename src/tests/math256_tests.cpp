@@ -282,6 +282,20 @@ void runMath256Tests()
 		inwardSquare.addEdgePlane(ember::Plane3i::fromPointNormal(Vec3i(0, 2, 3), Vec3i(0, -1, 0)));
 		inwardSquare.addEdgePlane(ember::Plane3i::fromPointNormal(Vec3i(0, 0, 3), Vec3i(1, 0, 0)));
 		assert(!inwardSquare.isValid());
+
+		ember::Polygon256 cachedSquare;
+		cachedSquare.plane = pz;
+		cachedSquare.addEdgePlane(ember::Plane3i::fromPointNormal(Vec3i(0, 0, 3), Vec3i(0, -1, 0)));
+		cachedSquare.addEdgePlane(ember::Plane3i::fromPointNormal(Vec3i(2, 0, 3), Vec3i(1, 0, 0)));
+		cachedSquare.addEdgePlane(ember::Plane3i::fromPointNormal(Vec3i(0, 2, 3), Vec3i(0, 1, 0)));
+		cachedSquare.addEdgePlane(ember::Plane3i::fromPointNormal(Vec3i(0, 0, 3), Vec3i(-1, 0, 0)));
+		assert(cachedSquare.precomputeVertices());
+		assert(cachedSquare.vertices().size() == 4u);
+		for (const ember::PlanePoint3i &vertex : cachedSquare.vertices())
+		{
+			assert(vertex.hasUniqueIntersection());
+		}
+		assert(cachedSquare.isValid());
 	}
 
 	{

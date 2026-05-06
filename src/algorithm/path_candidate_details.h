@@ -366,7 +366,8 @@ namespace ember
          */
         inline bool buildRoundedCentroidPoint(const Polygon256 &polygon, PlanePoint3i &outPoint)
         {
-            const std::size_t n = polygon.edgePlanes.size();
+            const std::vector<PlanePoint3i> &cachedVertices = polygon.vertices();
+            const std::size_t n = cachedVertices.size();
             if (n < 3)
             {
                 return false;
@@ -375,9 +376,8 @@ namespace ember
             Integer xSum = 0;
             Integer ySum = 0;
             Integer zSum = 0;
-            for (std::size_t i = 0; i < n; ++i)
+            for (const PlanePoint3i &vertex : cachedVertices)
             {
-                const PlanePoint3i vertex = getPolygonVertex(polygon, i);
                 if (!vertex.hasUniqueIntersection() || isZero(vertex.x.w))
                 {
                     return false;
@@ -461,12 +461,12 @@ namespace ember
             const Polygon256 &polygon,
             std::vector<PlanePoint3i> &vertices)
         {
-            const std::size_t edgeCount = polygon.edgePlanes.size();
+            const std::vector<PlanePoint3i> &cachedVertices = polygon.vertices();
+            const std::size_t edgeCount = cachedVertices.size();
             vertices.clear();
             vertices.reserve(edgeCount);
-            for (std::size_t edgeIndex = 0; edgeIndex < edgeCount; ++edgeIndex)
+            for (const PlanePoint3i &vertex : cachedVertices)
             {
-                const PlanePoint3i vertex = getPolygonVertex(polygon, edgeIndex);
                 if (!vertex.hasUniqueIntersection())
                 {
                     return false;
@@ -644,16 +644,16 @@ namespace ember
             const Polygon256 &polygon,
             std::vector<PlanePoint3i> &candidates)
         {
-            const std::size_t n = polygon.edgePlanes.size();
+            const std::vector<PlanePoint3i> &cachedVertices = polygon.vertices();
+            const std::size_t n = cachedVertices.size();
             if (n < 3)
             {
                 return;
             }
 
             HomPoint4i average;
-            for (std::size_t i = 0; i < n; ++i)
+            for (const PlanePoint3i &vertex : cachedVertices)
             {
-                const PlanePoint3i vertex = getPolygonVertex(polygon, i);
                 if (!vertex.hasUniqueIntersection() || vertex.x.w <= 0)
                 {
                     return;
