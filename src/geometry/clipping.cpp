@@ -13,7 +13,7 @@ namespace ember
 {
     namespace
     {
-        constexpr const char *kIntersectionCarrierScope = "computePolygonIntersectionCarrier";
+        const char *kIntersectionCarrierScope = "computePolygonIntersectionCarrier";
 
         bool tryBuildIntersectionCarrierFromCuts(
             const Polygon256& target,

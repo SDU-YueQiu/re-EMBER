@@ -23,26 +23,26 @@ namespace ember
     {
         Plane3i p1, p2;
 
-        constexpr Line256() noexcept = default;
-        constexpr Line256(const Plane3i &first, const Plane3i &second) noexcept : p1(first), p2(second) {}
+        Line256() noexcept = default;
+        Line256(const Plane3i &first, const Plane3i &second) noexcept : p1(first), p2(second) {}
 
-        constexpr Vec3i directionVector() const noexcept
+        Vec3i directionVector() const noexcept
         {
             return cross(p1.normal(), p2.normal());
         }
 
-        constexpr bool isValid() const noexcept
+        bool isValid() const noexcept
         {
             const Vec3i d = directionVector();
             return !isZero(d.x) || !isZero(d.y) || !isZero(d.z);
         }
 
-        constexpr bool contains(const HomPoint4i &x) const noexcept
+        bool contains(const HomPoint4i &x) const noexcept
         {
             return x.classify(p1) == 0 && x.classify(p2) == 0;
         }
 
-        constexpr bool contains(const PlanePoint3i &x) const noexcept
+        bool contains(const PlanePoint3i &x) const noexcept
         {
             return contains(x.x);
         }
@@ -69,7 +69,7 @@ namespace ember
             return PlanePoint3i(direction.p1, direction.p2, end);
         }
 
-        constexpr bool isValid() const noexcept
+        bool isValid() const noexcept
         {
             PlanePoint3i s(direction.p1, direction.p2, start);
             PlanePoint3i e(direction.p1, direction.p2, end);
@@ -123,7 +123,7 @@ namespace ember
         bool findStrictInteriorPoint(PlanePoint3i &outPoint) const noexcept;
     };
 
-    inline constexpr Line256 makeLine(const Plane3i &p1, const Plane3i &p2) noexcept
+    inline Line256 makeLine(const Plane3i &p1, const Plane3i &p2) noexcept
     {
         return Line256(p1, p2);
     }

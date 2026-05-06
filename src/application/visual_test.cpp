@@ -82,15 +82,15 @@ namespace ember::visual_test
     }
     using Clock = std::chrono::steady_clock;
 
-    inline constexpr std::size_t kLeafThreshold = 25;
-    inline constexpr double kTranslationMin = -0.25;
-    inline constexpr double kTranslationMax = 1.25;
-    inline constexpr double kRotationMinDegrees = -180.0;
-    inline constexpr double kRotationMaxDegrees = 180.0;
-    inline constexpr double kDefaultTx = 0.5;
-    inline constexpr double kDefaultTy = 0.5;
-    inline constexpr double kDefaultTz = 0.35;
-    inline constexpr std::uint64_t kVisualTestManualScale = 1000;
+    inline std::size_t kLeafThreshold = 25;
+    inline double kTranslationMin = -0.25;
+    inline double kTranslationMax = 1.25;
+    inline double kRotationMinDegrees = -180.0;
+    inline double kRotationMaxDegrees = 180.0;
+    inline double kDefaultTx = 0.5;
+    inline double kDefaultTy = 0.5;
+    inline double kDefaultTz = 0.35;
+    inline std::uint64_t kVisualTestManualScale = 1000;
 
     enum class EngineKind
     {
