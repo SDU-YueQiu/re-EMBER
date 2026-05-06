@@ -98,6 +98,14 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configura
 powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -NoTracy
 ```
 
+如果要对某几个热点 zone 导出逐事件明细，可以额外指定 `-UnwrapZoneFilter`：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
+  -Configuration RelWithDebInfo -SkipBuild -Iterations 1 `
+  -UnwrapZoneFilter chooseSubdivisionSplit,appendSplitChildPolygons
+```
+
 默认 workload 包含：
 
 - `icosphere80_toolbox_difference`
@@ -124,8 +132,10 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 - `timings.csv`：逐次迭代的结构化表格。
 - `timing_*.metrics.txt`：单个 workload 的时间和高层统计。
 - `tracy_traces\*.tracy`：Tracy 原始捕获。
-- `tracy_zones.csv`：`tracy-csvexport` 导出的 zone 进入次数和耗时统计。
-- `report.md`：问题规模、关键函数进入次数、热点 zone 和交叉校验报告。
+- `tracy_zones.csv`：`tracy-csvexport` 导出的 inclusive zone 进入次数和耗时统计。
+- `tracy_zones_self.csv`：`tracy-csvexport -e` 导出的 self-time zone 统计。
+- `tracy_unwrap\*.csv`：按 `-UnwrapZoneFilter` 选出的逐事件 zone 明细。
+- `report.md`：问题规模、pipeline inclusive 时间、策略交叉校验和按 workload 的 self hot zones。
 - `profile.log`：脚本实际执行的命令与日志。
 
 ### 怎么读结果
@@ -149,9 +159,12 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 对子参考点传播和叶片分类，重点看候选放大量：
 
 - `child_reference_candidate_count`：子参考点传播阶段生成的候选总数。
+- `child_reference_fast_candidate_count`、`child_reference_exhaustive_candidate_count`：快速/穷举子参考点候选分布。
 - `child_reference_candidate_tried_count`：真正进入 trace 的子参考点候选数。
+- `child_reference_fast_candidate_tried_count`、`child_reference_exhaustive_candidate_tried_count`：快速/穷举子参考点实际 trace 数。
 - `child_reference_trace_count`：成功传播的子参考点数。
 - `leaf_classification_point_candidate_count`：叶片分类阶段的目标点总数。
+- `leaf_classification_primary_point_candidate_count`、`leaf_classification_expanded_point_candidate_count`：primary / expanded 内部点候选分布。
 - `leaf_classification_trace_attempt_count`：叶片分类实际尝试的 path trace 总数。
 - `leaf_classification_fast_candidate_count`、`leaf_classification_fallback_candidate_count`、`leaf_classification_normal_candidate_count`、`leaf_classification_interior_bridge_candidate_count`：各层路径候选贡献。
 
@@ -159,9 +172,10 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 
 ### Tracy 的正确读法
 
-- `tracy_zones.csv` 里的 `counts` 是已插桩 zone 的进入次数，适合看关键函数或阶段被调用了多少次。
-- `total_ns`、`mean_ns`、`max_ns` 用来定位热点阶段；跨 workload 对比时优先看 `report.md` 中按 workload 汇总后的规模和耗时。
-- 领域规模仍以 `timings.csv` / `metrics.txt` 中的 `BoolSolveMetrics` 为准；`report.md` 会把 leaf trace 和 child reference trace 的 zone count 与 metrics count 做交叉校验。
+- `tracy_zones.csv` 是 inclusive time，适合看完整 pipeline 或父阶段总耗时。
+- `tracy_zones_self.csv` 是 self time，适合找真正热点；`solveRecursive` 这类父 zone 要优先看 self 视角。
+- `report.md` 默认先用 inclusive 看 pipeline，再用 self 看每个 workload 的热点。
+- 领域规模仍以 `timings.csv` / `metrics.txt` 中的 `BoolSolveMetrics` 为准；`report.md` 会把关键策略的 `metric_count` 和 `zone_count` 做交叉校验。
 
 ## 代码约定
 

@@ -225,6 +225,8 @@ namespace ember
                 context.aabb,
                 [&](LeafClassificationPathCandidate candidate)
                 {
+                    REEMBER_PROFILE_ZONE("LeafClassification::fastCandidate");
+
                     const std::size_t candidateIndex = attemptStats.fastCandidateCount;
                     ++attemptStats.fastCandidateCount;
                     ++context.solveMetrics.leafClassificationFastCandidateCount;
@@ -267,6 +269,8 @@ namespace ember
                 context.aabb,
                 [&](LeafClassificationPathCandidate candidate)
                 {
+                    REEMBER_PROFILE_ZONE("LeafClassification::fallbackCandidate");
+
                     const std::size_t candidateIndex = attemptStats.fallbackCandidateCount;
                     ++attemptStats.fallbackCandidateCount;
                     ++context.solveMetrics.leafClassificationFallbackCandidateCount;
@@ -309,6 +313,8 @@ namespace ember
                 context.aabb,
                 [&](LeafClassificationPathCandidate candidate)
                 {
+                    REEMBER_PROFILE_ZONE("LeafClassification::normalCandidate");
+
                     const std::size_t candidateIndex = attemptStats.normalCandidateCount;
                     ++attemptStats.normalCandidateCount;
                     ++context.solveMetrics.leafClassificationNormalCandidateCount;
@@ -351,6 +357,8 @@ namespace ember
                 context.aabb,
                 [&](LeafClassificationPathCandidate candidate)
                 {
+                    REEMBER_PROFILE_ZONE("LeafClassification::interiorBridgeCandidate");
+
                     const std::size_t candidateIndex = attemptStats.interiorBridgeCandidateCount;
                     ++attemptStats.interiorBridgeCandidateCount;
                     ++context.solveMetrics.leafClassificationInteriorBridgeCandidateCount;
@@ -435,9 +443,21 @@ namespace ember
             bool allowRetryFallback,
             LeafClassificationAttemptStats &attemptStats)
         {
-            const std::vector<PlanePoint3i> primaryPointCandidates =
-                detail::enumerateLeafClassificationPrimaryPointCandidatesUnchecked(fragment);
+            REEMBER_PROFILE_ZONE("LeafClassification::classifyLeafFragment");
+
+            std::vector<PlanePoint3i> primaryPointCandidates;
+            {
+                REEMBER_PROFILE_ZONE("LeafClassification::enumeratePrimaryPointCandidates");
+                primaryPointCandidates =
+                    detail::enumerateLeafClassificationPrimaryPointCandidatesUnchecked(fragment);
+            }
             attemptStats.primaryPointCandidateCount = primaryPointCandidates.size();
+            context.solveMetrics.leafClassificationPrimaryPointCandidateCount += primaryPointCandidates.size();
+            for (const PlanePoint3i &primaryPointCandidate : primaryPointCandidates)
+            {
+                (void)primaryPointCandidate;
+                REEMBER_PROFILE_ZONE("LeafClassification::primaryPointCandidate");
+            }
 
             const bool shouldTryExpandedPoints = attemptLeafClassificationPointCandidates(
                 context,
@@ -447,9 +467,19 @@ namespace ember
                 primaryPointCandidates);
             if (!attemptStats.classified && shouldTryExpandedPoints)
             {
-                const std::vector<PlanePoint3i> expandedPointCandidates =
-                    detail::enumerateLeafClassificationPointCandidatesUnchecked(fragment);
+                std::vector<PlanePoint3i> expandedPointCandidates;
+                {
+                    REEMBER_PROFILE_ZONE("LeafClassification::enumerateExpandedPointCandidates");
+                    expandedPointCandidates =
+                        detail::enumerateLeafClassificationPointCandidatesUnchecked(fragment);
+                }
                 attemptStats.expandedPointCandidateCount = expandedPointCandidates.size();
+                context.solveMetrics.leafClassificationExpandedPointCandidateCount += expandedPointCandidates.size();
+                for (const PlanePoint3i &expandedPointCandidate : expandedPointCandidates)
+                {
+                    (void)expandedPointCandidate;
+                    REEMBER_PROFILE_ZONE("LeafClassification::expandedPointCandidate");
+                }
                 attemptLeafClassificationPointCandidates(
                     context,
                     fragmentIndex,
@@ -540,6 +570,7 @@ namespace ember
         BoolOperandAssumptions assumptions;
         if (tryGetSingleOperandAssumptions(assumptions) && assumptions.noSelfIntersections)
         {
+            REEMBER_PROFILE_ZONE("SubdivisionSolver::skipLeafBspBySingleOperandAssumption");
             ++solveMetrics_.singleOperandLeafBspSkipCount;
             leafFragments_ = polygons_;
             detail::logBoolDebug(
@@ -599,6 +630,7 @@ namespace ember
             return false;
         }
 
+        REEMBER_PROFILE_ZONE("LeafClassification::reuseSingleOperandClassification");
         ++solveMetrics_.singleOperandClassificationReuseCount;
         classifiedFragments_.push_back(ClassifiedFragment{fragment, reusableFrontWNV, reusableBackWNV});
         appendResultFragmentFromClassification(classifiedFragments_.back());
@@ -728,6 +760,7 @@ namespace ember
         if (!classifyLeafFragmentsAndCollectResults(true))
         {
             solveMetrics_ = metricsSnapshot;
+            REEMBER_PROFILE_ZONE("SubdivisionSolver::singleOperandAssumptionFallback");
             ++solveMetrics_.singleOperandAssumptionFallbackCount;
             isLeaf_ = true;
             leafFragments_.clear();
@@ -746,6 +779,7 @@ namespace ember
             return false;
         }
 
+        REEMBER_PROFILE_ZONE("SubdivisionSolver::singleOperandAssumptionStop");
         ++solveMetrics_.singleOperandAssumptionStopCount;
         detail::logBoolDebug(
             kBoolProblemClassifyScope,
