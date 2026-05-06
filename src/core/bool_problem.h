@@ -144,27 +144,12 @@ namespace ember
             BoolOperandAssumptions rhsAssumptions) noexcept;
 
         /**
-         * @brief 追加一个已带好 WNTV 的输入多边形。
-         *
-         * @param[in] polygon 待加入的问题多边形。
-         * @note 该接口不会重写 `polygon.WNTV`。
-         */
-        void addPolygon(const Polygon256 &polygon);
-
-        /**
-         * @brief 直接设置当前问题的多边形集合。
-         *
-         * @param[in] polygons 输入多边形集合。
-         * @note 该接口假定调用方已经准备好每个多边形的 `WNTV`。
-         */
-        void setPolygons(const std::vector<Polygon256> &polygons);
-
-        /**
          * @brief 设置二元布尔的左右输入，并自动写入基础 WNTV。
          *
          * @param[in] lhs 左操作数多边形集合。
          * @param[in] rhs 右操作数多边形集合。
-         * @note 当前按两维 WNV 约定写入：`lhs -> (1, 0)`，`rhs -> (0, 1)`。
+         * @note 该接口会覆盖输入多边形现有的 `WNTV`，统一按二元约定写入：
+         *       `lhs -> (1, 0)`，`rhs -> (0, 1)`。
          */
         void setOperands(const std::vector<Polygon256> &lhs, const std::vector<Polygon256> &rhs);
 
@@ -216,13 +201,12 @@ namespace ember
         void resetSolveState() noexcept;
 
         /**
-         * @brief 为一组输入多边形写入指定维度的基础 WNTV。
+         * @brief 为一组输入多边形写入二元操作数基础 WNTV。
          *
          * @param[in,out] polygons 待标注的多边形集合。
-         * @param[in] dimension WNV/WNTV 总维度。
          * @param[in] hotIndex 当前集合对应的非零 WNTV 分量。
          */
-        static void assignOperandWNTV(std::vector<Polygon256> &polygons, std::size_t dimension, std::size_t hotIndex);
+        static void assignOperandWNTV(std::vector<Polygon256> &polygons, std::size_t hotIndex);
 
         /// 当前布尔运算类型。
         BoolOp op_ = BoolOp::Intersection;
@@ -242,7 +226,7 @@ namespace ember
         /// 当前问题是否已完成求解流程。
         bool solved_ = false;
 
-        /// 当前问题的输入多边形集合。
+        /// 当前问题的输入多边形集合，所有元素都必须属于 lhs `{1,0}` 或 rhs `{0,1}`。
         std::vector<Polygon256> polygons_;
 
         /// 最近一次求解筛选出的布尔结果面。

@@ -156,6 +156,7 @@ namespace ember
 
     void Polygon256::precomputeVertices()
     {
+        REEMBER_PROFILE_ZONE("precomputeVertices");
         cachedVertices_.clear();
         const std::size_t n = edgePlanes.size();
         cachedVertices_.reserve(n);
