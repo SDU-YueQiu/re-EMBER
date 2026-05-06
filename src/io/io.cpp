@@ -245,19 +245,6 @@ namespace ember
             return true;
         }
 
-        // 导出阶段需要把 int256_t 转为文本，再由 long double 近似输出十进制坐标。
-        std::string integerToString(const Integer &value)
-        {
-            std::ostringstream stream;
-            stream << value;
-            return stream.str();
-        }
-
-        long double integerToLongDouble(const Integer &value)
-        {
-            return std::stold(integerToString(value));
-        }
-
         ObjVertex homogeneousPointToObjVertex(const PlanePoint3i &vertex, std::uint64_t coordinateScale)
         {
             const long double w = integerToLongDouble(vertex.x.w);
