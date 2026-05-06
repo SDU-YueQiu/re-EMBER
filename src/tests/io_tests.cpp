@@ -307,10 +307,10 @@ namespace
     ObjMeshData makeTorus256()
     {
         ObjMeshData mesh;
-        constexpr int majorSegments = 16;
-        constexpr int minorSegments = 8;
-        constexpr double majorRadius = 1.15;
-        constexpr double minorRadius = 0.32;
+        int majorSegments = 16;
+        int minorSegments = 8;
+        double majorRadius = 1.15;
+        double minorRadius = 0.32;
         const double pi = std::acos(-1.0);
 
         for (int major = 0; major < majorSegments; ++major)

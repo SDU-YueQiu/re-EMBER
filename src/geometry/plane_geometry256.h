@@ -64,13 +64,13 @@ namespace ember
         Integer c = 0;
         Integer d = 0;
 
-        constexpr Plane3i() noexcept = default;
-        constexpr Plane3i(const Integer &aVal, const Integer &bVal, const Integer &cVal, const Integer &dVal) noexcept
+        Plane3i() noexcept = default;
+        Plane3i(const Integer &aVal, const Integer &bVal, const Integer &cVal, const Integer &dVal) noexcept
             : a(aVal), b(bVal), c(cVal), d(dVal)
         {
         }
 
-        constexpr Vec3i normal() const noexcept
+        Vec3i normal() const noexcept
         {
             return Vec3i(a, b, c);
         }
@@ -114,24 +114,24 @@ namespace ember
         Integer z = 0;
         Integer w = 0;
 
-        constexpr HomPoint4i() noexcept = default;
-        constexpr HomPoint4i(const Integer &xVal, const Integer &yVal, const Integer &zVal, const Integer &wVal) noexcept
+        HomPoint4i() noexcept = default;
+        HomPoint4i(const Integer &xVal, const Integer &yVal, const Integer &zVal, const Integer &wVal) noexcept
             : x(xVal), y(yVal), z(zVal), w(wVal)
         {
         }
 
-        constexpr Integer dotPlane(const Plane3i &s) const noexcept
+        Integer dotPlane(const Plane3i &s) const noexcept
         {
             return x * s.a + y * s.b + z * s.c + w * s.d;
         }
 
-        constexpr int classify(const Plane3i &s) const noexcept
+        int classify(const Plane3i &s) const noexcept
         {
             return signum(dotPlane(s)) * signum(w);
         }
 
         // 该函数比较齐次坐标四个分量是否完全一致。
-        constexpr bool hasSameComponents(const HomPoint4i &rhs) const noexcept
+        bool hasSameComponents(const HomPoint4i &rhs) const noexcept
         {
             return x == rhs.x && y == rhs.y && z == rhs.z && w == rhs.w;
         }
@@ -173,7 +173,7 @@ namespace ember
      * @warning 这不是任意齐次点的通用安全相等谓词。
      * 交叉相乘可能超过 256 位预算；仅在调用方已知操作数来自有界构造时使用。
      */
-    inline constexpr bool areSameHomPoint(const HomPoint4i &lhs, const HomPoint4i &rhs) noexcept
+    inline bool areSameHomPoint(const HomPoint4i &lhs, const HomPoint4i &rhs) noexcept
     {
         if (lhs.hasSameComponents(rhs))
         {
@@ -202,7 +202,7 @@ namespace ember
         return false;
     }
 
-    inline constexpr Integer determinant4x4(
+    inline Integer determinant4x4(
         const Plane3i &row1,
         const Plane3i &row2,
         const Plane3i &row3,
@@ -214,18 +214,18 @@ namespace ember
                               row4.a, row4.b, row4.c, row4.d);
     }
 
-    inline constexpr bool arePlaneNormalsParallel(const Plane3i &p, const Plane3i &q) noexcept
+    inline bool arePlaneNormalsParallel(const Plane3i &p, const Plane3i &q) noexcept
     {
         const auto normalCross = cross(p.normal(), q.normal());
         return isZero(normalCross.x) && isZero(normalCross.y) && isZero(normalCross.z);
     }
 
-    inline constexpr Integer normalDeterminant(const Plane3i &p, const Plane3i &q, const Plane3i &r) noexcept
+    inline Integer normalDeterminant(const Plane3i &p, const Plane3i &q, const Plane3i &r) noexcept
     {
         return determinant(p.normal(), q.normal(), r.normal());
     }
 
-    inline constexpr bool hasUniqueIntersection(const Plane3i &p, const Plane3i &q, const Plane3i &r) noexcept
+    inline bool hasUniqueIntersection(const Plane3i &p, const Plane3i &q, const Plane3i &r) noexcept
     {
         return !isZero(normalDeterminant(p, q, r));
     }
@@ -240,12 +240,12 @@ namespace ember
         return primitiveHomPoint(HomPoint4i(x, y, z, w));
     }
 
-    inline constexpr int classifyPointAgainstPlane(const HomPoint4i &x, const Plane3i &s) noexcept
+    inline int classifyPointAgainstPlane(const HomPoint4i &x, const Plane3i &s) noexcept
     {
         return x.classify(s);
     }
 
-    inline constexpr int classifyByDeterminants(
+    inline int classifyByDeterminants(
         const Plane3i &p,
         const Plane3i &q,
         const Plane3i &r,
@@ -266,14 +266,14 @@ namespace ember
         {
         }
 
-        constexpr PlanePoint3i() noexcept = default;
+        PlanePoint3i() noexcept = default;
 
-        constexpr bool hasUniqueIntersection() const noexcept
+        bool hasUniqueIntersection() const noexcept
         {
             return ember::hasUniqueIntersection(p, q, r);
         }
 
-        constexpr int classify(const Plane3i &s) const noexcept
+        int classify(const Plane3i &s) const noexcept
         {
             return classifyPointAgainstPlane(x, s);
         }

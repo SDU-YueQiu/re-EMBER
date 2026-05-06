@@ -393,8 +393,8 @@ namespace ember
                 continue;
             }
 
-            constexpr int interiorSideA = -1;
-            constexpr int interiorSideB = -1;
+            int interiorSideA = -1;
+            int interiorSideB = -1;
 
             Plane3i insetA;
             Plane3i insetB;

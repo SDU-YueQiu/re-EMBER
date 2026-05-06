@@ -13,7 +13,7 @@ namespace ember
      *
      * @note 该函数只服务当前精确谓词链路，调用方不能把它当作任意齐次坐标的通用相等谓词。
      */
-    inline constexpr bool areSamePlanePoint(const PlanePoint3i &lhs, const PlanePoint3i &rhs) noexcept
+    inline bool areSamePlanePoint(const PlanePoint3i &lhs, const PlanePoint3i &rhs) noexcept
     {
         if (!lhs.hasUniqueIntersection() || !rhs.hasUniqueIntersection())
         {
@@ -22,7 +22,7 @@ namespace ember
         return areSameHomPoint(lhs.x, rhs.x);
     }
 
-    inline constexpr bool isPointOnSegment(const PlanePoint3i &point, const Segment256 &seg) noexcept
+    inline bool isPointOnSegment(const PlanePoint3i &point, const Segment256 &seg) noexcept
     {
         if (!point.hasUniqueIntersection() || !seg.direction.contains(point))
         {
