@@ -4,7 +4,6 @@
  */
 #include "bool_problem.h"
 
-#include "core/logging.h"
 #include "core/perf_tracing.h"
 #include "core/solver_shared.h"
 #include "core/subdivision_solver.h"
@@ -17,8 +16,6 @@ namespace ember
 {
     namespace
     {
-        const char *kBoolProblemSolveScope = "BoolProblem::solve";
-
         void validateSolveInputPolygons(const std::vector<Polygon256> &polygons)
         {
             const std::size_t wnvDimension = detail::computeWNVSize(polygons);
@@ -59,21 +56,6 @@ namespace ember
             {
                 polygon.precomputeVertices();
             }
-        }
-
-        const char *boolOpName(BoolOp op) noexcept
-        {
-            switch (op)
-            {
-            case BoolOp::Union:
-                return "union";
-            case BoolOp::Intersection:
-                return "intersection";
-            case BoolOp::Difference:
-                return "difference";
-            }
-
-            return "unknown";
         }
     }
 
@@ -156,41 +138,15 @@ namespace ember
 
         resetSolveState();
 
-        detail::logBoolInfo(
-            kBoolProblemSolveScope,
-            [this]()
-            {
-                std::ostringstream message;
-                message << "Starting solve operation=" << boolOpName(op_)
-                        << " polygon_count=" << polygons_.size()
-                        << " leaf_threshold=" << leafPolygonThreshold_
-                        << ".";
-                return message.str();
-            });
-
         if (polygons_.empty())
         {
             discarded_ = true;
             solved_ = true;
-            emitLog(
-                LogLevel::Info,
-                LogCategory::BoolProblem,
-                kBoolProblemSolveScope,
-                "Solve ended early because the input polygon soup is empty.");
             return;
         }
 
         preprocessSolveInputPolygons(polygons_);
-
-        try
-        {
-            validateSolveInputPolygons(polygons_);
-        }
-        catch (const std::runtime_error &ex)
-        {
-            emitLog(LogLevel::Error, LogCategory::BoolProblem, kBoolProblemSolveScope, ex.what());
-            throw;
-        }
+        validateSolveInputPolygons(polygons_);
 
         SubdivisionSolver solver(op_, leafPolygonThreshold_, polygons_, lhsAssumptions_, rhsAssumptions_);
         solver.solve();
@@ -200,17 +156,6 @@ namespace ember
         leafSummaries_ = solver.leafSummaries();
         solveMetrics_ = solver.solveMetrics();
         solved_ = true;
-
-        detail::logBoolInfo(
-            kBoolProblemSolveScope,
-            [this]()
-            {
-                std::ostringstream message;
-                message << "Solve finished discarded=" << discarded_
-                        << " result_fragments=" << resultFragments_.size()
-                        << ".";
-                return message.str();
-            });
     }
 
     bool BoolProblem::isDiscarded() const noexcept

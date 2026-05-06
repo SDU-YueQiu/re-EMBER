@@ -4,7 +4,6 @@
  */
 #include "io.h"
 
-#include "core/logging.h"
 #include "geometry/plane_geometry256.h"
 #include "geometry/polygon_ops.h"
 #include "math/math256.h"
@@ -26,16 +25,9 @@ namespace ember
 {
     namespace
     {
-        const char *kReadObjMeshScope = "io::readObjMesh";
-        const char *kChooseSharedScaleScope = "io::chooseSharedScale";
-        const char *kBuildPolygonSoupScope = "io::buildPolygonSoup";
-        const char *kWritePolygonSoupObjScope = "io::writePolygonSoupObj";
-        const char *kBuildObjMeshScope = "io::buildObjMeshFromPolygonSoup";
-
-        bool failIo(const char *scope, std::string &outError, const std::string &message)
+        bool failIo(std::string &outError, const std::string &message)
         {
             outError = message;
-            emitLog(LogLevel::Error, LogCategory::Io, scope, outError);
             return false;
         }
 
@@ -363,15 +355,6 @@ namespace ember
         outMesh = ObjMeshData();
         outError.clear();
 
-        emitLogLazy(
-            LogLevel::Info,
-            LogCategory::Io,
-            kReadObjMeshScope,
-            [&path]()
-            {
-                return "Reading OBJ path=" + path + ".";
-            });
-
         tinyobj::ObjReaderConfig config;
         config.triangulate = false;
 
@@ -387,18 +370,13 @@ namespace ember
             {
                 message += ".";
             }
-            return failIo(kReadObjMeshScope, outError, message);
-        }
-
-        if (!reader.Warning().empty())
-        {
-            emitLog(LogLevel::Debug, LogCategory::Io, kReadObjMeshScope, reader.Warning());
+            return failIo(outError, message);
         }
 
         const tinyobj::attrib_t &attrib = reader.GetAttrib();
         if ((attrib.vertices.size() % 3u) != 0u)
         {
-            return failIo(kReadObjMeshScope, outError, "OBJ vertex attribute array is not divisible by three.");
+            return failIo(outError, "OBJ vertex attribute array is not divisible by three.");
         }
 
         outMesh.vertices.reserve(attrib.vertices.size() / 3u);
@@ -422,7 +400,6 @@ namespace ember
                 if ((indexOffset + faceVertexCount) > mesh.indices.size())
                 {
                     return failIo(
-                        kReadObjMeshScope,
                         outError,
                         "OBJ face index data is incomplete in shape " + std::to_string(shapeIndex) + ".");
                 }
@@ -430,7 +407,6 @@ namespace ember
                 if (faceVertexCount < 3u)
                 {
                     return failIo(
-                        kReadObjMeshScope,
                         outError,
                         "OBJ face has fewer than three vertices in shape " + std::to_string(shapeIndex) + ".");
                 }
@@ -445,7 +421,6 @@ namespace ember
                     if (index.vertex_index < 0)
                     {
                         return failIo(
-                            kReadObjMeshScope,
                             outError,
                             "OBJ face contains a missing position index in shape " + std::to_string(shapeIndex) + ".");
                     }
@@ -454,7 +429,6 @@ namespace ember
                     if (vertexIndex >= outMesh.vertices.size())
                     {
                         return failIo(
-                            kReadObjMeshScope,
                             outError,
                             "OBJ face references a vertex that does not exist in shape " +
                                 std::to_string(shapeIndex) + ".");
@@ -467,20 +441,6 @@ namespace ember
                 indexOffset += faceVertexCount;
             }
         }
-
-        emitLogLazy(
-            LogLevel::Info,
-            LogCategory::Io,
-            kReadObjMeshScope,
-            [&path, &outMesh]()
-            {
-                std::ostringstream message;
-                message << "Read OBJ path=" << path
-                        << " vertices=" << outMesh.vertices.size()
-                        << " faces=" << outMesh.faces.size()
-                        << ".";
-                return message.str();
-            });
 
         return true;
     }
@@ -498,22 +458,10 @@ namespace ember
         {
             if (*options.explicitScale == 0)
             {
-                return failIo(kChooseSharedScaleScope, outError, "Explicit scale must be a positive integer.");
+                return failIo(outError, "Explicit scale must be a positive integer.");
             }
 
             outScale = *options.explicitScale;
-            emitLogLazy(
-                LogLevel::Info,
-                LogCategory::Io,
-                kChooseSharedScaleScope,
-                [&meshes, outScale]()
-                {
-                    std::ostringstream message;
-                    message << "Using explicit shared scale=" << outScale
-                            << " mesh_count=" << meshes.size()
-                            << ".";
-                    return message.str();
-                });
             return true;
         }
 
@@ -532,25 +480,12 @@ namespace ember
         if (maxAbsCoordinate == 0.0L)
         {
             outScale = 1;
-            emitLogLazy(
-                LogLevel::Info,
-                LogCategory::Io,
-                kChooseSharedScaleScope,
-                [&meshes]()
-                {
-                    std::ostringstream message;
-                    message << "Selected shared scale=1 for zero-range input mesh_count="
-                            << meshes.size()
-                            << ".";
-                    return message.str();
-                });
             return true;
         }
 
         if (maxAbsCoordinate > static_cast<long double>(kInputCoordinateLimit))
         {
             return failIo(
-                kChooseSharedScaleScope,
                 outError,
                 "OBJ coordinates exceed the 26-bit signed input bound even at scale 1.");
         }
@@ -564,18 +499,6 @@ namespace ember
         }
 
         outScale = scale;
-        emitLogLazy(
-            LogLevel::Info,
-            LogCategory::Io,
-            kChooseSharedScaleScope,
-            [&meshes, outScale]()
-            {
-                std::ostringstream message;
-                message << "Selected shared scale=" << outScale
-                        << " mesh_count=" << meshes.size()
-                        << ".";
-                return message.str();
-            });
         return true;
     }
 
@@ -600,7 +523,7 @@ namespace ember
 
         if (sharedScale == 0)
         {
-            return failIo(kBuildPolygonSoupScope, outError, "Shared scale must be a positive integer.");
+            return failIo(outError, "Shared scale must be a positive integer.");
         }
 
         std::vector<Vec3i> quantizedVertices;
@@ -612,7 +535,6 @@ namespace ember
             if (!quantizeVertex(mesh.vertices[i], sharedScale, quantizedVertex, outError))
             {
                 outError = "Failed to quantize OBJ vertex " + std::to_string(i) + ": " + outError;
-                emitLog(LogLevel::Error, LogCategory::Io, kBuildPolygonSoupScope, outError);
                 return false;
             }
 
@@ -633,7 +555,6 @@ namespace ember
                 if (vertexIndex >= quantizedVertices.size())
                 {
                     return failIo(
-                        kBuildPolygonSoupScope,
                         outError,
                         "OBJ face " + std::to_string(faceIndex) +
                             " references an out-of-range quantized vertex.");
@@ -657,30 +578,14 @@ namespace ember
             {
                 if (!appendTriangulatedNonCoplanarFace(faceVertices, faceIndex, outPolygons, faceError))
                 {
-                    return failIo(kBuildPolygonSoupScope, outError, faceError);
+                    return failIo(outError, faceError);
                 }
                 ++triangulatedNonCoplanarFaceCount;
                 continue;
             }
 
-            return failIo(kBuildPolygonSoupScope, outError, faceError);
+            return failIo(outError, faceError);
         }
-
-        emitLogLazy(
-            LogLevel::Info,
-            LogCategory::Io,
-            kBuildPolygonSoupScope,
-            [&mesh, sharedScale, &outPolygons, triangulatedNonCoplanarFaceCount]()
-            {
-                std::ostringstream message;
-                message << "Built polygon soup shared_scale=" << sharedScale
-                        << " input_vertices=" << mesh.vertices.size()
-                        << " input_faces=" << mesh.faces.size()
-                        << " output_polygons=" << outPolygons.size()
-                        << " triangulated_non_coplanar_faces=" << triangulatedNonCoplanarFaceCount
-                        << ".";
-                return message.str();
-            });
 
         return true;
     }
@@ -697,7 +602,7 @@ namespace ember
 
         if (coordinateScale == 0)
         {
-            return failIo(kWritePolygonSoupObjScope, outError, "Coordinate scale must be a positive integer.");
+            return failIo(outError, "Coordinate scale must be a positive integer.");
         }
 
         const std::filesystem::path outputPath(path);
@@ -708,7 +613,6 @@ namespace ember
             if (ec)
             {
                 return failIo(
-                    kWritePolygonSoupObjScope,
                     outError,
                     "Failed to create OBJ output directory: " + outputPath.parent_path().string());
             }
@@ -718,7 +622,6 @@ namespace ember
         if (!recoverPolygonSoupData(fragments, recovered, outError))
         {
             outError = "Failed to prepare polygon soup OBJ export: " + outError;
-            emitLog(LogLevel::Error, LogCategory::Io, kWritePolygonSoupObjScope, outError);
             return false;
         }
 
@@ -726,7 +629,6 @@ namespace ember
         if (!output)
         {
             return failIo(
-                kWritePolygonSoupObjScope,
                 outError,
                 "Failed to open OBJ output file for writing: " + path);
         }
@@ -749,21 +651,6 @@ namespace ember
         }
 
         outFaceCount = recovered.faces.size();
-        emitLogLazy(
-            LogLevel::Info,
-            LogCategory::Io,
-            kWritePolygonSoupObjScope,
-            [&path, &fragments, &recovered, outFaceCount, coordinateScale]()
-            {
-                std::ostringstream message;
-                message << "Wrote OBJ path=" << path
-                        << " input_fragments=" << fragments.size()
-                        << " unique_vertices=" << recovered.uniqueVertices.size()
-                        << " exported_faces=" << outFaceCount
-                        << " coordinate_scale=" << coordinateScale
-                        << ".";
-                return message.str();
-            });
         return true;
     }
 
@@ -778,14 +665,13 @@ namespace ember
 
         if (coordinateScale == 0)
         {
-            return failIo(kBuildObjMeshScope, outError, "Coordinate scale must be a positive integer.");
+            return failIo(outError, "Coordinate scale must be a positive integer.");
         }
 
         RecoveredPolygonSoupData recovered;
         if (!recoverPolygonSoupData(fragments, recovered, outError))
         {
             outError = "Failed to prepare OBJ mesh from polygon soup: " + outError;
-            emitLog(LogLevel::Error, LogCategory::Io, kBuildObjMeshScope, outError);
             return false;
         }
 
@@ -796,21 +682,6 @@ namespace ember
         }
 
         outMesh.faces = std::move(recovered.faces);
-
-        emitLogLazy(
-            LogLevel::Info,
-            LogCategory::Io,
-            kBuildObjMeshScope,
-            [&fragments, &outMesh, coordinateScale]()
-            {
-                std::ostringstream message;
-                message << "Built OBJ mesh from polygon soup input_fragments=" << fragments.size()
-                        << " output_vertices=" << outMesh.vertices.size()
-                        << " output_faces=" << outMesh.faces.size()
-                        << " coordinate_scale=" << coordinateScale
-                        << ".";
-                return message.str();
-            });
 
         return true;
     }

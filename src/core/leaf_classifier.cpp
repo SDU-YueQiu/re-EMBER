@@ -7,7 +7,6 @@
 #include "algorithm/leaf_arrangement.h"
 #include "algorithm/path_candidates.h"
 #include "algorithm/WNV_tracing.h"
-#include "core/logging.h"
 #include "core/perf_tracing.h"
 #include "core/solver_shared.h"
 #include "geometry/polygon_ops.h"
@@ -21,115 +20,8 @@ namespace ember
 {
     namespace
     {
-        const char *kBoolProblemLeafScope = "SubdivisionSolver::solveLeafArrangement";
-        const char *kBoolProblemClassifyScope = "SubdivisionSolver::classifyLeafFragmentsAndCollectResults";
-
-        bool isSameStrictSideForDiagnostics(int lhs, int rhs) noexcept
-        {
-            return lhs == rhs && (lhs == -1 || lhs == 1);
-        }
-
-        std::string describeSurfaceTraceFailure(
-            const refPoint &refpoint,
-            const Path &path,
-            const std::vector<Polygon256> &polygons,
-            const Plane3i &referencePlane)
-        {
-            if (path.empty())
-            {
-                return "empty_path";
-            }
-            const PlanePoint3i &pathStartPoint = path.front().getStartPointRef();
-            if (!areSamePlanePoint(pathStartPoint, refpoint.point))
-            {
-                return "path_start_mismatch";
-            }
-
-            const PlanePoint3i &targetPoint = path.back().getEndPointRef();
-            if (!targetPoint.hasUniqueIntersection() || targetPoint.classify(referencePlane) != 0)
-            {
-                return "target_not_on_reference_plane";
-            }
-
-            for (std::size_t polygonIndex = 0; polygonIndex < polygons.size(); ++polygonIndex)
-            {
-                const Polygon256 &poly = polygons[polygonIndex];
-                int pcs = poly.classify(pathStartPoint);
-                if (pcs == 0)
-                {
-                    std::ostringstream message;
-                    message << "start_on_surface polygon_index=" << polygonIndex;
-                    return message.str();
-                }
-
-                for (std::size_t segmentIndex = 0; segmentIndex < path.size(); ++segmentIndex)
-                {
-                    const Segment256 &seg = path[segmentIndex];
-                    const PlanePoint3i &endPoint = seg.getEndPointRef();
-                    const int pce = poly.classify(endPoint);
-                    const bool isLastSegment = (segmentIndex + 1 == path.size());
-
-                    if (!isLastSegment && pce == 0)
-                    {
-                        std::ostringstream message;
-                        message << "intermediate_endpoint_on_surface polygon_index=" << polygonIndex
-                                << " segment_index=" << segmentIndex;
-                        return message.str();
-                    }
-                    if (isSameStrictSideForDiagnostics(pcs, pce))
-                    {
-                        pcs = pce;
-                        continue;
-                    }
-
-                    const PlanePoint3i intersectPoint = intersect(seg.direction, poly.plane);
-                    if (intersectPoint.hasUniqueIntersection())
-                    {
-                        const detail::PolygonSurfaceLocation hitLocation =
-                            detail::classifyPolygonSurfacePointUnchecked(poly, intersectPoint);
-                        if (hitLocation == detail::PolygonSurfaceLocation::Boundary)
-                        {
-                            std::ostringstream message;
-                            message << "boundary_hit polygon_index=" << polygonIndex
-                                    << " segment_index=" << segmentIndex;
-                            return message.str();
-                        }
-
-                        pcs = pce;
-                        continue;
-                    }
-
-                    if (detail::isSegmentTouchPolygonEdgeUnchecked(seg, poly))
-                    {
-                        std::ostringstream message;
-                        message << "edge_touch polygon_index=" << polygonIndex
-                                << " segment_index=" << segmentIndex;
-                        return message.str();
-                    }
-
-                    pcs = pce;
-                }
-            }
-
-            const PlanePoint3i &lastStartPoint = path.back().getStartPointRef();
-            if (lastStartPoint.classify(referencePlane) == 0)
-            {
-                return "last_start_on_reference_plane";
-            }
-
-            return "unknown_path_invalid";
-        }
-
         struct LeafClassificationAttemptStats
         {
-            std::size_t pointCandidateCount = 0;
-            std::size_t normalCandidateCount = 0;
-            std::size_t fastCandidateCount = 0;
-            std::size_t interiorBridgeCandidateCount = 0;
-            std::size_t fallbackCandidateCount = 0;
-            std::size_t primaryPointCandidateCount = 0;
-            std::size_t expandedPointCandidateCount = 0;
-            std::string lastFailureReason = "not_collected";
             bool classified = false;
             traceStatus lastStatus = FAIL;
         };
@@ -149,7 +41,6 @@ namespace ember
             BoolSolveMetrics &solveMetrics;
             std::vector<ClassifiedFragment> &classifiedFragments;
             std::size_t depth = 0;
-            bool collectFailureDiagnostics = false;
         };
 
         traceStatus traceLeafClassificationCandidate(
@@ -157,9 +48,7 @@ namespace ember
             std::size_t fragmentIndex,
             Polygon256 &fragment,
             LeafClassificationAttemptStats &attemptStats,
-            const LeafClassificationPathCandidate &candidate,
-            const char *candidateLayer,
-            std::size_t candidateIndex)
+            const LeafClassificationPathCandidate &candidate)
         {
             REEMBER_PROFILE_ZONE("LeafClassification::traceCandidate");
 
@@ -173,32 +62,6 @@ namespace ember
                 fragment.plane,
                 frontWNV,
                 backWNV);
-            if (status != SUCCESS && context.collectFailureDiagnostics)
-            {
-                attemptStats.lastFailureReason = describeSurfaceTraceFailure(
-                    context.localReference,
-                    candidate.path,
-                    context.polygons,
-                    fragment.plane);
-            }
-
-            detail::logTracingDebug(
-                kBoolProblemClassifyScope,
-                [fragmentIndex, candidateLayer, candidateIndex, &candidate, status, &attemptStats]()
-                {
-                    std::ostringstream message;
-                    message << "Leaf fragment trace attempt fragment_index=" << fragmentIndex
-                            << " candidate_layer=" << candidateLayer
-                            << " candidate_index=" << candidateIndex
-                            << " path_segments=" << candidate.path.size()
-                            << " status=" << detail::traceStatusName(status);
-                    if (status != SUCCESS)
-                    {
-                        message << " reason=" << attemptStats.lastFailureReason;
-                    }
-                    message << ".";
-                    return message.str();
-                });
 
             attemptStats.lastStatus = status;
             if (status == SUCCESS)
@@ -227,17 +90,13 @@ namespace ember
                 {
                     REEMBER_PROFILE_ZONE("LeafClassification::fastCandidate");
 
-                    const std::size_t candidateIndex = attemptStats.fastCandidateCount;
-                    ++attemptStats.fastCandidateCount;
                     ++context.solveMetrics.leafClassificationFastCandidateCount;
                     const traceStatus status = traceLeafClassificationCandidate(
                         context,
                         fragmentIndex,
                         fragment,
                         attemptStats,
-                        candidate,
-                        "fast",
-                        candidateIndex);
+                        candidate);
                     if (status == SUCCESS)
                     {
                         return false;
@@ -271,17 +130,13 @@ namespace ember
                 {
                     REEMBER_PROFILE_ZONE("LeafClassification::fallbackCandidate");
 
-                    const std::size_t candidateIndex = attemptStats.fallbackCandidateCount;
-                    ++attemptStats.fallbackCandidateCount;
                     ++context.solveMetrics.leafClassificationFallbackCandidateCount;
                     const traceStatus status = traceLeafClassificationCandidate(
                         context,
                         fragmentIndex,
                         fragment,
                         attemptStats,
-                        candidate,
-                        "fallback",
-                        candidateIndex);
+                        candidate);
                     if (status == SUCCESS)
                     {
                         return false;
@@ -315,17 +170,13 @@ namespace ember
                 {
                     REEMBER_PROFILE_ZONE("LeafClassification::normalCandidate");
 
-                    const std::size_t candidateIndex = attemptStats.normalCandidateCount;
-                    ++attemptStats.normalCandidateCount;
                     ++context.solveMetrics.leafClassificationNormalCandidateCount;
                     const traceStatus status = traceLeafClassificationCandidate(
                         context,
                         fragmentIndex,
                         fragment,
                         attemptStats,
-                        candidate,
-                        "normal",
-                        candidateIndex);
+                        candidate);
                     if (status == SUCCESS)
                     {
                         return false;
@@ -359,17 +210,13 @@ namespace ember
                 {
                     REEMBER_PROFILE_ZONE("LeafClassification::interiorBridgeCandidate");
 
-                    const std::size_t candidateIndex = attemptStats.interiorBridgeCandidateCount;
-                    ++attemptStats.interiorBridgeCandidateCount;
                     ++context.solveMetrics.leafClassificationInteriorBridgeCandidateCount;
                     const traceStatus status = traceLeafClassificationCandidate(
                         context,
                         fragmentIndex,
                         fragment,
                         attemptStats,
-                        candidate,
-                        "interior-bridge",
-                        candidateIndex);
+                        candidate);
                     if (status == SUCCESS)
                     {
                         return false;
@@ -396,7 +243,6 @@ namespace ember
         {
             REEMBER_PROFILE_ZONE("LeafClassification::attemptPointCandidates");
 
-            attemptStats.pointCandidateCount += pointCandidates.size();
             context.solveMetrics.leafClassificationPointCandidateCount += pointCandidates.size();
 
             bool allowFallback = attemptFastPointCandidates(
@@ -451,7 +297,6 @@ namespace ember
                 primaryPointCandidates =
                     detail::enumerateLeafClassificationPrimaryPointCandidatesUnchecked(fragment);
             }
-            attemptStats.primaryPointCandidateCount = primaryPointCandidates.size();
             context.solveMetrics.leafClassificationPrimaryPointCandidateCount += primaryPointCandidates.size();
             for (const PlanePoint3i &primaryPointCandidate : primaryPointCandidates)
             {
@@ -473,7 +318,6 @@ namespace ember
                     expandedPointCandidates =
                         detail::enumerateLeafClassificationPointCandidatesUnchecked(fragment);
                 }
-                attemptStats.expandedPointCandidateCount = expandedPointCandidates.size();
                 context.solveMetrics.leafClassificationExpandedPointCandidateCount += expandedPointCandidates.size();
                 for (const PlanePoint3i &expandedPointCandidate : expandedPointCandidates)
                 {
@@ -499,60 +343,6 @@ namespace ember
 
             return LeafClassificationResult::Failure;
         }
-
-        void logLeafClassificationFailure(
-            const LeafClassificationContext &context,
-            std::size_t fragmentIndex,
-            const Polygon256 &fragment,
-            const LeafClassificationAttemptStats &attemptStats)
-        {
-            detail::logBoolDebug(
-                kBoolProblemClassifyScope,
-                [&context, fragmentIndex, &fragment, &attemptStats]()
-                {
-                    std::ostringstream message;
-                    message << "Leaf classification failure diagnostic fragment_index="
-                            << fragmentIndex
-                            << " depth="
-                            << context.depth
-                            << " fragment_edges="
-                            << fragment.edgeCount()
-                            << " target_point_candidates="
-                            << attemptStats.pointCandidateCount
-                            << " primary_point_candidates="
-                            << attemptStats.primaryPointCandidateCount
-                            << " expanded_point_candidates="
-                            << attemptStats.expandedPointCandidateCount
-                            << " normal_candidates="
-                            << attemptStats.normalCandidateCount
-                            << " fast_candidates="
-                            << attemptStats.fastCandidateCount
-                            << " interior_bridge_candidates="
-                            << attemptStats.interiorBridgeCandidateCount
-                            << " fallback_candidates="
-                            << attemptStats.fallbackCandidateCount
-                            << " last_trace_status="
-                            << detail::traceStatusName(attemptStats.lastStatus)
-                            << " last_failure_reason="
-                            << attemptStats.lastFailureReason
-                            << " fragment_plane="
-                            << fragment.plane
-                            << " aabb={x=["
-                            << context.aabb.xMin
-                            << ", "
-                            << context.aabb.xMax
-                            << "], y=["
-                            << context.aabb.yMin
-                            << ", "
-                            << context.aabb.yMax
-                            << "], z=["
-                            << context.aabb.zMin
-                            << ", "
-                            << context.aabb.zMax
-                            << "]}";
-                    return message.str();
-                });
-        }
     }
 
     // 对叶子节点内的每个多边形建立局部 BSP，并收集启用的片段。
@@ -573,35 +363,11 @@ namespace ember
             REEMBER_PROFILE_ZONE("SubdivisionSolver::skipLeafBspBySingleOperandAssumption");
             ++solveMetrics_.singleOperandLeafBspSkipCount;
             leafFragments_ = polygons_;
-            detail::logBoolDebug(
-                kBoolProblemLeafScope,
-                [this, assumptions]()
-                {
-                    std::ostringstream message;
-                    message << "Skipped leaf BSP by operand assumption depth=" << depth_
-                            << " input_polygons=" << polygons_.size()
-                            << " leaf_fragments=" << leafFragments_.size()
-                            << " no_nested_components=" << assumptions.noNestedComponents
-                            << ".";
-                    return message.str();
-                });
             return;
         }
 
         ++solveMetrics_.leafBspBuildCount;
         leafFragments_ = buildLeafArrangement(polygons_);
-
-        detail::logBoolDebug(
-            kBoolProblemLeafScope,
-            [this]()
-            {
-                std::ostringstream message;
-                message << "Leaf arrangement finished depth=" << depth_
-                        << " input_polygons=" << polygons_.size()
-                        << " leaf_fragments=" << leafFragments_.size()
-                        << ".";
-                return message.str();
-            });
     }
 
     void SubdivisionSolver::appendResultFragmentFromClassification(const ClassifiedFragment &classifiedFragment)
@@ -661,8 +427,7 @@ namespace ember
             aabb_,
             solveMetrics_,
             classifiedFragments_,
-            depth_,
-            detail::isLogEnabled(LogLevel::Debug)};
+            depth_};
         BoolOperandAssumptions assumptions;
         const bool reuseSingleOperandClassification =
             tryGetSingleOperandAssumptions(assumptions) &&
@@ -701,11 +466,7 @@ namespace ember
                         << " at depth "
                         << depth_
                         << ".";
-                logLeafClassificationFailure(context, fragmentIndex, fragment, attemptStats);
-
-                const std::string summaryMessage = summary.str();
-                detail::logBoolError(kBoolProblemClassifyScope, summaryMessage);
-                throw std::runtime_error(summaryMessage);
+                throw std::runtime_error(summary.str());
             }
 
             if (reuseSingleOperandClassification && !hasReusableClassification)
@@ -714,32 +475,10 @@ namespace ember
                 reusableFrontWNV = classifiedFragment.frontWNV;
                 reusableBackWNV = classifiedFragment.backWNV;
                 hasReusableClassification = true;
-                detail::logBoolDebug(
-                    kBoolProblemClassifyScope,
-                    [this, &reusableFrontWNV, &reusableBackWNV]()
-                    {
-                        std::ostringstream message;
-                        message << "Cached single-operand leaf classification depth=" << depth_
-                                << " front_wnv_size=" << reusableFrontWNV.size()
-                                << " back_wnv_size=" << reusableBackWNV.size()
-                                << ".";
-                        return message.str();
-                    });
             }
 
             appendResultFragmentFromClassification(classifiedFragments_.back());
         }
-
-        detail::logBoolDebug(
-            kBoolProblemClassifyScope,
-            [this]()
-            {
-                std::ostringstream message;
-                message << "Leaf classification finished depth=" << depth_
-                        << " result_fragments=" << resultFragments_.size()
-                        << ".";
-                return message.str();
-            });
         return true;
     }
 
@@ -766,32 +505,11 @@ namespace ember
             leafFragments_.clear();
             classifiedFragments_.clear();
             resultFragments_.clear();
-            detail::logBoolDebug(
-                kBoolProblemClassifyScope,
-                [this]()
-                {
-                    std::ostringstream message;
-                    message << "Single-operand assumption stop fallback depth=" << depth_
-                            << " polygon_count=" << polygons_.size()
-                            << ".";
-                    return message.str();
-                });
             return false;
         }
 
         REEMBER_PROFILE_ZONE("SubdivisionSolver::singleOperandAssumptionStop");
         ++solveMetrics_.singleOperandAssumptionStopCount;
-        detail::logBoolDebug(
-            kBoolProblemClassifyScope,
-            [this]()
-            {
-                std::ostringstream message;
-                message << "Stopped subdivision by single-operand assumptions depth=" << depth_
-                        << " polygon_count=" << polygons_.size()
-                        << " result_fragments=" << resultFragments_.size()
-                        << ".";
-                return message.str();
-            });
         return true;
     }
 
