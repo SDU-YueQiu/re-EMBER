@@ -1019,8 +1019,6 @@ void SubdivisionSolver::solveRecursive()
 {
     REEMBER_PROFILE_ZONE("SubdivisionSolver::solveRecursive");
 
-    // 4.5.1 的单操作数假设由节点级共享策略统一控制，
-    // 递归入口只负责按策略探测一次提前叶化。
     if (trySolveSingleOperandAssumptionLeaf())
         return;
 
