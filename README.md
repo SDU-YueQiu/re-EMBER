@@ -123,6 +123,22 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configura
 powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -NoTracy
 ```
 
+如果后台负载让 timing 抖动太大，可以只对计时目标 `re-EMBER.exe` 固定调度策略。`-WorkloadPriority` 支持 `Normal|AboveNormal|High`；`-UsePCores` 会按 Windows 暴露的 `EfficiencyClass` 自动选择最高性能逻辑核；如果你已经知道本机的逻辑核 mask，也可以直接传 `-WorkloadAffinityMask`：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
+  -Configuration RelWithDebInfo -SkipBuild -NoTracy `
+  -WorkloadPriority High -UsePCores
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
+  -Configuration RelWithDebInfo -SkipBuild -NoTracy `
+  -WorkloadPriority High -WorkloadAffinityMask 0xFFF
+```
+
+这些参数只作用在被计时的 `re-EMBER.exe` 进程，不会把 `cmake`、`tracy-capture`、`tracy-csvexport` 一起提权。脚本会把最终采用的优先级、affinity mask 和自动选中的逻辑核记录进 `profile.log`、`manifest.json` 和 `summary.txt`。如果当前机器不能可靠暴露 P/E 核信息，就改用显式 `-WorkloadAffinityMask`。
+
 如果要对某几个热点 zone 导出逐事件明细，可以额外指定 `-UnwrapZoneFilter`：
 
 ```powershell

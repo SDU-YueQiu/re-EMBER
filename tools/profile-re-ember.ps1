@@ -19,6 +19,9 @@ param(
     [switch]$ForceBuild,
     [switch]$NoTracy,
     [switch]$NoInputAssumptions,
+    [ValidateSet("Normal", "AboveNormal", "High")][string]$WorkloadPriority = "Normal",
+    [string]$WorkloadAffinityMask,
+    [switch]$UsePCores,
     [switch]$Help
 )
 
@@ -67,6 +70,9 @@ Notes:
   - Use -NoTracy only for timing-only runs without zone capture; that mode uses build\profile_notracy\ automatically.
   - OBJ workloads are assumed to satisfy NSI/NNC input assumptions by default.
   - Use -NoInputAssumptions only when profiling intentionally invalid or adversarial OBJ inputs.
+  - -WorkloadPriority only applies to the timed re-EMBER.exe workload process, not cmake or report/export helpers.
+  - Use -UsePCores to auto-pin the workload to the highest EfficiencyClass logical processors exposed by Windows.
+  - Use -WorkloadAffinityMask <hex-or-decimal> for an explicit processor mask, for example 0xFFF.
 "@
 }
 
@@ -77,6 +83,10 @@ if ($Help) {
 
 if ($EnableMathTracy -and $NoTracy) {
     throw "-EnableMathTracy requires Tracy capture. Remove -NoTracy or omit -EnableMathTracy."
+}
+
+if ($UsePCores -and $WorkloadAffinityMask) {
+    throw "-UsePCores and -WorkloadAffinityMask cannot be combined."
 }
 
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
@@ -105,10 +115,316 @@ New-Item -ItemType Directory -Force -Path $TraceRoot | Out-Null
 
 $TranscriptPath = Join-Path $PerfRoot "profile.log"
 $TranscriptStarted = $false
+$script:WorkloadScheduling = $null
 
 function Write-Info {
     param([string]$Message)
     Write-Host ("[profile-re-ember] {0}" -f $Message)
+}
+
+function Initialize-CpuSetInterop {
+    $compiledTypes = Add-Type -TypeDefinition @"
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+namespace ReEmber.Profiling
+{
+    public static class CpuSetInterop
+    {
+        private enum CPU_SET_INFORMATION_TYPE : int
+        {
+            CpuSetInformation = 0
+        }
+
+        [StructLayout(LayoutKind.Explicit)]
+        private struct SYSTEM_CPU_SET_INFORMATION
+        {
+            [FieldOffset(0)] public uint Size;
+            [FieldOffset(4)] public CPU_SET_INFORMATION_TYPE Type;
+            [FieldOffset(8)] public CPU_SET CpuSet;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct CPU_SET
+        {
+            public uint Id;
+            public ushort Group;
+            public byte LogicalProcessorIndex;
+            public byte CoreIndex;
+            public byte LastLevelCacheIndex;
+            public byte NumaNodeIndex;
+            public byte EfficiencyClass;
+            public byte AllFlags;
+            public byte SchedulingClass;
+            public byte Reserved1;
+            public byte Reserved2;
+            public byte Reserved3;
+            public ulong AllocationTag;
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool GetSystemCpuSetInformation(
+            IntPtr information,
+            uint bufferLength,
+            out uint returnedLength,
+            IntPtr process,
+            uint flags);
+
+        public sealed class CpuSetRecord
+        {
+            public uint Id { get; set; }
+            public ushort Group { get; set; }
+            public byte LogicalProcessorIndex { get; set; }
+            public byte CoreIndex { get; set; }
+            public byte EfficiencyClass { get; set; }
+            public bool Parked { get; set; }
+        }
+
+        public static CpuSetRecord[] Enumerate()
+        {
+            uint needed;
+            if (GetSystemCpuSetInformation(IntPtr.Zero, 0, out needed, IntPtr.Zero, 0))
+            {
+                return Array.Empty<CpuSetRecord>();
+            }
+
+            int error = Marshal.GetLastWin32Error();
+            const int ERROR_INSUFFICIENT_BUFFER = 122;
+            if (error != ERROR_INSUFFICIENT_BUFFER)
+            {
+                throw new Win32Exception(error);
+            }
+
+            IntPtr buffer = Marshal.AllocHGlobal((int)needed);
+            try
+            {
+                if (!GetSystemCpuSetInformation(buffer, needed, out needed, IntPtr.Zero, 0))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+
+                var result = new List<CpuSetRecord>();
+                long cursor = buffer.ToInt64();
+                long end = cursor + needed;
+                while (cursor < end)
+                {
+                    IntPtr itemPtr = new IntPtr(cursor);
+                    var info = Marshal.PtrToStructure<SYSTEM_CPU_SET_INFORMATION>(itemPtr);
+                    if (info.Type == CPU_SET_INFORMATION_TYPE.CpuSetInformation)
+                    {
+                        result.Add(new CpuSetRecord
+                        {
+                            Id = info.CpuSet.Id,
+                            Group = info.CpuSet.Group,
+                            LogicalProcessorIndex = info.CpuSet.LogicalProcessorIndex,
+                            CoreIndex = info.CpuSet.CoreIndex,
+                            EfficiencyClass = info.CpuSet.EfficiencyClass,
+                            Parked = (info.CpuSet.AllFlags & 0x1) != 0
+                        });
+                    }
+
+                    if (info.Size == 0)
+                    {
+                        throw new InvalidOperationException("Encountered zero-sized CPU set record.");
+                    }
+
+                    cursor += info.Size;
+                }
+
+                return result.ToArray();
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+        }
+    }
+}
+"@ -PassThru
+
+    $cpuSetInteropType = $compiledTypes | Where-Object { $_.FullName -eq "ReEmber.Profiling.CpuSetInterop" } | Select-Object -First 1
+    if (-not $cpuSetInteropType) {
+        throw "Failed to compile the CPU set interop helper type."
+    }
+
+    return $cpuSetInteropType
+}
+
+function ConvertTo-AffinityMaskValue {
+    param([string]$MaskText)
+
+    if ([string]::IsNullOrWhiteSpace($MaskText)) {
+        return $null
+    }
+
+    $trimmed = $MaskText.Trim()
+    if ($trimmed -match '^0[xX][0-9a-fA-F]+$') {
+        return [uint64]::Parse($trimmed.Substring(2), [System.Globalization.NumberStyles]::AllowHexSpecifier, [System.Globalization.CultureInfo]::InvariantCulture)
+    }
+
+    if ($trimmed -match '^[0-9]+$') {
+        return [uint64]::Parse($trimmed, [System.Globalization.CultureInfo]::InvariantCulture)
+    }
+
+    throw ("Invalid -WorkloadAffinityMask '{0}'. Use a decimal integer or 0x-prefixed hexadecimal mask." -f $MaskText)
+}
+
+function Format-AffinityMask {
+    param([uint64]$Mask)
+
+    return ("0x{0:X}" -f $Mask)
+}
+
+function ConvertTo-IntPtrFromMask {
+    param([uint64]$Mask)
+
+    $bytes = [System.BitConverter]::GetBytes($Mask)
+    return [IntPtr]::new([System.BitConverter]::ToInt64($bytes, 0))
+}
+
+function Get-PCoreAffinitySelection {
+    # 用 Windows CPU Set 的 EfficiencyClass 选择最高性能逻辑核。
+    $enumerateMethod = $null
+    $cpuSets = @()
+    $groups = @()
+    $selected = @()
+    $maxEfficiencyClass = $null
+    $enumerateMethod = $(Initialize-CpuSetInterop).GetMethod("Enumerate", [System.Reflection.BindingFlags]::Public -bor [System.Reflection.BindingFlags]::Static)
+    if (-not $enumerateMethod) {
+        throw "The CPU set interop helper type is missing the Enumerate method."
+    }
+
+    $cpuSets = @($enumerateMethod.Invoke($null, @()))
+    if ($cpuSets.Count -eq 0) {
+        throw "Windows did not return any CPU set records. Use -WorkloadAffinityMask instead of -UsePCores on this machine."
+    }
+
+    $groups = @($cpuSets | Select-Object -ExpandProperty Group -Unique)
+    if ($groups.Count -ne 1) {
+        throw "Auto P-core pinning currently supports only single-group systems. Use -WorkloadAffinityMask on this machine."
+    }
+
+    $maxEfficiencyClass = ($cpuSets | Measure-Object -Property EfficiencyClass -Maximum).Maximum
+    $selected = @($cpuSets | Where-Object { $_.EfficiencyClass -eq $maxEfficiencyClass } | Sort-Object LogicalProcessorIndex)
+    if ($selected.Count -eq 0) {
+        throw "Failed to find any logical processors in the highest EfficiencyClass. Use -WorkloadAffinityMask instead."
+    }
+
+    $mask = [uint64]0
+    foreach ($entry in $selected) {
+        $logicalProcessorIndex = [int]$entry.LogicalProcessorIndex
+        if ($logicalProcessorIndex -ge 64) {
+            throw "Auto P-core pinning currently supports logical processor indices below 64 only. Use -WorkloadAffinityMask instead."
+        }
+
+        $mask = $mask -bor ([uint64]1 -shl $logicalProcessorIndex)
+    }
+
+    return [pscustomobject]@{
+        Group = [int]$selected[0].Group
+        EfficiencyClass = [int]$maxEfficiencyClass
+        Mask = $mask
+        LogicalProcessorIndices = @($selected | ForEach-Object { [int]$_.LogicalProcessorIndex })
+        ParkedLogicalProcessorIndices = @($selected | Where-Object { $_.Parked } | ForEach-Object { [int]$_.LogicalProcessorIndex })
+    }
+}
+
+function Resolve-WorkloadScheduling {
+    $priorityClass = [System.Diagnostics.ProcessPriorityClass]::$WorkloadPriority
+    $affinityMask = $null
+    $affinitySource = $null
+    $logicalProcessors = @()
+    $parkedLogicalProcessors = @()
+    $efficiencyClass = $null
+
+    if ($UsePCores) {
+        $selection = Get-PCoreAffinitySelection
+        $affinityMask = [uint64]$selection.Mask
+        $affinitySource = "pcores"
+        $logicalProcessors = @($selection.LogicalProcessorIndices)
+        $parkedLogicalProcessors = @($selection.ParkedLogicalProcessorIndices)
+        $efficiencyClass = $selection.EfficiencyClass
+    }
+    elseif ($WorkloadAffinityMask) {
+        $affinityMask = ConvertTo-AffinityMaskValue $WorkloadAffinityMask
+        if ($affinityMask -eq 0) {
+            throw "-WorkloadAffinityMask must not be zero."
+        }
+        $affinitySource = "explicit"
+    }
+
+    return [pscustomobject]@{
+        Enabled = (($priorityClass -ne [System.Diagnostics.ProcessPriorityClass]::Normal) -or ($null -ne $affinityMask))
+        Priority = $priorityClass
+        AffinityMask = $affinityMask
+        AffinityMaskText = $(if ($null -ne $affinityMask) { Format-AffinityMask $affinityMask } else { $null })
+        AffinitySource = $affinitySource
+        LogicalProcessors = $logicalProcessors
+        ParkedLogicalProcessors = $parkedLogicalProcessors
+        EfficiencyClass = $efficiencyClass
+    }
+}
+
+function Write-WorkloadSchedulingSummary {
+    param([object]$Scheduling)
+
+    $details = New-Object System.Collections.Generic.List[string]
+    $details.Add(("priority={0}" -f $Scheduling.Priority))
+    if ($Scheduling.AffinityMaskText) {
+        $details.Add(("affinity={0}" -f $Scheduling.AffinityMaskText))
+    }
+    else {
+        $details.Add("affinity=all-logical-processors")
+    }
+    if ($Scheduling.AffinitySource) {
+        $details.Add(("source={0}" -f $Scheduling.AffinitySource))
+    }
+    if ($Scheduling.LogicalProcessors.Count -gt 0) {
+        $details.Add(("logical_processors={0}" -f (($Scheduling.LogicalProcessors | ForEach-Object { [string]$_ }) -join ",")))
+    }
+    if ($null -ne $Scheduling.EfficiencyClass) {
+        $details.Add(("efficiency_class={0}" -f $Scheduling.EfficiencyClass))
+    }
+    if ($Scheduling.ParkedLogicalProcessors.Count -gt 0) {
+        $details.Add(("parked_logical_processors={0}" -f (($Scheduling.ParkedLogicalProcessors | ForEach-Object { [string]$_ }) -join ",")))
+    }
+
+    Write-Info ("Workload scheduling: {0}" -f ($details -join "; "))
+}
+
+function Apply-WorkloadSchedulingToProcess {
+    param(
+        [System.Diagnostics.Process]$Process,
+        [string]$Label
+    )
+
+    $scheduling = $script:WorkloadScheduling
+    if ((-not $scheduling) -or (-not $scheduling.Enabled)) {
+        return
+    }
+
+    if ($Process.HasExited) {
+        Write-Info ("Skipped workload scheduling for {0}: process exited before affinity/priority could be applied." -f $Label)
+        return
+    }
+
+    $applied = New-Object System.Collections.Generic.List[string]
+    try {
+        if ($scheduling.AffinityMaskText) {
+            $Process.ProcessorAffinity = ConvertTo-IntPtrFromMask ([uint64]$scheduling.AffinityMask)
+            $applied.Add(("affinity={0}" -f $scheduling.AffinityMaskText))
+        }
+
+        $Process.PriorityClass = $scheduling.Priority
+        $applied.Add(("priority={0}" -f $scheduling.Priority))
+    }
+    catch {
+        throw ("Failed to apply workload scheduling to {0} (pid {1}): {2}" -f $Label, $Process.Id, $_.Exception.Message)
+    }
+
+    Write-Info ("Applied workload scheduling to {0} (pid {1}): {2}" -f $Label, $Process.Id, ($applied -join ", "))
 }
 
 function Ensure-ParentDirectory {
@@ -307,6 +623,7 @@ function Invoke-External {
         [string]$StderrPath,
         [int]$TimeoutSec,
         [hashtable]$EnvironmentVariables,
+        [switch]$ApplyWorkloadScheduling,
         [switch]$IgnoreExit
     )
 
@@ -330,6 +647,11 @@ function Invoke-External {
 
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     [void]$process.Start()
+    if ($ApplyWorkloadScheduling -and $script:WorkloadScheduling -and $script:WorkloadScheduling.Enabled) {
+        # 仅对计时目标 re-EMBER.exe 施加调度策略，避免影响构建和报告辅助进程。
+        Write-Info ("Scheduling requested for {0} (pid {1})." -f (Split-Path -Leaf $FilePath), $process.Id)
+        Apply-WorkloadSchedulingToProcess $process (Split-Path -Leaf $FilePath)
+    }
     $stdoutTask = $process.StandardOutput.ReadToEndAsync()
     $stderrTask = $process.StandardError.ReadToEndAsync()
 
@@ -775,7 +1097,7 @@ function Invoke-ReEmberWorkload {
             TRACY_NO_BROADCAST = "1"
         }
     }
-    $result = Invoke-External $ExePath (Get-ReEmberArguments $Workload $outPath $metricsPath) $stdoutPath $stderrPath $TimeoutSeconds $environment
+    $result = Invoke-External $ExePath (Get-ReEmberArguments $Workload $outPath $metricsPath) $stdoutPath $stderrPath $TimeoutSeconds $environment -ApplyWorkloadScheduling
     $metrics = Read-ReEmberTimingMetrics $metricsPath
 
     return [pscustomobject]@{
@@ -1480,6 +1802,20 @@ function Write-Reports {
     $summaryLines.Add(("executable={0}" -f $script:ExePath))
     $summaryLines.Add(("configuration={0}" -f $Configuration))
     $summaryLines.Add(("iterations={0}" -f $Iterations))
+    $summaryLines.Add(("workload_scheduling_enabled={0}" -f $script:WorkloadScheduling.Enabled))
+    $summaryLines.Add(("workload_priority={0}" -f $script:WorkloadScheduling.Priority))
+    if ($script:WorkloadScheduling.AffinityMaskText) {
+        $summaryLines.Add(("workload_affinity_mask={0}" -f $script:WorkloadScheduling.AffinityMaskText))
+    }
+    if ($script:WorkloadScheduling.AffinitySource) {
+        $summaryLines.Add(("workload_affinity_source={0}" -f $script:WorkloadScheduling.AffinitySource))
+    }
+    if ($script:WorkloadScheduling.LogicalProcessors.Count -gt 0) {
+        $summaryLines.Add(("workload_logical_processors={0}" -f (($script:WorkloadScheduling.LogicalProcessors | ForEach-Object { [string]$_ }) -join ",")))
+    }
+    if ($null -ne $script:WorkloadScheduling.EfficiencyClass) {
+        $summaryLines.Add(("workload_efficiency_class={0}" -f $script:WorkloadScheduling.EfficiencyClass))
+    }
     $summaryLines.Add(("timings_csv={0}" -f $TimingCsvPath))
     if ($InclusiveZonesCsvPath) {
         $summaryLines.Add(("tracy_zones_csv={0}" -f $InclusiveZonesCsvPath))
@@ -1565,6 +1901,8 @@ try {
     }
 
     $workloads = @(Get-Workloads)
+    $script:WorkloadScheduling = Resolve-WorkloadScheduling
+    Write-WorkloadSchedulingSummary $script:WorkloadScheduling
     $manifest = [pscustomobject]@{
         repoRoot = [string]$RepoRoot
         buildDir = [string]$BuildRoot
@@ -1583,6 +1921,15 @@ try {
         tracyCsvExport = $tracyCsvExportPath
         unwrapZoneFilter = $UnwrapZoneFilter
         inputAssumptionsEnabled = (-not $NoInputAssumptions)
+        workloadScheduling = [pscustomobject]@{
+            enabled = $script:WorkloadScheduling.Enabled
+            priority = [string]$script:WorkloadScheduling.Priority
+            affinityMask = $script:WorkloadScheduling.AffinityMaskText
+            affinitySource = $script:WorkloadScheduling.AffinitySource
+            logicalProcessors = @($script:WorkloadScheduling.LogicalProcessors)
+            parkedLogicalProcessors = @($script:WorkloadScheduling.ParkedLogicalProcessors)
+            efficiencyClass = $script:WorkloadScheduling.EfficiencyClass
+        }
         workloads = $workloads
     }
     $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $PerfRoot "manifest.json") -Encoding UTF8
