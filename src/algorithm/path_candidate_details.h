@@ -5,6 +5,7 @@
 #pragma once
 
 #include "algorithm/tracing_geometry.h"
+#include "core/perf_tracing.h"
 
 #include <algorithm>
 #include <array>
@@ -716,6 +717,8 @@ inline bool buildAxisAlignedCoordinatePath(
     const std::vector<SplitAxis3i> &axisOrder,
     std::vector<Segment256> &outPath)
 {
+    REEMBER_PROFILE_ZONE("buildAxisAlignedCoordinatePath");
+
     std::array<Plane3i, 3> currentCoordinatePlanes = {
         makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::X),
         makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::Y),
@@ -731,6 +734,7 @@ inline bool buildAxisAlignedCoordinatePath(
     outPath.clear();
     for (const SplitAxis3i axis : axisOrder)
     {
+        REEMBER_PROFILE_ZONE("buildAxisAlignedCoordinatePath::axisStep");
         const int axisIndex = axisOrderKey(axis);
         const std::array<Plane3i, 3> startCoordinatePlanes = currentCoordinatePlanes;
         currentCoordinatePlanes[axisIndex] = targetCoordinatePlanes[axisIndex];
@@ -1319,6 +1323,8 @@ inline bool buildBoundedPlaneReplacementPathForOrder(
     std::size_t planeReplacementCount,
     std::vector<Segment256> &outPath)
 {
+    REEMBER_PROFILE_ZONE("buildBoundedPlaneReplacementPathForOrder");
+
     outPath.clear();
     if (!isPointInsideOrOnAABB(startPoint, box) || !isPointInsideOrOnAABB(targetPoint, box))
         return false;
@@ -1329,6 +1335,7 @@ inline bool buildBoundedPlaneReplacementPathForOrder(
 
     for (std::size_t orderIndex = 0; orderIndex < planeReplacementCount; ++orderIndex)
     {
+        REEMBER_PROFILE_ZONE("buildBoundedPlaneReplacementPathForOrder::step");
         const int replacedIndex = planeReplacementOrder[orderIndex];
         currentPlanes[replacedIndex] = targetPlanes[replacedIndex];
         const PlanePoint3i nextPoint = makePointFromPlanes(currentPlanes);

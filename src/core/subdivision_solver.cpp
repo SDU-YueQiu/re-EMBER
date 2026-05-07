@@ -340,6 +340,8 @@ bool buildSubdivisionSplitStats(
     stats.wntvGroups.reserve(polygons.size());
     for (const Polygon256 &polygon : polygons)
     {
+        REEMBER_PROFILE_ZONE("buildSubdivisionSplitStats::polygon");
+
         auto it = std::find_if(
                       stats.wntvGroups.begin(),
                       stats.wntvGroups.end(),
@@ -355,15 +357,21 @@ bool buildSubdivisionSplitStats(
             it = stats.wntvGroups.end() - 1;
         }
 
-        const AABB3i &polygonBox = polygon.aabb();
-        if (!isValidAABB(polygonBox))
+        const AABB3i *polygonBox = nullptr;
+        {
+            REEMBER_PROFILE_ZONE("buildSubdivisionSplitStats::fetchAABB");
+            polygonBox = &polygon.aabb();
+        }
+        if (!isValidAABB(*polygonBox))
             return false;
 
-        const Integer centerX = axisMidpoint(polygonBox, SplitAxis3i::X);
-        const Integer centerY = axisMidpoint(polygonBox, SplitAxis3i::Y);
-        const Integer centerZ = axisMidpoint(polygonBox, SplitAxis3i::Z);
+        const Integer centerX = axisMidpoint(*polygonBox, SplitAxis3i::X);
+        const Integer centerY = axisMidpoint(*polygonBox, SplitAxis3i::Y);
+        const Integer centerZ = axisMidpoint(*polygonBox, SplitAxis3i::Z);
 
-        mergeAABB(it->box, polygonBox);
+        {
+            REEMBER_PROFILE_ZONE("buildSubdivisionSplitStats::accumulate");
+            mergeAABB(it->box, *polygonBox);
         it->sumCenterX += centerX;
         it->sumCenterY += centerY;
         it->sumCenterZ += centerZ;
@@ -379,16 +387,20 @@ bool buildSubdivisionSplitStats(
         stats.centerStats.sumZ += centerZ;
         ++stats.centerStats.count;
         stats.centerStats.valid = true;
+        }
     }
 
-    for (WntvSubdivisionGroup &group : stats.wntvGroups)
     {
-        if (!isValidAABB(group.box) || group.polygonCount == 0 || group.centerCount <= 0)
-            return false;
+        REEMBER_PROFILE_ZONE("buildSubdivisionSplitStats::finalizeGroups");
+        for (WntvSubdivisionGroup &group : stats.wntvGroups)
+        {
+            if (!isValidAABB(group.box) || group.polygonCount == 0 || group.centerCount <= 0)
+                return false;
 
-        group.centerX = floorDiv(group.sumCenterX, group.centerCount);
-        group.centerY = floorDiv(group.sumCenterY, group.centerCount);
-        group.centerZ = floorDiv(group.sumCenterZ, group.centerCount);
+            group.centerX = floorDiv(group.sumCenterX, group.centerCount);
+            group.centerY = floorDiv(group.sumCenterY, group.centerCount);
+            group.centerZ = floorDiv(group.sumCenterZ, group.centerCount);
+        }
     }
 
     return stats.centerStats.valid && stats.centerStats.count > 0;
@@ -625,18 +637,23 @@ bool appendSplitChildPolygons(
 {
     REEMBER_PROFILE_ZONE("appendSplitChildPolygons");
 
-    const AABB3i &polygonBox = polygon.aabb();
-    if (isValidAABB(polygonBox))
     {
-        if (axisMaximum(polygonBox, split.axis) <= split.coordinate)
+        REEMBER_PROFILE_ZONE("appendSplitChildPolygons::aabbRoute");
+        const AABB3i &polygonBox = polygon.aabb();
+        if (isValidAABB(polygonBox))
         {
-            leftPolygons.push_back(polygon);
-            return true;
-        }
-        if (axisMinimum(polygonBox, split.axis) >= split.coordinate)
-        {
-            rightPolygons.push_back(polygon);
-            return true;
+            if (axisMaximum(polygonBox, split.axis) <= split.coordinate)
+            {
+                REEMBER_PROFILE_ZONE("appendSplitChildPolygons::routeLeft");
+                leftPolygons.push_back(polygon);
+                return true;
+            }
+            if (axisMinimum(polygonBox, split.axis) >= split.coordinate)
+            {
+                REEMBER_PROFILE_ZONE("appendSplitChildPolygons::routeRight");
+                rightPolygons.push_back(polygon);
+                return true;
+            }
         }
     }
 
@@ -646,38 +663,46 @@ bool appendSplitChildPolygons(
     const std::size_t edgeCount = polygon.edgeCount();
     std::vector<int> vertexSides;
     vertexSides.resize(edgeCount);
-    for (std::size_t edgeIndex = 0; edgeIndex < edgeCount; ++edgeIndex)
     {
-        const PlanePoint3i &vertex = getPolygonVertex(polygon, edgeIndex);
-        const int side = vertex.classify(splitPlane);
-        vertexSides[edgeIndex] = side;
-        if (side > 0)
-            hasPositive = true;
-        else if (side < 0)
-            hasNegative = true;
+        REEMBER_PROFILE_ZONE("appendSplitChildPolygons::vertexSideScan");
+        for (std::size_t edgeIndex = 0; edgeIndex < edgeCount; ++edgeIndex)
+        {
+            const PlanePoint3i &vertex = getPolygonVertex(polygon, edgeIndex);
+            const int side = vertex.classify(splitPlane);
+            vertexSides[edgeIndex] = side;
+            if (side > 0)
+                hasPositive = true;
+            else if (side < 0)
+                hasNegative = true;
+        }
     }
 
     if (!hasPositive)
     {
+        REEMBER_PROFILE_ZONE("appendSplitChildPolygons::scanRouteLeft");
         leftPolygons.push_back(polygon);
         return true;
     }
     if (!hasNegative)
     {
+        REEMBER_PROFILE_ZONE("appendSplitChildPolygons::scanRouteRight");
         rightPolygons.push_back(polygon);
         return true;
     }
 
     Polygon256 frontClipped;
     Polygon256 backClipped;
-    if (!detail::clipLeafGeometryByPlaneTrustedWithSides(
-                polygon,
-                splitPlane,
-                vertexSides,
-                frontClipped,
-                backClipped,
-                PolygonEdgeProvenance::SubdivisionClip))
-        return false;
+    {
+        REEMBER_PROFILE_ZONE("appendSplitChildPolygons::clip");
+        if (!detail::clipLeafGeometryByPlaneTrustedWithSides(
+                    polygon,
+                    splitPlane,
+                    vertexSides,
+                    frontClipped,
+                    backClipped,
+                    PolygonEdgeProvenance::SubdivisionClip))
+            return false;
+    }
 
     leftPolygons.push_back(std::move(backClipped));
     rightPolygons.push_back(std::move(frontClipped));
