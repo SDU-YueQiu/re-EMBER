@@ -50,9 +50,8 @@ struct BoolSolveMetrics
     std::size_t leafFragmentCount = 0;              ///< 所有活跃叶子的叶片片段数累计值。
     std::size_t classifiedFragmentCount = 0;        ///< 所有活跃叶子的已分类片段数累计值。
     std::size_t resultFragmentCount = 0;            ///< 最终结果片段数。
-    std::size_t constantDiscardCount = 0;           ///< 由常量布尔指示函数直接剪枝的节点数。
+    std::size_t constantDiscardCount = 0;           ///< 子节点在创建前被常量布尔指示函数剪枝的次数。
     std::size_t invalidOrEmptyDiscardCount = 0;     ///< 因空节点或非法 AABB 被直接丢弃的节点数。
-    std::size_t childConstantDiscardCount = 0;      ///< 子节点在创建前被常量布尔指示函数剪枝的次数。
     std::size_t leafThresholdStopCount = 0;         ///< 因叶子阈值停止细分的节点数。
     std::size_t aabbNotSplittableStopCount = 0;     ///< 因 AABB 不可再切分停止细分的节点数。
     std::size_t splitFailureStopCount = 0;          ///< 因切分候选失败停止细分的节点数。

@@ -150,7 +150,6 @@ bool writeTimingMetrics(const std::string &path, const CliTimings &timings, std:
            << "result_fragment_count=" << timings.solveMetrics.resultFragmentCount << '\n'
            << "constant_discard_count=" << timings.solveMetrics.constantDiscardCount << '\n'
            << "invalid_or_empty_discard_count=" << timings.solveMetrics.invalidOrEmptyDiscardCount << '\n'
-           << "child_constant_discard_count=" << timings.solveMetrics.childConstantDiscardCount << '\n'
            << "leaf_threshold_stop_count=" << timings.solveMetrics.leafThresholdStopCount << '\n'
            << "aabb_not_splittable_stop_count=" << timings.solveMetrics.aabbNotSplittableStopCount << '\n'
            << "split_failure_stop_count=" << timings.solveMetrics.splitFailureStopCount << '\n'
