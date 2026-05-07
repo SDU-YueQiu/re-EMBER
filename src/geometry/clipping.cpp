@@ -74,6 +74,8 @@ bool computePolygonPlaneIntersection(
     Plane3i& p0,
     Plane3i& p1)
 {
+    REEMBER_PROFILE_ZONE("computePolygonPlaneIntersection");
+
     const AABB3i &sourceBox = source.aabb();
     if (!isValidAABB(sourceBox) || !doesPlaneIntersectAABB(target, sourceBox))
         return false;
@@ -82,11 +84,13 @@ bool computePolygonPlaneIntersection(
 
     std::vector<int> sides;
     sides.resize(n);
-
-    for (std::size_t i = 0; i < n; ++i)
     {
-        const PlanePoint3i &v = source.vertex(i);
-        sides[i] = v.classify(target);
+        REEMBER_PROFILE_ZONE("computePolygonPlaneIntersection::classifyVertices");
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            const PlanePoint3i &v = source.vertex(i);
+            sides[i] = v.classify(target);
+        }
     }
 
     std::vector<Plane3i> intersectionCarriers;
@@ -112,40 +116,43 @@ bool computePolygonPlaneIntersection(
         return true;
     };
 
-    for (std::size_t i = 0; i < n; ++i)
     {
-        const std::size_t next = (i + 1 == n) ? 0 : (i + 1);
-        const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
-        const Plane3i& segmentEdge = source.edgePlanes[i];
-
-        const int sSide = sides[i];// 起点侧别。
-        const int eSide = sides[next];// 终点侧别。
-
-        if (sSide == 0 && eSide == 0)
+        REEMBER_PROFILE_ZONE("computePolygonPlaneIntersection::collectCarriers");
+        for (std::size_t i = 0; i < n; ++i)
         {
-            if (!appendIntersectionCarrier(source.edgePlanes[prev]) ||
-                    !appendIntersectionCarrier(source.edgePlanes[next]))
-                return false;
-            continue;
-        }
+            const std::size_t next = (i + 1 == n) ? 0 : (i + 1);
+            const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
+            const Plane3i& segmentEdge = source.edgePlanes[i];
 
-        if (sSide == 0)//起点在裁剪平面上
-        {
-            const int prevSide = sides[prev];
-            if ((prevSide < 0 && eSide > 0) || (prevSide > 0 && eSide < 0))
+            const int sSide = sides[i];// 起点侧别。
+            const int eSide = sides[next];// 终点侧别。
+
+            if (sSide == 0 && eSide == 0)
+            {
+                if (!appendIntersectionCarrier(source.edgePlanes[prev]) ||
+                        !appendIntersectionCarrier(source.edgePlanes[next]))
+                    return false;
+                continue;
+            }
+
+            if (sSide == 0)//起点在裁剪平面上
+            {
+                const int prevSide = sides[prev];
+                if ((prevSide < 0 && eSide > 0) || (prevSide > 0 && eSide < 0))
+                {
+                    if (!appendIntersectionCarrier(segmentEdge))
+                        return false;
+                }
+                continue;
+            }
+
+            if (sSide + eSide == 0)//边两端点在裁剪平面两侧->裁剪平面与边相交
             {
                 if (!appendIntersectionCarrier(segmentEdge))
                     return false;
             }
-            continue;
-        }
 
-        if (sSide + eSide == 0)//边两端点在裁剪平面两侧->裁剪平面与边相交
-        {
-            if (!appendIntersectionCarrier(segmentEdge))
-                return false;
         }
-
     }
 
     if (intersectionCarriers.size() != 2u ||
@@ -177,6 +184,8 @@ bool detail::computePolygonIntersectionCarrierTrusted(
     Plane3i& outV0,
     Plane3i& outV1)
 {
+    REEMBER_PROFILE_ZONE("computePolygonIntersectionCarrierTrusted");
+
     if (!doAABBsOverlap(target.aabb(), incoming.aabb()))
         return false;
 
@@ -186,14 +195,20 @@ bool detail::computePolygonIntersectionCarrierTrusted(
 
     Plane3i p0, p1;//源多边形上的交线边平面
     Plane3i q0, q1;//新输入多边形上的交线边平面
-    if (!computePolygonPlaneIntersection(target, incoming.plane, p0, p1))
-        return false;
-    if (!computePolygonPlaneIntersection(incoming, target.plane, q0, q1))
-        return false;
+    {
+        REEMBER_PROFILE_ZONE("computePolygonIntersectionCarrierTrusted::planeIntersections");
+        if (!computePolygonPlaneIntersection(target, incoming.plane, p0, p1))
+            return false;
+        if (!computePolygonPlaneIntersection(incoming, target.plane, q0, q1))
+            return false;
+    }
 
     detail::IntersectionCarrier carrier;
-    if (!tryBuildIntersectionCarrierFromCuts(target, incoming, p0, p1, q0, q1, carrier))
-        return false;
+    {
+        REEMBER_PROFILE_ZONE("computePolygonIntersectionCarrierTrusted::buildCarrier");
+        if (!tryBuildIntersectionCarrierFromCuts(target, incoming, p0, p1, q0, q1, carrier))
+            return false;
+    }
 
     outSplitPlane = carrier.splitPlane;
     outV0 = carrier.v0;
@@ -207,6 +222,8 @@ bool detail::computeBidirectionalPolygonIntersectionCarriersTrusted(
     IntersectionCarrier& outLhsCarrier,
     IntersectionCarrier& outRhsCarrier)
 {
+    REEMBER_PROFILE_ZONE("computeBidirectionalPolygonIntersectionCarriersTrusted");
+
     if (!doAABBsOverlap(lhs.aabb(), rhs.aabb()))
         return false;
 
@@ -217,13 +234,19 @@ bool detail::computeBidirectionalPolygonIntersectionCarriersTrusted(
     Plane3i lhsCut1;
     Plane3i rhsCut0;
     Plane3i rhsCut1;
-    if (!computePolygonPlaneIntersection(lhs, rhs.plane, lhsCut0, lhsCut1))
-        return false;
-    if (!computePolygonPlaneIntersection(rhs, lhs.plane, rhsCut0, rhsCut1))
-        return false;
+    {
+        REEMBER_PROFILE_ZONE("computeBidirectionalPolygonIntersectionCarriersTrusted::planeIntersections");
+        if (!computePolygonPlaneIntersection(lhs, rhs.plane, lhsCut0, lhsCut1))
+            return false;
+        if (!computePolygonPlaneIntersection(rhs, lhs.plane, rhsCut0, rhsCut1))
+            return false;
+    }
 
-    return tryBuildIntersectionCarrierFromCuts(lhs, rhs, lhsCut0, lhsCut1, rhsCut0, rhsCut1, outLhsCarrier) &&
-           tryBuildIntersectionCarrierFromCuts(rhs, lhs, rhsCut0, rhsCut1, lhsCut0, lhsCut1, outRhsCarrier);
+    {
+        REEMBER_PROFILE_ZONE("computeBidirectionalPolygonIntersectionCarriersTrusted::buildCarriers");
+        return tryBuildIntersectionCarrierFromCuts(lhs, rhs, lhsCut0, lhsCut1, rhsCut0, rhsCut1, outLhsCarrier) &&
+               tryBuildIntersectionCarrierFromCuts(rhs, lhs, rhsCut0, rhsCut1, lhsCut0, lhsCut1, outRhsCarrier);
+    }
 }
 
 bool clipLeafGeometryByPlane(const Polygon256& source, const Plane3i& clipPlane, Polygon256& frontClipped, Polygon256& backClipped)

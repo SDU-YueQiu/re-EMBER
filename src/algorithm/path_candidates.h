@@ -606,6 +606,8 @@ inline std::size_t enumerateLeafClassificationFastPathCandidatesFromPoints(
         detail::tryExtractExactIntegerPoint(referencePoint, referenceX, referenceY, referenceZ);
     for (const PlanePoint3i &targetPoint : targetPoints)
     {
+        REEMBER_PROFILE_ZONE("enumerateLeafClassificationFastPathCandidatesFromPoints::targetPoint");
+
         auto emitCandidate =
             [&](std::vector<Segment256> path) -> bool
         {
@@ -617,6 +619,7 @@ inline std::size_t enumerateLeafClassificationFastPathCandidatesFromPoints(
         if (hasExactReferencePoint &&
                 detail::tryExtractExactIntegerPoint(targetPoint, targetX, targetY, targetZ))
         {
+            REEMBER_PROFILE_ZONE("enumerateLeafClassificationFastPathCandidatesFromPoints::axisAligned");
             std::array<SplitAxis3i, 3> changedAxes = {};
             std::size_t axisCount = 0;
             if (referenceX != targetX)
@@ -674,27 +677,30 @@ inline std::size_t enumerateLeafClassificationFastPathCandidatesFromPoints(
         if (changedPlaneCount == 0)
             continue;
 
-        std::sort(
-            changedPlaneIndices.begin(),
-            changedPlaneIndices.begin() + static_cast<std::ptrdiff_t>(changedPlaneCount));
-        std::array<int, 3> planeReplacementOrder = changedPlaneIndices;
-        do
         {
-            std::vector<Segment256> path;
-            if (detail::buildPlaneReplacementPath(
-                        referencePoint,
-                        targetPoint,
-                        box,
-                        planeReplacementOrder,
-                        changedPlaneCount,
-                        path))
+            REEMBER_PROFILE_ZONE("enumerateLeafClassificationFastPathCandidatesFromPoints::planeReplacement");
+            std::sort(
+                changedPlaneIndices.begin(),
+                changedPlaneIndices.begin() + static_cast<std::ptrdiff_t>(changedPlaneCount));
+            std::array<int, 3> planeReplacementOrder = changedPlaneIndices;
+            do
             {
-                if (!emitCandidate(std::move(path)))
-                    return emitted;
-            }
-        } while (std::next_permutation(
-                     planeReplacementOrder.begin(),
-                     planeReplacementOrder.begin() + static_cast<std::ptrdiff_t>(changedPlaneCount)));
+                std::vector<Segment256> path;
+                if (detail::buildPlaneReplacementPath(
+                            referencePoint,
+                            targetPoint,
+                            box,
+                            planeReplacementOrder,
+                            changedPlaneCount,
+                            path))
+                {
+                    if (!emitCandidate(std::move(path)))
+                        return emitted;
+                }
+            } while (std::next_permutation(
+                         planeReplacementOrder.begin(),
+                         planeReplacementOrder.begin() + static_cast<std::ptrdiff_t>(changedPlaneCount)));
+        }
     }
 
     return emitted;

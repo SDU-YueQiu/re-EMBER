@@ -60,6 +60,7 @@ traceStatus tracePathWNVImpl(
 
     if (validatePath)
     {
+        REEMBER_PROFILE_ZONE("tracePathWNVImpl::validatePath");
         for (const auto &seg : path)
         {
             if (!seg.isValid())
@@ -69,6 +70,7 @@ traceStatus tracePathWNVImpl(
 
     if (validatePolygons)
     {
+        REEMBER_PROFILE_ZONE("tracePathWNVImpl::validatePolygons");
         for (const auto &poly : polygons)
         {
             if (!poly.isValid() || poly.WNTV.size() != refpoint.wnv.size())
@@ -88,6 +90,7 @@ traceStatus tracePathWNVImpl(
 
     if (validatePath)
     {
+        REEMBER_PROFILE_ZONE("tracePathWNVImpl::validateContinuity");
         for (std::size_t i = 1; i < path.size(); ++i)
         {
             if (!areSamePlanePoint(path[i - 1].getEndPointRef(), path[i].getStartPointRef()))
@@ -99,14 +102,24 @@ traceStatus tracePathWNVImpl(
 
     for (const Polygon256 &poly : polygons)
     {
-        int pcs = poly.classify(pathStartPoint);
+        REEMBER_PROFILE_ZONE("tracePathWNVImpl::polygon");
+
+        int pcs = 0;
+        {
+            REEMBER_PROFILE_ZONE("tracePathWNVImpl::classifyStartPoint");
+            pcs = poly.classify(pathStartPoint);
+        }
         if (pcs == 0)
             return PATH_INVALID;
 
         for (const Segment256 &seg : path)
         {
             const PlanePoint3i &endPoint = seg.getEndPointRef();
-            const int pce = poly.classify(endPoint);
+            int pce = 0;
+            {
+                REEMBER_PROFILE_ZONE("tracePathWNVImpl::classifyEndPoint");
+                pce = poly.classify(endPoint);
+            }
 
             if (pce == 0)
                 return PATH_INVALID;
@@ -122,17 +135,30 @@ traceStatus tracePathWNVImpl(
                 continue;
             }
 
-            const detail::PolygonBoundaryContact boundaryContact =
-                detail::classifySegmentPolygonBoundaryContactUnchecked(seg, poly);
+            detail::PolygonBoundaryContact boundaryContact;
+            {
+                REEMBER_PROFILE_ZONE("tracePathWNVImpl::boundaryContact");
+                boundaryContact =
+                    detail::classifySegmentPolygonBoundaryContactUnchecked(seg, poly);
+            }
             if (boundaryContact.type == detail::PolygonBoundaryContactType::EndpointOnBoundary ||
                     boundaryContact.type == detail::PolygonBoundaryContactType::EdgeOverlap)
                 return PATH_INVALID;
 
             PlanePoint3i intersectPoint;
-            if (intersectionSegmentPolygon(seg, poly, intersectPoint))
+            bool hasIntersection = false;
             {
-                const detail::PolygonSurfaceLocation hitLocation =
-                    detail::classifyPolygonSurfacePointUnchecked(poly, intersectPoint);
+                REEMBER_PROFILE_ZONE("tracePathWNVImpl::intersectionSegmentPolygon");
+                hasIntersection = intersectionSegmentPolygon(seg, poly, intersectPoint);
+            }
+            if (hasIntersection)
+            {
+                detail::PolygonSurfaceLocation hitLocation = detail::PolygonSurfaceLocation::Outside;
+                {
+                    REEMBER_PROFILE_ZONE("tracePathWNVImpl::classifySurfaceHit");
+                    hitLocation =
+                        detail::classifyPolygonSurfacePointUnchecked(poly, intersectPoint);
+                }
                 if (hitLocation == detail::PolygonSurfaceLocation::Boundary)
                 {
                     if (!canTreatSubdivisionClipBoundaryHitAsCrossing(
@@ -177,6 +203,7 @@ traceStatus tracePathWNVToSurfacePointImpl(
 
     if (validatePath)
     {
+        REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::validatePath");
         for (const auto &seg : path)
         {
             if (!seg.isValid())
@@ -186,6 +213,7 @@ traceStatus tracePathWNVToSurfacePointImpl(
 
     if (validatePolygons)
     {
+        REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::validatePolygons");
         for (const auto &poly : polygons)
         {
             if (!poly.isValid() || poly.WNTV.size() != refpoint.wnv.size())
@@ -196,6 +224,7 @@ traceStatus tracePathWNVToSurfacePointImpl(
     const PlanePoint3i &pathStartPoint = path.front().getStartPointRef();
     if (validatePath)
     {
+        REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::validateContinuity");
         if (!areSamePlanePoint(pathStartPoint, refpoint.point))
             return INPUT_INVALID;
         for (std::size_t i = 1; i < path.size(); ++i)
@@ -214,7 +243,13 @@ traceStatus tracePathWNVToSurfacePointImpl(
 
     for (const Polygon256 &poly : polygons)
     {
-        int pcs = poly.classify(pathStartPoint);
+        REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::polygon");
+
+        int pcs = 0;
+        {
+            REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::classifyStartPoint");
+            pcs = poly.classify(pathStartPoint);
+        }
         if (pcs == 0)
             return PATH_INVALID;
 
@@ -222,7 +257,11 @@ traceStatus tracePathWNVToSurfacePointImpl(
         {
             const Segment256 &seg = path[segmentIndex];
             const PlanePoint3i &endPoint = seg.getEndPointRef();
-            const int pce = poly.classify(endPoint);
+            int pce = 0;
+            {
+                REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::classifyEndPoint");
+                pce = poly.classify(endPoint);
+            }
             const bool isLastSegment = (segmentIndex + 1 == path.size());
 
             if (!isLastSegment && pce == 0)
@@ -239,11 +278,19 @@ traceStatus tracePathWNVToSurfacePointImpl(
                 continue;
             }
 
-            const PlanePoint3i intersectPoint = intersect(seg.direction, poly.plane);
+            PlanePoint3i intersectPoint;
+            {
+                REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::intersectSupportPlane");
+                intersectPoint = intersect(seg.direction, poly.plane);
+            }
             if (intersectPoint.hasUniqueIntersection())
             {
-                const detail::PolygonSurfaceLocation hitLocation =
-                    detail::classifyPolygonSurfacePointUnchecked(poly, intersectPoint);
+                detail::PolygonSurfaceLocation hitLocation = detail::PolygonSurfaceLocation::Outside;
+                {
+                    REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::classifySurfaceHit");
+                    hitLocation =
+                        detail::classifyPolygonSurfacePointUnchecked(poly, intersectPoint);
+                }
                 if (hitLocation == detail::PolygonSurfaceLocation::Boundary)
                     return PATH_INVALID;
                 if (hitLocation == detail::PolygonSurfaceLocation::StrictInterior)
