@@ -69,24 +69,24 @@ flowchart TD
 
 `BoolProblem::solve(sceneAABB)` 本身很薄。主流程是四件事：
 
-1. 重置上一次求解状态。
+1. 若当前实例已经执行过一次 `solve()`，直接报错。
 2. 非空输入要求调用方提供合法 `sceneAABB`。
 3. 校验输入多边形集合合法性，并确认所有输入都符合二元 `lhs/rhs` 标签约定。
-4. 构造内部 `SubdivisionSolver`，并把结果复制回公开门面。
+4. 构造内部 `SubdivisionSolver`，消费输入 polygon soup，并把聚合结果提取回公开门面。
 
 ```mermaid
 flowchart TD
-    A["BoolProblem::solve(sceneAABB)"] --> B["resetSolveState()"]
-    B --> C{"polygons_ 为空?"}
-    C -->|是| D["discarded_=true; solved_=true; 返回"]
+    A["BoolProblem::solve(sceneAABB)"] --> A0{"已经调用过 solve()?"}
+    A0 -->|是| A1["抛出错误"]
+    A0 -->|否| C{"polygons_ 为空?"}
+    C -->|是| D["discarded_=true; 返回"]
     C -->|否| E["validateSceneAABB(sceneAABB)"]
     E --> F["validateSolveInputPolygons(polygons_)"]
     F --> G["构造 SubdivisionSolver(op, threshold, polygons, sceneAABB, assumptions)"]
     G --> H["solver.solve()"]
-    H --> I["复制 solver.isDiscarded()"]
-    I --> J["复制 solver.resultFragments()"]
-    J --> K["复制 solver.leafSummaries() / solveMetrics()"]
-    K --> L["solved_=true"]
+    H --> I["提取 solver.isDiscarded()"]
+    I --> J["extractResultFragments() / extractLeafSummaries()"]
+    J --> K["读取 solveMetrics()"]
 ```
 
 ## 4. SubdivisionSolver 总流程
@@ -97,7 +97,7 @@ flowchart TD
 2. 使用调用方传入的根节点 AABB。
 3. 在根 AABB 最小角点初始化参考点，初始 `WNV` 全零。
 4. 进入 `solveRecursive()`。
-5. 递归结束后汇总 `leafSummaries()` 和 `solveMetrics()`。
+5. 每个子树在递归返回时就完成 `resultFragments / leafSummaries / solveMetrics` 的向上聚合，并尽早释放子树中间状态。
 
 ```mermaid
 flowchart TD
@@ -110,8 +110,7 @@ flowchart TD
     H --> I["reference.point = 根 AABB 最小角点"]
     I --> J["reference.wnv = 全零向量"]
     J --> K["solveRecursive()"]
-    K --> L["collectLeafSummaries()"]
-    L --> M["collectSolveMetrics()"]
+    K --> L["root 已持有完整聚合结果"]
 ```
 
 ## 5. 递归细分流程
@@ -123,7 +122,7 @@ flowchart TD
 3. 尝试 `single operand assumption leaf` 快路径。
 4. 若达到叶子阈值，或 AABB 已不可再切分，则转叶子求解。
 5. 否则选择切分面并创建左右子节点。
-6. 递归求解左右子节点后合并结果。
+6. 递归求解左右子节点后 move-merge 结果，并立即释放子节点。
 
 ```mermaid
 flowchart TD

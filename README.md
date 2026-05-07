@@ -22,7 +22,7 @@ OBJ -> 共享 scale + 浮点输入AABB -> 多边形集合 -> BoolProblem(校验/
 - `src/tests/`：仓库自定义断言测试，不依赖第三方测试框架。
 - `tools/profile-re-ember.ps1`：端到端性能测试、Tracy 捕获和报告入口。
 
-`BoolProblem` 现在只暴露应用需要的二元门面接口：`setOperation`、`setLeafPolygonThreshold`、`setOperandAssumptions`、`setOperands`、`solve(sceneAABB)`、`isSolved`、`isDiscarded`、`resultFragments`、`leafSummaries` 和 `solveMetrics`。`setOperands()` 会统一覆写输入多边形的 `WNTV`，强制收敛到 `lhs={1,0}`、`rhs={0,1}` 的二元约定，不再暴露“直接注入任意带标签 polygon 集合”的公开入口。根场景 AABB 在共享 `scale` 选定后直接由 OBJ 浮点顶点经 `floor(coord * scale)` / `ceil(coord * scale)` 生成，调用方合并左右输入后加 margin 并传给 `solve(sceneAABB)`；`SubdivisionSolver` 不再从 256 位多边形顶点反推根 AABB。`Polygon256` 顶点缓存改为按需构造，首次调用 `vertex()` / `vertices()` 时生成，后续复用。递归子问题状态属于 `SubdivisionSolver` 内部实现；测试或诊断需要看叶子结构时使用 `leafSummaries()`，需要看求解规模和剪枝/候选统计时使用 `solveMetrics()`。
+`BoolProblem` 现在只暴露应用需要的二元门面接口：`setOperation`、`setOperandAssumptions`、`setOperands`、`solve(sceneAABB)`、`isDiscarded`、`resultFragments`、`leafSummaries` 和 `solveMetrics`。`setOperands()` 会统一覆写输入多边形的 `WNTV`，强制收敛到 `lhs={1,0}`、`rhs={0,1}` 的二元约定，不再暴露“直接注入任意带标签 polygon 集合”的公开入口。根场景 AABB 在共享 `scale` 选定后直接由 OBJ 浮点顶点经 `floor(coord * scale)` / `ceil(coord * scale)` 生成，调用方合并左右输入后加 margin 并传给 `solve(sceneAABB)`；`SubdivisionSolver` 不再从 256 位多边形顶点反推根 AABB。`Polygon256` 顶点缓存改为按需构造，首次调用 `vertex()` / `vertices()` 时生成，后续复用。递归子问题状态属于 `SubdivisionSolver` 内部实现；它会在递归返回路径上一次性向上汇总 `resultFragments / leafSummaries / solveMetrics`，并尽早释放子树中间状态。每个 `BoolProblem` 实例只允许执行一次 `solve()`；无论成功还是抛错，后续都不能再次 `solve()` 或修改配置。
 
 ## 构建与测试
 

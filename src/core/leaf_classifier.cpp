@@ -464,7 +464,7 @@ bool SubdivisionSolver::trySolveSingleOperandAssumptionLeaf()
     if (!tryGetSingleOperandAssumptions(assumptions) ||
             !assumptions.noSelfIntersections ||
             !assumptions.noNestedComponents ||
-            polygons_.size() <= leafPolygonThreshold_)
+            polygonCount_ <= leafPolygonThreshold_)
         return false;
 
     const BoolSolveMetrics metricsSnapshot = solveMetrics_;
@@ -476,14 +476,18 @@ bool SubdivisionSolver::trySolveSingleOperandAssumptionLeaf()
         REEMBER_PROFILE_ZONE("SubdivisionSolver::singleOperandAssumptionFallback");
         ++solveMetrics_.singleOperandAssumptionFallbackCount;
         isLeaf_ = true;
+        leafFragmentCount_ = 0;
+        classifiedFragmentCount_ = 0;
         leafFragments_.clear();
         classifiedFragments_.clear();
         resultFragments_.clear();
+        leafSummaries_.clear();
         return false;
     }
 
     REEMBER_PROFILE_ZONE("SubdivisionSolver::singleOperandAssumptionStop");
     ++solveMetrics_.singleOperandAssumptionStopCount;
+    finalizeLeafNode();
     return true;
 }
 
