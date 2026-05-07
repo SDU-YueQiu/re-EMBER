@@ -939,20 +939,6 @@ void SubdivisionSolver::finishCurrentNodeAsLeaf()
     finalizeLeafNode();
 }
 
-bool SubdivisionSolver::tryDiscardInvalidOrEmptyNode()
-{
-    REEMBER_PROFILE_ZONE("SubdivisionSolver::tryDiscardInvalidOrEmptyNode");
-
-    if (!polygons_.empty() && isValidAABB(aabb_))
-        return false;
-
-    ++solveMetrics_.invalidOrEmptyDiscardCount;
-    discarded_ = true;
-    isLeaf_ = true;
-    finalizeLeafNode();
-    return true;
-}
-
 bool SubdivisionSolver::tryDiscardConstantIndicatorNode()
 {
     REEMBER_PROFILE_ZONE("SubdivisionSolver::tryDiscardConstantIndicatorNode");
@@ -1025,7 +1011,7 @@ void SubdivisionSolver::solveRecursive()
 {
     REEMBER_PROFILE_ZONE("SubdivisionSolver::solveRecursive");
 
-    if (tryDiscardInvalidOrEmptyNode() || tryDiscardConstantIndicatorNode())
+    if (tryDiscardConstantIndicatorNode())
         return;
 
     if (trySolveSingleOperandAssumptionLeaf())
