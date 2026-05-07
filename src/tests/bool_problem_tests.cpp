@@ -897,6 +897,7 @@ void runBoolProblemTests()
         problem.solve(separatedSceneAABB);
 
         assert(problem.resultFragments().empty());
+        assert(problem.solveMetrics().constantDiscardCount > 0u);
     }
 
     {
@@ -910,7 +911,7 @@ void runBoolProblemTests()
 
         assert(problem.isDiscarded());
         assert(problem.resultFragments().empty());
-        assert(problem.leafSummaries().empty());
+        assert(problem.leafSummaries().size() == 1u);
     }
 
     {

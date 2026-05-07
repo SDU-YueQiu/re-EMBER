@@ -32,6 +32,27 @@ struct ClassifiedFragment
 };
 
 /**
+ * @brief 当前节点 polygon soup 的二元操作数扫描结果。
+ */
+enum class BinarySingleOperand
+{
+    None,
+    Lhs,
+    Rhs
+};
+
+/**
+ * @brief 缓存当前节点是否出现 lhs/rhs 以及是否退化为单操作数。
+ */
+struct BinaryPolygonScanSummary
+{
+    bool hasLhs = false;
+    bool hasRhs = false;
+    bool isSingleOperand = false;
+    BinarySingleOperand singleOperand = BinarySingleOperand::None;
+};
+
+/**
  * @brief 负责细分、局部编排和 WNV 分类的内部递归求解器。
  *
  * 公开调用方只使用 `BoolProblem`；该类独占临时节点树，
@@ -87,6 +108,7 @@ private:
         std::vector<Polygon256> polygons,
         const AABB3i &aabb,
         SubdivisionRefState reference,
+        BinaryPolygonScanSummary polygonScan,
         BoolOperandAssumptions lhsAssumptions,
         BoolOperandAssumptions rhsAssumptions);
 
@@ -121,11 +143,6 @@ private:
     bool shouldStopSubdivision() const noexcept;
 
     /**
-     * @brief 判断当前子问题的布尔指示函数是否已退化为常量。
-     */
-    bool shouldDiscardSubproblemEarly(BoolStatus &constantStatus) const noexcept;
-
-    /**
      * @brief 若当前节点只含一个二元操作数 WNTV 类，返回该类假设配置。
      */
     bool tryGetSingleOperandAssumptions(BoolOperandAssumptions &outAssumptions) const noexcept;
@@ -144,11 +161,6 @@ private:
      * @brief 以叶子模式完成当前节点求解。
      */
     void finishCurrentNodeAsLeaf();
-
-    /**
-     * @brief 当当前节点布尔指示函数已恒定时直接丢弃。
-     */
-    bool tryDiscardConstantIndicatorNode();
 
     /**
      * @brief 当当前节点满足停止条件时按叶子完成求解。
@@ -174,21 +186,10 @@ private:
         std::vector<Polygon256> &rightPolygons) const;
 
     /**
-     * @brief 为左右子节点建立参考状态。
-     */
-    void buildChildReferenceStates(
-        const AABBSplit3i &split,
-        const std::vector<Polygon256> &leftPolygons,
-        const std::vector<Polygon256> &rightPolygons,
-        SubdivisionRefState &leftReference,
-        SubdivisionRefState &rightReference);
-
-    /**
      * @brief 判断某个子节点是否可被常量指示函数直接丢弃。
      */
     bool shouldCreateChildNode(
-        const char *side,
-        const std::vector<Polygon256> &childPolygons,
+        const BinaryPolygonScanSummary &childPolygonScan,
         const SubdivisionRefState &childReference);
 
     /**
@@ -198,7 +199,8 @@ private:
         std::unique_ptr<SubdivisionSolver> &child,
         const AABB3i &childBox,
         std::vector<Polygon256> childPolygons,
-        SubdivisionRefState childReference);
+        SubdivisionRefState childReference,
+        BinaryPolygonScanSummary childPolygonScan);
 
     /**
      * @brief 为子 AABB 传播或重建参考点。
@@ -257,6 +259,7 @@ private:
     Plane3i splitPlane_;
     AABB3i aabb_;
     SubdivisionRefState reference_;
+    BinaryPolygonScanSummary polygonScan_;
     std::vector<Polygon256> polygons_;
     std::vector<Polygon256> leafFragments_;
     std::vector<ClassifiedFragment> classifiedFragments_;

@@ -121,6 +121,8 @@ void BoolProblem::solve(const AABB3i &sceneAABB)
     solver.solve();
     discarded_ = solver.isDiscarded();
     solver.extractResultFragments(resultFragments_);
+    if (resultFragments_.empty())
+        discarded_ = true;
     solver.extractLeafSummaries(leafSummaries_);
     solveMetrics_ = solver.solveMetrics();
 }

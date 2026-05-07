@@ -64,7 +64,6 @@ void accumulateSolveMetrics(BoolSolveMetrics &target, const BoolSolveMetrics &so
     target.resultFragmentCount += source.resultFragmentCount;
     target.constantDiscardCount += source.constantDiscardCount;
     target.invalidOrEmptyDiscardCount += source.invalidOrEmptyDiscardCount;
-    target.childConstantDiscardCount += source.childConstantDiscardCount;
     target.leafThresholdStopCount += source.leafThresholdStopCount;
     target.aabbNotSplittableStopCount += source.aabbNotSplittableStopCount;
     target.splitFailureStopCount += source.splitFailureStopCount;
@@ -155,11 +154,30 @@ Integer axisMidpoint(const AABB3i &box, SplitAxis3i axis) noexcept
     return floorDiv(axisMinimum(box, axis) + axisMaximum(box, axis), Integer(2));
 }
 
-struct BinaryWnvDomain
+BinaryPolygonScanSummary scanBinaryPolygonSummary(const std::vector<Polygon256> &polygons) noexcept
 {
-    bool canBeZero = false;
-    bool canBeNonZero = false;
-};
+    BinaryPolygonScanSummary summary;
+    for (const Polygon256 &polygon : polygons)
+    {
+        if (detail::isLhsOperandWNTV(polygon.WNTV))
+            summary.hasLhs = true;
+        else if (detail::isRhsOperandWNTV(polygon.WNTV))
+            summary.hasRhs = true;
+
+        if (summary.hasLhs && summary.hasRhs)
+            break;
+    }
+
+    summary.isSingleOperand = summary.hasLhs != summary.hasRhs;
+    if (summary.isSingleOperand)
+        summary.singleOperand = summary.hasLhs ? BinarySingleOperand::Lhs : BinarySingleOperand::Rhs;
+    return summary;
+}
+
+bool isReferenceOperandInside(const WNV &referenceWnv, std::size_t dimension) noexcept
+{
+    return dimension < referenceWnv.size() && referenceWnv[dimension] != 0;
+}
 
 BoolStatus evaluateBinaryIndicatorState(BoolOp op, bool lhsNonZero, bool rhsNonZero) noexcept
 {
@@ -176,74 +194,72 @@ BoolStatus evaluateBinaryIndicatorState(BoolOp op, bool lhsNonZero, bool rhsNonZ
     return OUT;
 }
 
-BinaryWnvDomain computeBinaryWnvDomain(
-    const WNV &referenceWnv,
-    const std::vector<Polygon256> &polygons,
-    std::size_t dimension) noexcept
-{
-    BinaryWnvDomain domain;
-    for (const Polygon256 &polygon : polygons)
-    {
-        if (dimension < polygon.WNTV.size() && polygon.WNTV[dimension] != 0)
-        {
-            domain.canBeZero = true;
-            domain.canBeNonZero = true;
-            return domain;
-        }
-    }
-
-    const bool isNonZero =
-        dimension < referenceWnv.size() &&
-        referenceWnv[dimension] != 0;
-    domain.canBeZero = !isNonZero;
-    domain.canBeNonZero = isNonZero;
-    return domain;
-}
-
-// 二元布尔只依赖前两维 WNV；这里用零/非零可达域保守判断 indicator 是否恒定。
+// 二元布尔只依赖前两维 WNV；这里按操作数是否缺席和参考点内外状态直接判断 child 是否恒定。
 bool tryEvaluateConstantBinaryIndicator(
     BoolOp op,
     const WNV &referenceWnv,
-    const std::vector<Polygon256> &polygons,
+    const BinaryPolygonScanSummary &polygonScan,
     BoolStatus &constantStatus) noexcept
 {
     if (referenceWnv.size() < detail::kBinaryWnvDimension)
         return false;
 
-    const BinaryWnvDomain lhsDomain =
-        computeBinaryWnvDomain(referenceWnv, polygons, detail::kLhsOperandIndex);
-    const BinaryWnvDomain rhsDomain =
-        computeBinaryWnvDomain(referenceWnv, polygons, detail::kRhsOperandIndex);
+    if (polygonScan.hasLhs && polygonScan.hasRhs)
+        return false;
 
-    bool hasStatus = false;
-    for (const bool lhsNonZero : {
-                false, true
-            })
+    const bool lhsInside = isReferenceOperandInside(referenceWnv, detail::kLhsOperandIndex);
+    const bool rhsInside = isReferenceOperandInside(referenceWnv, detail::kRhsOperandIndex);
+    if (!polygonScan.hasLhs && !polygonScan.hasRhs)
     {
-        if ((lhsNonZero && !lhsDomain.canBeNonZero) || (!lhsNonZero && !lhsDomain.canBeZero))
-            continue;
+        constantStatus = evaluateBinaryIndicatorState(op, lhsInside, rhsInside);
+        return true;
+    }
 
-        for (const bool rhsNonZero : {
-                    false, true
-                })
+    if (polygonScan.singleOperand == BinarySingleOperand::Lhs)
+    {
+        switch (op)
         {
-            if ((rhsNonZero && !rhsDomain.canBeNonZero) || (!rhsNonZero && !rhsDomain.canBeZero))
-                continue;
-
-            const BoolStatus status = evaluateBinaryIndicatorState(op, lhsNonZero, rhsNonZero);
-            if (!hasStatus)
-            {
-                constantStatus = status;
-                hasStatus = true;
-                continue;
-            }
-
-            if (status != constantStatus)
+        case BoolOp::Union:
+            if (!rhsInside)
                 return false;
+            constantStatus = IN;
+            return true;
+        case BoolOp::Intersection:
+            if (rhsInside)
+                return false;
+            constantStatus = OUT;
+            return true;
+        case BoolOp::Difference:
+            if (!rhsInside)
+                return false;
+            constantStatus = OUT;
+            return true;
         }
     }
 
-    return hasStatus;
+    if (polygonScan.singleOperand == BinarySingleOperand::Rhs)
+    {
+        switch (op)
+        {
+        case BoolOp::Union:
+            if (!lhsInside)
+                return false;
+            constantStatus = IN;
+            return true;
+        case BoolOp::Intersection:
+            if (lhsInside)
+                return false;
+            constantStatus = OUT;
+            return true;
+        case BoolOp::Difference:
+            if (lhsInside)
+                return false;
+            constantStatus = OUT;
+            return true;
+        }
+    }
+
+    return false;
 }
 
 bool appendPolygonBoundsToAABB(AABB3i &box, const Polygon256 &polygon)
@@ -830,6 +846,7 @@ SubdivisionSolver::SubdivisionSolver(
 {
     polygons_.swap(polygons);
     polygonCount_ = polygons_.size();
+    polygonScan_ = scanBinaryPolygonSummary(polygons_);
 }
 
 SubdivisionSolver::SubdivisionSolver(
@@ -839,6 +856,7 @@ SubdivisionSolver::SubdivisionSolver(
     std::vector<Polygon256> polygons,
     const AABB3i &aabb,
     SubdivisionRefState reference,
+    BinaryPolygonScanSummary polygonScan,
     BoolOperandAssumptions lhsAssumptions,
     BoolOperandAssumptions rhsAssumptions)
     : op_(op),
@@ -848,6 +866,7 @@ SubdivisionSolver::SubdivisionSolver(
       depth_(depth),
       aabb_(aabb),
       reference_(std::move(reference)),
+      polygonScan_(polygonScan),
       polygons_(std::move(polygons))
 {
     polygonCount_ = polygons_.size();
@@ -939,21 +958,6 @@ void SubdivisionSolver::finishCurrentNodeAsLeaf()
     finalizeLeafNode();
 }
 
-bool SubdivisionSolver::tryDiscardConstantIndicatorNode()
-{
-    REEMBER_PROFILE_ZONE("SubdivisionSolver::tryDiscardConstantIndicatorNode");
-
-    BoolStatus earlyOutStatus = OUT;
-    if (!shouldDiscardSubproblemEarly(earlyOutStatus))
-        return false;
-
-    ++solveMetrics_.constantDiscardCount;
-    discarded_ = true;
-    isLeaf_ = true;
-    finalizeLeafNode();
-    return true;
-}
-
 bool SubdivisionSolver::tryFinishStoppedSubdivisionNode()
 {
     REEMBER_PROFILE_ZONE("SubdivisionSolver::tryFinishStoppedSubdivisionNode");
@@ -1011,9 +1015,6 @@ void SubdivisionSolver::solveRecursive()
 {
     REEMBER_PROFILE_ZONE("SubdivisionSolver::solveRecursive");
 
-    if (tryDiscardConstantIndicatorNode())
-        return;
-
     if (trySolveSingleOperandAssumptionLeaf())
         return;
 
@@ -1058,34 +1059,22 @@ bool SubdivisionSolver::shouldStopSubdivision() const noexcept
     return polygonCount_ <= leafPolygonThreshold_ || !hasSplittableAxis(aabb_);
 }
 
-bool SubdivisionSolver::shouldDiscardSubproblemEarly(BoolStatus &constantStatus) const noexcept
-{
-    return tryEvaluateConstantBinaryIndicator(op_, reference_.wnv, polygons_, constantStatus);
-}
-
 bool SubdivisionSolver::tryGetSingleOperandAssumptions(BoolOperandAssumptions &outAssumptions) const noexcept
 {
-    if (polygons_.empty())
+    if (!polygonScan_.isSingleOperand)
         return false;
 
-    const WNV &wntv = polygons_.front().WNTV;
-    if (!detail::isCanonicalBinaryOperandWNTV(wntv))
-        return false;
-
-    for (const Polygon256 &polygon : polygons_)
-    {
-        if (polygon.WNTV != wntv)
-            return false;
-    }
-
-    if (detail::isLhsOperandWNTV(wntv))
+    if (polygonScan_.singleOperand == BinarySingleOperand::Lhs)
     {
         outAssumptions = lhsAssumptions_;
         return true;
     }
-
-    outAssumptions = rhsAssumptions_;
-    return true;
+    if (polygonScan_.singleOperand == BinarySingleOperand::Rhs)
+    {
+        outAssumptions = rhsAssumptions_;
+        return true;
+    }
+    return false;
 }
 
 // 裁剪当前多边形集合到左右子 AABB，并为每个非空子问题建立参考状态。
@@ -1101,15 +1090,37 @@ bool SubdivisionSolver::createChildrenFromSplit(const AABBSplit3i &split)
     if (leftPolygons.empty() && rightPolygons.empty())
         return false;
 
-    SubdivisionRefState leftReference;
-    SubdivisionRefState rightReference;
-    buildChildReferenceStates(split, leftPolygons, rightPolygons, leftReference, rightReference);
+    if (!leftPolygons.empty())
+    {
+        const BinaryPolygonScanSummary leftScan = scanBinaryPolygonSummary(leftPolygons);
+        SubdivisionRefState leftReference;
+        if (!makeChildReference(split.left, leftPolygons, leftReference))
+        {
+            std::ostringstream message;
+            message << "Failed to propagate left child reference depth=" << depth_
+                    << " candidate_polygons=" << leftPolygons.size()
+                    << ".";
+            throw std::runtime_error(message.str());
+        }
+        if (shouldCreateChildNode(leftScan, leftReference))
+            createChildSolver(leftChild_, split.left, std::move(leftPolygons), std::move(leftReference), leftScan);
+    }
 
-    if (!leftPolygons.empty() && shouldCreateChildNode("left", leftPolygons, leftReference))
-        createChildSolver(leftChild_, split.left, std::move(leftPolygons), std::move(leftReference));
-
-    if (!rightPolygons.empty() && shouldCreateChildNode("right", rightPolygons, rightReference))
-        createChildSolver(rightChild_, split.right, std::move(rightPolygons), std::move(rightReference));
+    if (!rightPolygons.empty())
+    {
+        const BinaryPolygonScanSummary rightScan = scanBinaryPolygonSummary(rightPolygons);
+        SubdivisionRefState rightReference;
+        if (!makeChildReference(split.right, rightPolygons, rightReference))
+        {
+            std::ostringstream message;
+            message << "Failed to propagate right child reference depth=" << depth_
+                    << " candidate_polygons=" << rightPolygons.size()
+                    << ".";
+            throw std::runtime_error(message.str());
+        }
+        if (shouldCreateChildNode(rightScan, rightReference))
+            createChildSolver(rightChild_, split.right, std::move(rightPolygons), std::move(rightReference), rightScan);
+    }
 
     return true;
 }
@@ -1133,45 +1144,16 @@ bool SubdivisionSolver::buildSplitChildPolygonSoups(
     return true;
 }
 
-void SubdivisionSolver::buildChildReferenceStates(
-    const AABBSplit3i &split,
-    const std::vector<Polygon256> &leftPolygons,
-    const std::vector<Polygon256> &rightPolygons,
-    SubdivisionRefState &leftReference,
-    SubdivisionRefState &rightReference)
-{
-    REEMBER_PROFILE_ZONE("SubdivisionSolver::buildChildReferenceStates");
-
-    if (!leftPolygons.empty() && !makeChildReference(split.left, leftPolygons, leftReference))
-    {
-        std::ostringstream message;
-        message << "Failed to propagate left child reference depth=" << depth_
-                << " candidate_polygons=" << leftPolygons.size()
-                << ".";
-        throw std::runtime_error(message.str());
-    }
-    if (!rightPolygons.empty() && !makeChildReference(split.right, rightPolygons, rightReference))
-    {
-        std::ostringstream message;
-        message << "Failed to propagate right child reference depth=" << depth_
-                << " candidate_polygons=" << rightPolygons.size()
-                << ".";
-        throw std::runtime_error(message.str());
-    }
-}
-
 bool SubdivisionSolver::shouldCreateChildNode(
-    const char *side,
-    const std::vector<Polygon256> &childPolygons,
+    const BinaryPolygonScanSummary &childPolygonScan,
     const SubdivisionRefState &childReference)
 {
     BoolStatus constantStatus = OUT;
-    if (!tryEvaluateConstantBinaryIndicator(op_, childReference.wnv, childPolygons, constantStatus))
+    if (!tryEvaluateConstantBinaryIndicator(op_, childReference.wnv, childPolygonScan, constantStatus))
         return true;
 
     REEMBER_PROFILE_ZONE("SubdivisionSolver::discardChildConstantIndicator");
     ++solveMetrics_.constantDiscardCount;
-    ++solveMetrics_.childConstantDiscardCount;
     return false;
 }
 
@@ -1179,7 +1161,8 @@ void SubdivisionSolver::createChildSolver(
     std::unique_ptr<SubdivisionSolver> &child,
     const AABB3i &childBox,
     std::vector<Polygon256> childPolygons,
-    SubdivisionRefState childReference)
+    SubdivisionRefState childReference,
+    BinaryPolygonScanSummary childPolygonScan)
 {
     child.reset(new SubdivisionSolver(
                     op_,
@@ -1188,6 +1171,7 @@ void SubdivisionSolver::createChildSolver(
                     std::move(childPolygons),
                     childBox,
                     std::move(childReference),
+                    childPolygonScan,
                     lhsAssumptions_,
                     rhsAssumptions_));
 }
