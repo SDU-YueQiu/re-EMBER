@@ -14,293 +14,278 @@
 #include <functional>
 #include <initializer_list>
 #include <stdexcept>
-#include <string>
+#include <string>
 
 namespace
 {
-    using ember::BoolOp;
-    using ember::Integer;
-    using ember::Plane3i;
-    using ember::PlanePoint3i;
-    using ember::Polygon256;
-    using ember::Vec3i;
+using ember::BoolOp;
+using ember::Integer;
+using ember::Plane3i;
+using ember::PlanePoint3i;
+using ember::Polygon256;
+using ember::Vec3i;
 
-    Polygon256 makeFaceXY(int z, int xmin, int xmax, int ymin, int ymax, int normalZ)
+Polygon256 makeFaceXY(int z, int xmin, int xmax, int ymin, int ymax, int normalZ)
+{
+    return Polygon256(
+               Plane3i::fromPointNormal(Vec3i(0, 0, z), Vec3i(0, 0, normalZ)),
+    std::vector<Plane3i> {
+        Plane3i::fromPointNormal(Vec3i(xmin, ymin, z), Vec3i(0, -1, 0)),
+        Plane3i::fromPointNormal(Vec3i(xmax, ymin, z), Vec3i(1, 0, 0)),
+        Plane3i::fromPointNormal(Vec3i(xmin, ymax, z), Vec3i(0, 1, 0)),
+        Plane3i::fromPointNormal(Vec3i(xmin, ymin, z), Vec3i(-1, 0, 0))
+    });
+}
+
+Polygon256 makeFaceYZ(int x, int ymin, int ymax, int zmin, int zmax, int normalX)
+{
+    return Polygon256(
+               Plane3i::fromPointNormal(Vec3i(x, 0, 0), Vec3i(normalX, 0, 0)),
+    std::vector<Plane3i> {
+        Plane3i::fromPointNormal(Vec3i(x, ymin, zmin), Vec3i(0, -1, 0)),
+        Plane3i::fromPointNormal(Vec3i(x, ymin, zmax), Vec3i(0, 0, 1)),
+        Plane3i::fromPointNormal(Vec3i(x, ymax, zmin), Vec3i(0, 1, 0)),
+        Plane3i::fromPointNormal(Vec3i(x, ymin, zmin), Vec3i(0, 0, -1))
+    });
+}
+
+Polygon256 makeFaceXZ(int y, int xmin, int xmax, int zmin, int zmax, int normalY)
+{
+    return Polygon256(
+               Plane3i::fromPointNormal(Vec3i(0, y, 0), Vec3i(0, normalY, 0)),
+    std::vector<Plane3i> {
+        Plane3i::fromPointNormal(Vec3i(xmin, y, zmin), Vec3i(-1, 0, 0)),
+        Plane3i::fromPointNormal(Vec3i(xmin, y, zmax), Vec3i(0, 0, 1)),
+        Plane3i::fromPointNormal(Vec3i(xmax, y, zmin), Vec3i(1, 0, 0)),
+        Plane3i::fromPointNormal(Vec3i(xmin, y, zmin), Vec3i(0, 0, -1))
+    });
+}
+
+std::vector<Polygon256> makeAxisAlignedBox(int xmin, int ymin, int zmin, int xmax, int ymax, int zmax)
+{
+    return {
+        makeFaceYZ(xmin, ymin, ymax, zmin, zmax, -1),
+        makeFaceYZ(xmax, ymin, ymax, zmin, zmax, 1),
+        makeFaceXZ(ymin, xmin, xmax, zmin, zmax, -1),
+        makeFaceXZ(ymax, xmin, xmax, zmin, zmax, 1),
+        makeFaceXY(zmin, xmin, xmax, ymin, ymax, -1),
+        makeFaceXY(zmax, xmin, xmax, ymin, ymax, 1)};
+}
+
+void assignWNTV(std::vector<Polygon256> &polygons, const ember::WNV &wntv)
+{
+    for (Polygon256 &polygon : polygons)
+        polygon.WNTV = wntv;
+}
+
+std::vector<Polygon256> makeInteriorGridSupportPlanesForBox(int minCoord, int maxCoord)
+{
+    std::vector<Polygon256> polygons;
+    for (int coordinate = minCoord + 1; coordinate < maxCoord; ++coordinate)
     {
-        return Polygon256(
-            Plane3i::fromPointNormal(Vec3i(0, 0, z), Vec3i(0, 0, normalZ)),
-            std::vector<Plane3i>{
-                Plane3i::fromPointNormal(Vec3i(xmin, ymin, z), Vec3i(0, -1, 0)),
-                Plane3i::fromPointNormal(Vec3i(xmax, ymin, z), Vec3i(1, 0, 0)),
-                Plane3i::fromPointNormal(Vec3i(xmin, ymax, z), Vec3i(0, 1, 0)),
-                Plane3i::fromPointNormal(Vec3i(xmin, ymin, z), Vec3i(-1, 0, 0))});
+        polygons.push_back(makeFaceYZ(coordinate, minCoord, maxCoord, minCoord, maxCoord, 1));
+        polygons.push_back(makeFaceXZ(coordinate, minCoord, maxCoord, minCoord, maxCoord, 1));
+        polygons.push_back(makeFaceXY(coordinate, minCoord, maxCoord, minCoord, maxCoord, 1));
     }
 
-    Polygon256 makeFaceYZ(int x, int ymin, int ymax, int zmin, int zmax, int normalX)
-    {
-        return Polygon256(
-            Plane3i::fromPointNormal(Vec3i(x, 0, 0), Vec3i(normalX, 0, 0)),
-            std::vector<Plane3i>{
-                Plane3i::fromPointNormal(Vec3i(x, ymin, zmin), Vec3i(0, -1, 0)),
-                Plane3i::fromPointNormal(Vec3i(x, ymin, zmax), Vec3i(0, 0, 1)),
-                Plane3i::fromPointNormal(Vec3i(x, ymax, zmin), Vec3i(0, 1, 0)),
-                Plane3i::fromPointNormal(Vec3i(x, ymin, zmin), Vec3i(0, 0, -1))});
-    }
+    assignWNTV(polygons, ember::WNV{1, 0});
+    return polygons;
+}
 
-    Polygon256 makeFaceXZ(int y, int xmin, int xmax, int zmin, int zmax, int normalY)
-    {
-        return Polygon256(
-            Plane3i::fromPointNormal(Vec3i(0, y, 0), Vec3i(0, normalY, 0)),
-            std::vector<Plane3i>{
-                Plane3i::fromPointNormal(Vec3i(xmin, y, zmin), Vec3i(-1, 0, 0)),
-                Plane3i::fromPointNormal(Vec3i(xmin, y, zmax), Vec3i(0, 0, 1)),
-                Plane3i::fromPointNormal(Vec3i(xmax, y, zmin), Vec3i(1, 0, 0)),
-                Plane3i::fromPointNormal(Vec3i(xmin, y, zmin), Vec3i(0, 0, -1))});
-    }
+bool tryPropagateReferenceViaAABBSeedTiers(
+    const PlanePoint3i &startPoint,
+    const ember::WNV &startWNV,
+    const ember::AABB3i &box,
+    const std::vector<Polygon256> &polygons,
+    bool useFastTier,
+    bool useExhaustiveTier,
+    PlanePoint3i &outPoint,
+    std::size_t &outVisitedCount,
+    std::size_t &outTriedCount)
+{
+    outPoint = PlanePoint3i();
+    outVisitedCount = 0;
+    outTriedCount = 0;
 
-    std::vector<Polygon256> makeAxisAlignedBox(int xmin, int ymin, int zmin, int xmax, int ymax, int zmax)
+    const ember::refPoint reference(startPoint, startWNV);
+    std::vector<ember::Segment256> path;
+    path.reserve(3);
+    bool success = false;
+    bool hardFailure = false;
+    auto processSeed =
+        [&](const ember::detail::AABBPathCandidateSeed &seed)
     {
-        return {
-            makeFaceYZ(xmin, ymin, ymax, zmin, zmax, -1),
-            makeFaceYZ(xmax, ymin, ymax, zmin, zmax, 1),
-            makeFaceXZ(ymin, xmin, xmax, zmin, zmax, -1),
-            makeFaceXZ(ymax, xmin, xmax, zmin, zmax, 1),
-            makeFaceXY(zmin, xmin, xmax, ymin, ymax, -1),
-            makeFaceXY(zmax, xmin, xmax, ymin, ymax, 1)};
-    }
+        ++outVisitedCount;
 
-    void assignWNTV(std::vector<Polygon256> &polygons, const ember::WNV &wntv)
-    {
-        for (Polygon256 &polygon : polygons)
+        bool onSurface = false;
+        for (const Polygon256 &polygon : polygons)
         {
-            polygon.WNTV = wntv;
-        }
-    }
-
-    std::vector<Polygon256> makeInteriorGridSupportPlanesForBox(int minCoord, int maxCoord)
-    {
-        std::vector<Polygon256> polygons;
-        for (int coordinate = minCoord + 1; coordinate < maxCoord; ++coordinate)
-        {
-            polygons.push_back(makeFaceYZ(coordinate, minCoord, maxCoord, minCoord, maxCoord, 1));
-            polygons.push_back(makeFaceXZ(coordinate, minCoord, maxCoord, minCoord, maxCoord, 1));
-            polygons.push_back(makeFaceXY(coordinate, minCoord, maxCoord, minCoord, maxCoord, 1));
-        }
-
-        assignWNTV(polygons, ember::WNV{1, 0});
-        return polygons;
-    }
-
-    bool tryPropagateReferenceViaAABBSeedTiers(
-        const PlanePoint3i &startPoint,
-        const ember::WNV &startWNV,
-        const ember::AABB3i &box,
-        const std::vector<Polygon256> &polygons,
-        bool useFastTier,
-        bool useExhaustiveTier,
-        PlanePoint3i &outPoint,
-        std::size_t &outVisitedCount,
-        std::size_t &outTriedCount)
-    {
-        outPoint = PlanePoint3i();
-        outVisitedCount = 0;
-        outTriedCount = 0;
-
-        const ember::refPoint reference(startPoint, startWNV);
-        std::vector<ember::Segment256> path;
-        path.reserve(3);
-        bool success = false;
-        bool hardFailure = false;
-        auto processSeed =
-            [&](const ember::detail::AABBPathCandidateSeed &seed)
+            if (seed.targetPoint.classify(polygon.plane) == 0)
             {
-                ++outVisitedCount;
-
-                bool onSurface = false;
-                for (const Polygon256 &polygon : polygons)
-                {
-                    if (seed.targetPoint.classify(polygon.plane) == 0)
-                    {
-                        onSurface = true;
-                        break;
-                    }
-                }
-                if (onSurface)
-                {
-                    return true;
-                }
-
-                if (!ember::detail::buildAABBPathFromSeed(startPoint, seed, path))
-                {
-                    return true;
-                }
-
-                ember::WNV propagatedWNV;
-                ++outTriedCount;
-                const ember::traceStatus status =
-                    ember::detail::tracePathWNVAllowSubdivisionClipCrossingTrusted(
-                        reference,
-                        path,
-                        polygons,
-                        propagatedWNV);
-                if (status == ember::SUCCESS)
-                {
-                    outPoint = seed.targetPoint;
-                    success = true;
-                    return false;
-                }
-
-                if (status != ember::PATH_INVALID)
-                {
-                    hardFailure = true;
-                    return false;
-                }
-
-                return true;
-            };
-
-        if (useFastTier)
-        {
-            ember::detail::visitFastAABBPathCandidateSeeds(startPoint, box, processSeed);
+                onSurface = true;
+                break;
+            }
         }
-        if (!success && !hardFailure && useExhaustiveTier)
+        if (onSurface)
+            return true;
+
+        if (!ember::detail::buildAABBPathFromSeed(startPoint, seed, path))
+            return true;
+
+        ember::WNV propagatedWNV;
+        ++outTriedCount;
+        const ember::traceStatus status =
+            ember::detail::tracePathWNVAllowSubdivisionClipCrossingTrusted(
+                reference,
+                path,
+                polygons,
+                propagatedWNV);
+        if (status == ember::SUCCESS)
         {
-            ember::detail::visitExhaustiveAABBPathCandidateSeeds(startPoint, box, processSeed);
+            outPoint = seed.targetPoint;
+            success = true;
+            return false;
         }
 
-        return success;
-    }
+        if (status != ember::PATH_INVALID)
+        {
+            hardFailure = true;
+            return false;
+        }
 
-    Polygon256 makeThinTriangleXY()
-    {
-        return Polygon256(
-            Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, 0, 1)),
-            std::vector<Plane3i>{
-                Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, -1, 0)),
-                Plane3i(1, 100, 0, -100),
-                Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(-1, 0, 0))});
-    }
+        return true;
+    };
 
-    Polygon256 makeLargeOffsetThinTriangleXY()
-    {
-        const Integer base = Integer(1) << 75;
-        return Polygon256(
-            Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, 0, 1)),
-            std::vector<Plane3i>{
-                Plane3i(0, -1, 0, 0),
-                Plane3i(1, 1, 0, -base - Integer(1)),
-                Plane3i(-1, 0, 0, base)});
-    }
+    if (useFastTier)
+        ember::detail::visitFastAABBPathCandidateSeeds(startPoint, box, processSeed);
+    if (!success && !hardFailure && useExhaustiveTier)
+        ember::detail::visitExhaustiveAABBPathCandidateSeeds(startPoint, box, processSeed);
 
-    Polygon256 makeInvalidInwardSquareXY()
-    {
-        Polygon256 polygon;
-        polygon.plane = Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, 0, 1));
-        polygon.addEdgePlane(Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, 1, 0)));
-        polygon.addEdgePlane(Plane3i::fromPointNormal(Vec3i(2, 0, 0), Vec3i(-1, 0, 0)));
-        polygon.addEdgePlane(Plane3i::fromPointNormal(Vec3i(0, 2, 0), Vec3i(0, -1, 0)));
-        polygon.addEdgePlane(Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(1, 0, 0)));
-        polygon.precomputeVertices();
-        polygon.WNTV = {1, 0};
-        return polygon;
-    }
+    return success;
+}
 
-    Polygon256 makeSubdivisionClippedFaceYZ()
-    {
-        Polygon256 polygon = makeFaceYZ(0, 0, 4, 0, 4, 1);
-        polygon.WNTV = {1, 0};
+Polygon256 makeThinTriangleXY()
+{
+    return Polygon256(
+               Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, 0, 1)),
+    std::vector<Plane3i> {
+        Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, -1, 0)),
+        Plane3i(1, 100, 0, -100),
+        Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(-1, 0, 0))
+    });
+}
 
-        Polygon256 frontPolygon;
-        Polygon256 backPolygon;
-        if (!ember::detail::clipLeafGeometryByPlaneTrusted(
+Polygon256 makeLargeOffsetThinTriangleXY()
+{
+    const Integer base = Integer(1) << 75;
+    return Polygon256(
+               Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, 0, 1)),
+    std::vector<Plane3i> {
+        Plane3i(0, -1, 0, 0),
+        Plane3i(1, 1, 0, -base - Integer(1)),
+        Plane3i(-1, 0, 0, base)
+    });
+}
+
+Polygon256 makeInvalidInwardSquareXY()
+{
+    Polygon256 polygon;
+    polygon.plane = Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, 0, 1));
+    polygon.addEdgePlane(Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, 1, 0)));
+    polygon.addEdgePlane(Plane3i::fromPointNormal(Vec3i(2, 0, 0), Vec3i(-1, 0, 0)));
+    polygon.addEdgePlane(Plane3i::fromPointNormal(Vec3i(0, 2, 0), Vec3i(0, -1, 0)));
+    polygon.addEdgePlane(Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(1, 0, 0)));
+    polygon.precomputeVertices();
+    polygon.WNTV = {1, 0};
+    return polygon;
+}
+
+Polygon256 makeSubdivisionClippedFaceYZ()
+{
+    Polygon256 polygon = makeFaceYZ(0, 0, 4, 0, 4, 1);
+    polygon.WNTV = {1, 0};
+
+    Polygon256 frontPolygon;
+    Polygon256 backPolygon;
+    if (!ember::detail::clipLeafGeometryByPlaneTrusted(
                 polygon,
                 Plane3i::fromPointNormal(Vec3i(0, 2, 0), Vec3i(0, 1, 0)),
                 frontPolygon,
                 backPolygon,
                 ember::PolygonEdgeProvenance::SubdivisionClip))
-        {
-            throw std::runtime_error("bool_problem_tests failed to build a subdivision-clipped polygon.");
-        }
+        throw std::runtime_error("bool_problem_tests failed to build a subdivision-clipped polygon.");
 
-        return backPolygon;
-    }
+    return backPolygon;
+}
 
-    ember::Segment256 makeAxisSegment(const PlanePoint3i &start, const PlanePoint3i &end)
-    {
-        Integer x0;
-        Integer y0;
-        Integer z0;
-        Integer x1;
-        Integer y1;
-        Integer z1;
-        if (!ember::detail::tryExtractExactIntegerPoint(start, x0, y0, z0) ||
+ember::Segment256 makeAxisSegment(const PlanePoint3i &start, const PlanePoint3i &end)
+{
+    Integer x0;
+    Integer y0;
+    Integer z0;
+    Integer x1;
+    Integer y1;
+    Integer z1;
+    if (!ember::detail::tryExtractExactIntegerPoint(start, x0, y0, z0) ||
             !ember::detail::tryExtractExactIntegerPoint(end, x1, y1, z1))
-        {
-            throw std::runtime_error("bool_problem_tests received a non-integer axis segment endpoint.");
-        }
+        throw std::runtime_error("bool_problem_tests received a non-integer axis segment endpoint.");
 
-        ember::Segment256 segment;
-        if (!ember::detail::buildAxisAlignedSegment(x0, y0, z0, x1, y1, z1, segment))
-        {
-            throw std::runtime_error("bool_problem_tests failed to build an axis-aligned segment.");
-        }
-        if (!ember::areSamePlanePoint(segment.getStartPointRef(), start) ||
+    ember::Segment256 segment;
+    if (!ember::detail::buildAxisAlignedSegment(x0, y0, z0, x1, y1, z1, segment))
+        throw std::runtime_error("bool_problem_tests failed to build an axis-aligned segment.");
+    if (!ember::areSamePlanePoint(segment.getStartPointRef(), start) ||
             !ember::areSamePlanePoint(segment.getEndPointRef(), end))
-        {
-            throw std::runtime_error("bool_problem_tests built a segment with unexpected endpoints.");
-        }
-        return segment;
-    }
+        throw std::runtime_error("bool_problem_tests built a segment with unexpected endpoints.");
+    return segment;
+}
 
-    std::vector<ember::AABBPathCandidate> collectAABBPathCandidates(const PlanePoint3i &startPoint, const ember::AABB3i &box)
+std::vector<ember::AABBPathCandidate> collectAABBPathCandidates(const PlanePoint3i &startPoint, const ember::AABB3i &box)
+{
+    std::vector<ember::AABBPathCandidate> candidates;
+    auto materializeSeed =
+        [&](const ember::detail::AABBPathCandidateSeed &seed)
     {
-        std::vector<ember::AABBPathCandidate> candidates;
-        auto materializeSeed =
-            [&](const ember::detail::AABBPathCandidateSeed &seed)
-            {
-                std::vector<ember::Segment256> path;
-                if (ember::detail::buildAABBPathFromSeed(startPoint, seed, path))
-                {
-                    candidates.push_back(ember::AABBPathCandidate{seed.targetPoint, std::move(path)});
-                }
-                return true;
-            };
+        std::vector<ember::Segment256> path;
+        if (ember::detail::buildAABBPathFromSeed(startPoint, seed, path))
+        {
+            candidates.push_back(ember::AABBPathCandidate{seed.targetPoint, std::move(path)});
+        }
+        return true;
+    };
 
-        ember::detail::visitFastAABBPathCandidateSeeds(startPoint, box, materializeSeed);
-        ember::detail::visitExhaustiveAABBPathCandidateSeeds(startPoint, box, materializeSeed);
-        return candidates;
-    }
+    ember::detail::visitFastAABBPathCandidateSeeds(startPoint, box, materializeSeed);
+    ember::detail::visitExhaustiveAABBPathCandidateSeeds(startPoint, box, materializeSeed);
+    return candidates;
+}
 
-    ember::Path makeAxisPath(std::initializer_list<PlanePoint3i> points)
+ember::Path makeAxisPath(std::initializer_list<PlanePoint3i> points)
+{
+    if (points.size() < 2u)
     {
-        if (points.size() < 2u)
-        {
-            return {};
-        }
-
-        std::vector<PlanePoint3i> pointList(points);
-        ember::Path path;
-        path.reserve(pointList.size() - 1u);
-        for (std::size_t i = 1; i < pointList.size(); ++i)
-        {
-            path.push_back(makeAxisSegment(pointList[i - 1], pointList[i]));
-        }
-        return path;
+        return {};
     }
 
-    bool throwsRuntimeError(const std::function<void()> &fn, const std::string &needle = std::string())
+    std::vector<PlanePoint3i> pointList(points);
+    ember::Path path;
+    path.reserve(pointList.size() - 1u);
+    for (std::size_t i = 1; i < pointList.size(); ++i)
+        path.push_back(makeAxisSegment(pointList[i - 1], pointList[i]));
+    return path;
+}
+
+bool throwsRuntimeError(const std::function<void()> &fn, const std::string &needle = std::string())
+{
+    try
     {
-        try
-        {
-            fn();
-        }
-        catch (const std::runtime_error &ex)
-        {
-            return needle.empty() || std::string(ex.what()).find(needle) != std::string::npos;
-        }
-
-        return false;
+        fn();
     }
+    catch (const std::runtime_error &ex)
+    {
+        return needle.empty() || std::string(ex.what()).find(needle) != std::string::npos;
+    }
+
+    return false;
+}
 
 }
 
@@ -316,16 +301,16 @@ namespace
 
 namespace
 {
-    void assertResultFragmentIsGeometryOnly(const Polygon256 &fragment)
-    {
-        assert(fragment.isValid());
-    }
+void assertResultFragmentIsGeometryOnly(const Polygon256 &fragment)
+{
+    assert(fragment.isValid());
+}
 }
 
 void runBoolProblemTests()
 {
     const std::vector<Polygon256> lhs = makeAxisAlignedBox(0, 0, 0, 1, 1, 1);
-    const std::vector<Polygon256> rhs = makeAxisAlignedBox(3, 3, 3, 4, 4, 4);
+    const std::vector<Polygon256> rhs = makeAxisAlignedBox(3, 3, 3, 4, 4, 4);
 
     {
         const Polygon256 square = makeFaceXY(0, 0, 2, 0, 2, 1);
@@ -347,9 +332,7 @@ void runBoolProblemTests()
             ember::detail::enumerateLeafClassificationPointCandidatesUnchecked(thinTriangle);
         assert(!candidates.empty());
         for (const PlanePoint3i &candidate : candidates)
-        {
             assert(thinTriangle.containsStrictly(candidate));
-        }
     }
 
     {
@@ -368,9 +351,7 @@ void runBoolProblemTests()
             ember::detail::enumerateLeafClassificationPointCandidatesUnchecked(shiftedThinTriangle);
         assert(!candidates.empty());
         for (const PlanePoint3i &candidate : candidates)
-        {
             assert(shiftedThinTriangle.containsStrictly(candidate));
-        }
     }
 
     {
@@ -401,9 +382,7 @@ void runBoolProblemTests()
             assert(ember::isPointInsideOrOnAABB(path[i].getStartPointRef(), box));
             assert(ember::isPointInsideOrOnAABB(path[i].getEndPointRef(), box));
             if (i != 0)
-            {
                 assert(ember::areSamePlanePoint(path[i - 1].getEndPointRef(), path[i].getStartPointRef()));
-            }
         }
     }
 
@@ -435,9 +414,7 @@ void runBoolProblemTests()
                 assert(ember::isPointInsideOrOnAABB(candidate.path[i].getStartPointRef(), box));
                 assert(ember::isPointInsideOrOnAABB(candidate.path[i].getEndPointRef(), box));
                 if (i != 0)
-                {
                     assert(ember::areSamePlanePoint(candidate.path[i - 1].getEndPointRef(), candidate.path[i].getStartPointRef()));
-                }
             }
         }
     }
@@ -470,13 +447,13 @@ void runBoolProblemTests()
                 targetPoints,
                 box,
                 [&](ember::LeafClassificationPathCandidate candidate)
-                {
-                    ++visitedFallbackCandidates;
-                    assert(!candidate.path.empty());
-                    assert(ember::areSamePlanePoint(candidate.path.front().getStartPointRef(), reference));
-                    assert(ember::areSamePlanePoint(candidate.path.back().getEndPointRef(), target));
-                    return false;
-                });
+        {
+            ++visitedFallbackCandidates;
+            assert(!candidate.path.empty());
+            assert(ember::areSamePlanePoint(candidate.path.front().getStartPointRef(), reference));
+            assert(ember::areSamePlanePoint(candidate.path.back().getEndPointRef(), target));
+            return false;
+        });
 
         assert(emittedFallbackCandidates == 1u);
         assert(visitedFallbackCandidates == 1u);
@@ -528,15 +505,15 @@ void runBoolProblemTests()
         std::size_t visitedSeeds = 0;
         std::size_t triedSeeds = 0;
         assert(tryPropagateReferenceViaAABBSeedTiers(
-            start,
-            ember::WNV{5, 7},
-            box,
-            distantSurface,
-            true,
-            false,
-            propagatedPoint,
-            visitedSeeds,
-            triedSeeds));
+                   start,
+                   ember::WNV{5, 7},
+                   box,
+                   distantSurface,
+                   true,
+                   false,
+                   propagatedPoint,
+                   visitedSeeds,
+                   triedSeeds));
         assert(visitedSeeds == 1u);
         assert(triedSeeds == 1u);
         assert(ember::areSamePlanePoint(propagatedPoint, start));
@@ -559,15 +536,15 @@ void runBoolProblemTests()
         std::size_t visitedSeeds = 0;
         std::size_t triedSeeds = 0;
         assert(tryPropagateReferenceViaAABBSeedTiers(
-            ember::makeIntegerPoint(-1, 1, 1),
-            ember::WNV{0, 0},
-            box,
-            distantSurface,
-            true,
-            false,
-            propagatedPoint,
-            visitedSeeds,
-            triedSeeds));
+                   ember::makeIntegerPoint(-1, 1, 1),
+                   ember::WNV{0, 0},
+                   box,
+                   distantSurface,
+                   true,
+                   false,
+                   propagatedPoint,
+                   visitedSeeds,
+                   triedSeeds));
         assert(visitedSeeds == 1u);
         assert(triedSeeds == 1u);
         assert(ember::areSamePlanePoint(propagatedPoint, ember::makeIntegerPoint(1, 1, 1)));
@@ -588,30 +565,30 @@ void runBoolProblemTests()
         std::size_t fastVisitedSeeds = 0;
         std::size_t fastTriedSeeds = 0;
         assert(!tryPropagateReferenceViaAABBSeedTiers(
-            ember::makeIntegerPoint(-1, 0, 0),
-            ember::WNV{0, 0},
-            box,
-            blockingSurfaces,
-            true,
-            false,
-            propagatedPoint,
-            fastVisitedSeeds,
-            fastTriedSeeds));
+                   ember::makeIntegerPoint(-1, 0, 0),
+                   ember::WNV{0, 0},
+                   box,
+                   blockingSurfaces,
+                   true,
+                   false,
+                   propagatedPoint,
+                   fastVisitedSeeds,
+                   fastTriedSeeds));
         assert(fastVisitedSeeds > 0u);
         assert(fastTriedSeeds == 0u);
 
         std::size_t allVisitedSeeds = 0;
         std::size_t allTriedSeeds = 0;
         assert(tryPropagateReferenceViaAABBSeedTiers(
-            ember::makeIntegerPoint(-1, 0, 0),
-            ember::WNV{0, 0},
-            box,
-            blockingSurfaces,
-            true,
-            true,
-            propagatedPoint,
-            allVisitedSeeds,
-            allTriedSeeds));
+                   ember::makeIntegerPoint(-1, 0, 0),
+                   ember::WNV{0, 0},
+                   box,
+                   blockingSurfaces,
+                   true,
+                   true,
+                   propagatedPoint,
+                   allVisitedSeeds,
+                   allTriedSeeds));
         assert(allVisitedSeeds > fastVisitedSeeds);
         assert(allTriedSeeds == 1u);
         assert(ember::areSamePlanePoint(propagatedPoint, ember::makeIntegerPoint(0, 0, 0)));
@@ -681,8 +658,8 @@ void runBoolProblemTests()
         assert(ember::tracePathWNV(
                    ember::refPoint(left, ember::WNV{0, 0}),
                    crossingPath,
-                   {dimensionMismatch},
-                   targetWNV) == ember::INPUT_INVALID);
+        {dimensionMismatch},
+        targetWNV) == ember::INPUT_INVALID);
 
         assert(ember::tracePathWNV(
                    ember::refPoint(ember::makeIntegerPoint(-2, 0, 0), ember::WNV{0, 0}),
@@ -692,7 +669,8 @@ void runBoolProblemTests()
 
         const ember::Path discontinuousPath = {
             makeAxisSegment(ember::makeIntegerPoint(-2, 0, 0), ember::makeIntegerPoint(-1, 0, 0)),
-            makeAxisSegment(ember::makeIntegerPoint(0, 0, 0), ember::makeIntegerPoint(1, 0, 0))};
+            makeAxisSegment(ember::makeIntegerPoint(0, 0, 0), ember::makeIntegerPoint(1, 0, 0))
+        };
         assert(ember::tracePathWNV(
                    ember::refPoint(ember::makeIntegerPoint(-2, 0, 0), ember::WNV{0, 0}),
                    discontinuousPath,
@@ -813,7 +791,7 @@ void runBoolProblemTests()
                    targetWNV) == ember::PATH_INVALID);
 
         const ember::Path edgeOverlapPath = makeAxisPath(
-            {ember::makeIntegerPoint(0, 2, -1), ember::makeIntegerPoint(0, 2, 3)});
+        {ember::makeIntegerPoint(0, 2, -1), ember::makeIntegerPoint(0, 2, 3)});
         const ember::detail::PolygonBoundaryContact overlapContact =
             ember::detail::classifySegmentPolygonBoundaryContactUnchecked(edgeOverlapPath.front(), clippedSurface);
         assert(overlapContact.type == ember::detail::PolygonBoundaryContactType::EdgeOverlap);
@@ -838,9 +816,7 @@ void runBoolProblemTests()
             assert(leaf.polygonCount <= 2u || !ember::hasSplittableAxis(leaf.aabb));
         }
         for (const Polygon256 &fragment : problem.resultFragments())
-        {
             assertResultFragmentIsGeometryOnly(fragment);
-        }
     }
 
     {
@@ -852,11 +828,11 @@ void runBoolProblemTests()
         problem.setOperands({invalidPolygon}, {});
 
         assert(throwsRuntimeError(
-            [&problem]()
-            {
-                problem.solve();
-            },
-            "invalid"));
+                   [&problem]()
+        {
+            problem.solve();
+        },
+        "invalid"));
         assert(!problem.isSolved());
         assert(problem.resultFragments().empty());
     }
@@ -872,11 +848,11 @@ void runBoolProblemTests()
         const Polygon256 invalidPolygon = makeInvalidInwardSquareXY();
         problem.setOperands({invalidPolygon}, {});
         assert(throwsRuntimeError(
-            [&problem]()
-            {
-                problem.solve();
-            },
-            "invalid"));
+                   [&problem]()
+        {
+            problem.solve();
+        },
+        "invalid"));
         assert(!problem.isSolved());
         assert(problem.resultFragments().empty());
     }
@@ -1085,5 +1061,5 @@ void runBoolProblemTests()
         assert(problem.isSolved());
         assert(problem.resultFragments().size() == 6u);
     }
-}
+}
 
