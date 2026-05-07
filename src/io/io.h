@@ -4,7 +4,7 @@
  */
 #pragma once
 
-#include "geometry/geometry256.h"
+#include "geometry/aabb.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -110,6 +110,25 @@ bool buildPolygonSoup(
     std::string &outError);
 
 /**
+ * @brief 将一个 OBJ 网格转换为多边形集合，并返回量化后输入顶点 AABB。
+ *
+ * @param[in] mesh 输入 OBJ 数据。
+ * @param[in] sharedScale 调用方为全部输入统一选定的量化尺度。
+ * @param[out] outPolygons 成功时写入转换后的凸多边形集合。
+ * @param[out] outAABB 成功时写入所有被面引用的量化输入顶点包围盒，不含额外 margin。
+ * @param[out] outError 失败时写入可读错误信息。
+ * @retval true 所有面都成功量化并构造成合法 `Polygon256`。
+ * @retval false 任一面在量化后退化、非共面、非严格凸或不满足当前几何约束。
+ * @pre `sharedScale > 0`。
+ */
+bool buildPolygonSoup(
+    const ObjMeshData &mesh,
+    std::uint64_t sharedScale,
+    std::vector<Polygon256> &outPolygons,
+    AABB3i &outAABB,
+    std::string &outError);
+
+/**
  * @brief 按指定策略将一个 OBJ 网格转换为 `Polygon256` 多边形集合。
  *
  * @param[in] mesh 输入 OBJ 数据。
@@ -126,6 +145,27 @@ bool buildPolygonSoup(
     std::uint64_t sharedScale,
     const PolygonSoupBuildOptions &options,
     std::vector<Polygon256> &outPolygons,
+    std::string &outError);
+
+/**
+ * @brief 按指定策略转换 OBJ 网格，并返回量化后输入顶点 AABB。
+ *
+ * @param[in] mesh 输入 OBJ 数据。
+ * @param[in] sharedScale 调用方为全部输入统一选定的量化尺度。
+ * @param[in] options 多边形集合构建策略。
+ * @param[out] outPolygons 成功时写入转换后的凸多边形集合。
+ * @param[out] outAABB 成功时写入所有被面引用的量化输入顶点包围盒，不含额外 margin。
+ * @param[out] outError 失败时写入可读错误信息。
+ * @retval true 所有面都成功量化并构造成合法 `Polygon256`。
+ * @retval false 任一面在量化后不满足当前几何约束，且不能被所选策略处理。
+ * @pre `sharedScale > 0`。
+ */
+bool buildPolygonSoup(
+    const ObjMeshData &mesh,
+    std::uint64_t sharedScale,
+    const PolygonSoupBuildOptions &options,
+    std::vector<Polygon256> &outPolygons,
+    AABB3i &outAABB,
     std::string &outError);
 
 /**

@@ -367,6 +367,30 @@ ObjMeshData transformObjMesh(
     return transformed;
 }
 
+ember::AABB3i makeSceneAABB(const ember::AABB3i &lhsAABB, const ember::AABB3i &rhsAABB)
+{
+    ember::AABB3i sceneAABB;
+    ember::mergeAABB(sceneAABB, lhsAABB);
+    ember::mergeAABB(sceneAABB, rhsAABB);
+    ember::expandAABB(sceneAABB, 1);
+    return sceneAABB;
+}
+
+ember::AABB3i makeSceneAABB(double xmin, double ymin, double zmin, double xmax, double ymax, double zmax, std::uint64_t scale)
+{
+    ember::AABB3i sceneAABB;
+    const double scaleValue = static_cast<double>(scale);
+    sceneAABB.xMin = ember::Integer(static_cast<int>(std::round(xmin * scaleValue)));
+    sceneAABB.xMax = ember::Integer(static_cast<int>(std::round(xmax * scaleValue)));
+    sceneAABB.yMin = ember::Integer(static_cast<int>(std::round(ymin * scaleValue)));
+    sceneAABB.yMax = ember::Integer(static_cast<int>(std::round(ymax * scaleValue)));
+    sceneAABB.zMin = ember::Integer(static_cast<int>(std::round(zmin * scaleValue)));
+    sceneAABB.zMax = ember::Integer(static_cast<int>(std::round(zmax * scaleValue)));
+    sceneAABB.valid = true;
+    ember::expandAABB(sceneAABB, 1);
+    return sceneAABB;
+}
+
 ObjMeshData solveObjBooleanMesh(
     const ObjMeshData &lhs,
     const ObjMeshData &rhs,
@@ -386,8 +410,10 @@ ObjMeshData solveObjBooleanMesh(
 
     std::vector<Polygon256> lhsPolygons;
     std::vector<Polygon256> rhsPolygons;
-    if (!ember::buildPolygonSoup(lhs, scale, polygonBuildOptions, lhsPolygons, error) ||
-            !ember::buildPolygonSoup(rhs, scale, polygonBuildOptions, rhsPolygons, error))
+    ember::AABB3i lhsAABB;
+    ember::AABB3i rhsAABB;
+    if (!ember::buildPolygonSoup(lhs, scale, polygonBuildOptions, lhsPolygons, lhsAABB, error) ||
+            !ember::buildPolygonSoup(rhs, scale, polygonBuildOptions, rhsPolygons, rhsAABB, error))
         throw std::runtime_error("io_tests failed to build polygon soup: " + error);
 
     ember::BoolProblem problem(leafThreshold);
@@ -396,7 +422,7 @@ ObjMeshData solveObjBooleanMesh(
         ember::BoolOperandAssumptions{true, true},
         ember::BoolOperandAssumptions{true, true});
     problem.setOperands(lhsPolygons, rhsPolygons);
-    problem.solve();
+    problem.solve(makeSceneAABB(lhsAABB, rhsAABB));
     if (!problem.isSolved())
         throw std::runtime_error("io_tests BoolProblem did not report solved.");
 
@@ -530,8 +556,10 @@ void runIoTests()
 
         std::vector<Polygon256> lhsPolygons;
         std::vector<Polygon256> rhsPolygons;
-        assert(ember::buildPolygonSoup(lhs, scale, lhsPolygons, error));
-        assert(ember::buildPolygonSoup(rhs, scale, rhsPolygons, error));
+        ember::AABB3i lhsAABB;
+        ember::AABB3i rhsAABB;
+        assert(ember::buildPolygonSoup(lhs, scale, lhsPolygons, lhsAABB, error));
+        assert(ember::buildPolygonSoup(rhs, scale, rhsPolygons, rhsAABB, error));
 
         ember::BoolProblem problem(25);
         problem.setOperation(BoolOp::Difference);
@@ -539,7 +567,7 @@ void runIoTests()
             ember::BoolOperandAssumptions{true, true},
             ember::BoolOperandAssumptions{true, true});
         problem.setOperands(lhsPolygons, rhsPolygons);
-        problem.solve();
+        problem.solve(makeSceneAABB(lhsAABB, rhsAABB));
         assert(problem.resultFragments().size() == 12u);
     }
 
@@ -688,8 +716,10 @@ void runIoTests()
 
         std::vector<Polygon256> lhsPolygons;
         std::vector<Polygon256> rhsPolygons;
-        assert(ember::buildPolygonSoup(lhs, scale, lhsPolygons, error));
-        assert(ember::buildPolygonSoup(rhs, scale, rhsPolygons, error));
+        ember::AABB3i lhsAABB;
+        ember::AABB3i rhsAABB;
+        assert(ember::buildPolygonSoup(lhs, scale, lhsPolygons, lhsAABB, error));
+        assert(ember::buildPolygonSoup(rhs, scale, rhsPolygons, rhsAABB, error));
 
         ember::BoolProblem problem(25);
         problem.setOperation(BoolOp::Difference);
@@ -697,7 +727,7 @@ void runIoTests()
             ember::BoolOperandAssumptions{true, true},
             ember::BoolOperandAssumptions{true, true});
         problem.setOperands(lhsPolygons, rhsPolygons);
-        problem.solve();
+        problem.solve(makeSceneAABB(lhsAABB, rhsAABB));
 
         ObjMeshData resultMesh;
         assert(ember::buildObjMeshFromPolygonSoup(problem.resultFragments(), resultMesh, error, scale));
@@ -979,7 +1009,7 @@ void runIoTests()
             ember::BoolOperandAssumptions{true, true},
             ember::BoolOperandAssumptions{true, true});
         problem.setOperands(lhs, rhs);
-        problem.solve();
+        problem.solve(makeSceneAABB(0.0, 0.0, 0.0, 4.0, 4.0, 4.0, 1u));
         assert(problem.isSolved());
         assert(problem.resultFragments().size() == 12u);
 
@@ -1033,8 +1063,10 @@ void runIoTests()
         std::string error;
         std::vector<Polygon256> lhsPolygons;
         std::vector<Polygon256> rhsPolygons;
-        assert(ember::buildPolygonSoup(workpiece, 1000u, lhsPolygons, error));
-        assert(ember::buildPolygonSoup(tool, 1000u, rhsPolygons, error));
+        ember::AABB3i lhsAABB;
+        ember::AABB3i rhsAABB;
+        assert(ember::buildPolygonSoup(workpiece, 1000u, lhsPolygons, lhsAABB, error));
+        assert(ember::buildPolygonSoup(tool, 1000u, rhsPolygons, rhsAABB, error));
 
         ember::BoolProblem problem(25);
         problem.setOperation(BoolOp::Union);
@@ -1042,7 +1074,7 @@ void runIoTests()
             ember::BoolOperandAssumptions{true, true},
             ember::BoolOperandAssumptions{true, true});
         problem.setOperands(lhsPolygons, rhsPolygons);
-        problem.solve();
+        problem.solve(makeSceneAABB(lhsAABB, rhsAABB));
         assert(problem.resultFragments().size() == 14u);
 
         ObjMeshData result;
