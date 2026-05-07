@@ -847,6 +847,12 @@ SubdivisionSolver::SubdivisionSolver(
     polygons_.swap(polygons);
     polygonCount_ = polygons_.size();
     polygonScan_ = scanBinaryPolygonSummary(polygons_);
+    singleOperandPolicy_ = buildSingleOperandAssumptionPolicy(
+        polygonScan_,
+        lhsAssumptions_,
+        rhsAssumptions_,
+        polygonCount_,
+        leafPolygonThreshold_);
 }
 
 SubdivisionSolver::SubdivisionSolver(
@@ -870,6 +876,12 @@ SubdivisionSolver::SubdivisionSolver(
       polygons_(std::move(polygons))
 {
     polygonCount_ = polygons_.size();
+    singleOperandPolicy_ = buildSingleOperandAssumptionPolicy(
+        polygonScan_,
+        lhsAssumptions_,
+        rhsAssumptions_,
+        polygonCount_,
+        leafPolygonThreshold_);
 }
 
 void SubdivisionSolver::solve()
@@ -952,6 +964,7 @@ void SubdivisionSolver::finalizeInternalNode()
 
 void SubdivisionSolver::finishCurrentNodeAsLeaf()
 {
+    REEMBER_PROFILE_ZONE("SubdivisionSolver::finishCurrentNodeAsLeaf");
     isLeaf_ = true;
     solveLeafArrangement();
     classifyLeafFragmentsAndCollectResults();
@@ -1012,6 +1025,8 @@ void SubdivisionSolver::solveRecursive()
 {
     REEMBER_PROFILE_ZONE("SubdivisionSolver::solveRecursive");
 
+    // 4.5.1 的单操作数假设由节点级共享策略统一控制，
+    // 递归入口只负责按策略探测一次提前叶化。
     if (trySolveSingleOperandAssumptionLeaf())
         return;
 
@@ -1056,22 +1071,32 @@ bool SubdivisionSolver::shouldStopSubdivision() const noexcept
     return polygonCount_ <= leafPolygonThreshold_ || !hasSplittableAxis(aabb_);
 }
 
-bool SubdivisionSolver::tryGetSingleOperandAssumptions(BoolOperandAssumptions &outAssumptions) const noexcept
+SubdivisionSolver::SingleOperandAssumptionPolicy SubdivisionSolver::buildSingleOperandAssumptionPolicy(
+    const BinaryPolygonScanSummary &polygonScan,
+    const BoolOperandAssumptions &lhsAssumptions,
+    const BoolOperandAssumptions &rhsAssumptions,
+    std::size_t polygonCount,
+    std::size_t leafPolygonThreshold) noexcept
 {
-    if (!polygonScan_.isSingleOperand)
-        return false;
+    SingleOperandAssumptionPolicy policy;
+    if (!polygonScan.isSingleOperand)
+        return policy;
 
-    if (polygonScan_.singleOperand == BinarySingleOperand::Lhs)
-    {
-        outAssumptions = lhsAssumptions_;
-        return true;
-    }
-    if (polygonScan_.singleOperand == BinarySingleOperand::Rhs)
-    {
-        outAssumptions = rhsAssumptions_;
-        return true;
-    }
-    return false;
+    const BoolOperandAssumptions *assumptions = nullptr;
+    if (polygonScan.singleOperand == BinarySingleOperand::Lhs)
+        assumptions = &lhsAssumptions;
+    else if (polygonScan.singleOperand == BinarySingleOperand::Rhs)
+        assumptions = &rhsAssumptions;
+
+    if (!assumptions)
+        return policy;
+
+    policy.maySkipLeafBsp = assumptions->noSelfIntersections;
+    policy.mayReuseLeafClassification =
+        policy.maySkipLeafBsp && assumptions->noNestedComponents;
+    policy.mayProbeEarlyLeaf =
+        policy.mayReuseLeafClassification && polygonCount > leafPolygonThreshold;
+    return policy;
 }
 
 // 裁剪当前多边形集合到左右子 AABB，并为每个非空子问题建立参考状态。
