@@ -36,549 +36,513 @@
 
 namespace ember::visual_test
 {
-    using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
-    using SurfaceMesh = CGAL::Surface_mesh<Kernel::Point_3>;
-    using NefPolyhedron = CGAL::Nef_polyhedron_3<Kernel>;
+using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
+using SurfaceMesh = CGAL::Surface_mesh<Kernel::Point_3>;
+using NefPolyhedron = CGAL::Nef_polyhedron_3<Kernel>;
 
-    namespace
-    {
-        /**
-         * @brief 解析 visual-test 默认 OBJ 资源的仓库内路径。
-         * @param relativePath 相对仓库根目录的资源路径。
-         * @return 可直接传给 OBJ 读取器的路径字符串；若未命中任何候选，则退回原始相对路径。
-         */
-        std::string resolveDefaultAssetPath(const std::string &relativePath)
-        {
+namespace
+{
+/**
+ * @brief 解析 visual-test 默认 OBJ 资源的仓库内路径。
+ * @param relativePath 相对仓库根目录的资源路径。
+ * @return 可直接传给 OBJ 读取器的路径字符串；若未命中任何候选，则退回原始相对路径。
+ */
+std::string resolveDefaultAssetPath(const std::string &relativePath)
+{
 #ifdef REEMBER_SOURCE_DIR
-            const std::filesystem::path sourceCandidate =
-                std::filesystem::path(REEMBER_SOURCE_DIR) / relativePath;
-            std::error_code error;
-            if (std::filesystem::exists(sourceCandidate, error))
-            {
-                return sourceCandidate.string();
-            }
+    const std::filesystem::path sourceCandidate =
+        std::filesystem::path(REEMBER_SOURCE_DIR) / relativePath;
+    std::error_code error;
+    if (std::filesystem::exists(sourceCandidate, error))
+        return sourceCandidate.string();
 #endif
 
-            std::filesystem::path current = std::filesystem::current_path();
-            for (int depth = 0; depth < 8; ++depth)
-            {
-                const std::filesystem::path candidate = current / relativePath;
-                std::error_code error;
-                if (std::filesystem::exists(candidate, error))
-                {
-                    return candidate.string();
-                }
-
-                const std::filesystem::path parent = current.parent_path();
-                if (parent == current || parent.empty())
-                {
-                    break;
-                }
-                current = parent;
-            }
-
-            return relativePath;
-        }
-    }
-    using Clock = std::chrono::steady_clock;
-
-    inline std::size_t kLeafThreshold = 25;
-    inline double kTranslationMin = -0.25;
-    inline double kTranslationMax = 1.25;
-    inline double kRotationMinDegrees = -180.0;
-    inline double kRotationMaxDegrees = 180.0;
-    inline double kDefaultTx = 0.5;
-    inline double kDefaultTy = 0.5;
-    inline double kDefaultTz = 0.35;
-    inline std::uint64_t kVisualTestManualScale = 1000;
-
-    enum class EngineKind
+    std::filesystem::path current = std::filesystem::current_path();
+    for (int depth = 0; depth < 8; ++depth)
     {
-        Ember,
-        Cgal
-    };
+        const std::filesystem::path candidate = current / relativePath;
+        std::error_code error;
+        if (std::filesystem::exists(candidate, error))
+            return candidate.string();
 
-    struct ResultStats
-    {
-        double solveMs = 0.0;
-        double convertMs = 0.0;
-        std::size_t resultVertexCount = 0;
-        std::size_t resultFaceCount = 0;
-        std::uint64_t sharedScale = 0;
-    };
-
-    struct ToolPose
-    {
-        double tx = kDefaultTx;
-        double ty = kDefaultTy;
-        double tz = kDefaultTz;
-        double rx = 0.0;
-        double ry = 0.0;
-        double rz = 0.0;
-    };
-
-    struct UiState
-    {
-        EngineKind engine = EngineKind::Ember;
-        BoolOp operation = BoolOp::Difference;
-        ToolPose pose;
-        bool emberAutoScale = true;
-        std::uint64_t emberManualScale = kVisualTestManualScale;
-        std::size_t leafThreshold = kLeafThreshold;
-        bool dirty = false;
-        std::string lastError;
-        ResultStats stats;
-    };
-
-    struct SceneData
-    {
-        std::string workpiecePath;
-        std::string toolPath;
-        ObjMeshData workpieceMesh;
-        ObjMeshData toolOriginalMesh;
-        ObjMeshData toolCurrentMesh;
-        ObjMeshData workpieceDisplayMesh;
-        ObjMeshData toolDisplayMesh;
-        ObjMeshData resultDisplayMesh;
-        std::vector<Polygon256> workpiecePolygons;
-        std::uint64_t emberSharedScale = 0;
-        NefPolyhedron workpieceNef;
-    };
-
-    struct MeshLayerStyle
-    {
-        Eigen::RowVector3d color;
-        Eigen::RowVector3d lineColor;
-        bool showFaces = true;
-        bool showLines = false;
-        bool doubleSided = true;
-    };
-
-    class FixedImGuiPlugin final : public igl::opengl::glfw::imgui::ImGuiPlugin
-    {
-    public:
-        bool mouse_up(int button, int modifier) override
-        {
-            ImGui_ImplGlfw_MouseButtonCallback(viewer->window, button, GLFW_RELEASE, modifier);
-            if (ImGui::GetIO().WantCaptureMouse)
-            {
-                return true;
-            }
-
-            for (auto *widget : widgets)
-            {
-                if (widget->mouse_up(button, modifier))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-    };
-
-    const char *toString(EngineKind engine) noexcept
-    {
-        switch (engine)
-        {
-        case EngineKind::Ember:
-            return "ember";
-        case EngineKind::Cgal:
-            return "cgal";
-        }
-
-        return "unknown";
+        const std::filesystem::path parent = current.parent_path();
+        if (parent == current || parent.empty())
+            break;
+        current = parent;
     }
 
-    const char *toString(BoolOp op) noexcept
+    return relativePath;
+}
+}
+using Clock = std::chrono::steady_clock;
+
+inline std::size_t kLeafThreshold = 25;
+inline double kTranslationMin = -0.25;
+inline double kTranslationMax = 1.25;
+inline double kRotationMinDegrees = -180.0;
+inline double kRotationMaxDegrees = 180.0;
+inline double kDefaultTx = 0.5;
+inline double kDefaultTy = 0.5;
+inline double kDefaultTz = 0.35;
+inline std::uint64_t kVisualTestManualScale = 1000;
+
+enum class EngineKind
+{
+    Ember,
+    Cgal
+};
+
+struct ResultStats
+{
+    double solveMs = 0.0;
+    double convertMs = 0.0;
+    std::size_t resultVertexCount = 0;
+    std::size_t resultFaceCount = 0;
+    std::uint64_t sharedScale = 0;
+};
+
+struct ToolPose
+{
+    double tx = kDefaultTx;
+    double ty = kDefaultTy;
+    double tz = kDefaultTz;
+    double rx = 0.0;
+    double ry = 0.0;
+    double rz = 0.0;
+};
+
+struct UiState
+{
+    EngineKind engine = EngineKind::Ember;
+    BoolOp operation = BoolOp::Difference;
+    ToolPose pose;
+    bool emberAutoScale = true;
+    std::uint64_t emberManualScale = kVisualTestManualScale;
+    std::size_t leafThreshold = kLeafThreshold;
+    bool dirty = false;
+    std::string lastError;
+    ResultStats stats;
+};
+
+struct SceneData
+{
+    std::string workpiecePath;
+    std::string toolPath;
+    ObjMeshData workpieceMesh;
+    ObjMeshData toolOriginalMesh;
+    ObjMeshData toolCurrentMesh;
+    ObjMeshData workpieceDisplayMesh;
+    ObjMeshData toolDisplayMesh;
+    ObjMeshData resultDisplayMesh;
+    std::vector<Polygon256> workpiecePolygons;
+    std::uint64_t emberSharedScale = 0;
+    NefPolyhedron workpieceNef;
+};
+
+struct MeshLayerStyle
+{
+    Eigen::RowVector3d color;
+    Eigen::RowVector3d lineColor;
+    bool showFaces = true;
+    bool showLines = false;
+    bool doubleSided = true;
+};
+
+class FixedImGuiPlugin final : public igl::opengl::glfw::imgui::ImGuiPlugin
+{
+public:
+    bool mouse_up(int button, int modifier) override
     {
-        switch (op)
-        {
-        case BoolOp::Union:
-            return "union";
-        case BoolOp::Intersection:
-            return "intersection";
-        case BoolOp::Difference:
-            return "difference";
-        }
-
-        return "unknown";
-    }
-
-    double elapsedMilliseconds(const Clock::time_point &start, const Clock::time_point &end)
-    {
-        return std::chrono::duration<double, std::milli>(end - start).count();
-    }
-
-    ObjMeshData transformToolMesh(const ObjMeshData &mesh, const UiState &ui)
-    {
-        ObjMeshData transformed = mesh;
-
-        const double rx = ui.pose.rx * 3.14159265358979323846 / 180.0;
-        const double ry = ui.pose.ry * 3.14159265358979323846 / 180.0;
-        const double rz = ui.pose.rz * 3.14159265358979323846 / 180.0;
-        const Eigen::Matrix3d rotation =
-            Eigen::AngleAxisd(rz, Eigen::Vector3d::UnitZ()).toRotationMatrix() *
-            Eigen::AngleAxisd(ry, Eigen::Vector3d::UnitY()).toRotationMatrix() *
-            Eigen::AngleAxisd(rx, Eigen::Vector3d::UnitX()).toRotationMatrix();
-        const Eigen::Vector3d translation(ui.pose.tx, ui.pose.ty, ui.pose.tz);
-
-        for (ObjVertex &vertex : transformed.vertices)
-        {
-            const Eigen::Vector3d point(vertex.x, vertex.y, vertex.z);
-            const Eigen::Vector3d transformedPoint = rotation * point + translation;
-            vertex.x = transformedPoint.x();
-            vertex.y = transformedPoint.y();
-            vertex.z = transformedPoint.z();
-        }
-
-        return transformed;
-    }
-
-    SurfaceMesh makeSurfaceMesh(const ObjMeshData &mesh)
-    {
-        SurfaceMesh surfaceMesh;
-        std::vector<SurfaceMesh::Vertex_index> vertexHandles;
-        vertexHandles.reserve(mesh.vertices.size());
-        for (const ObjVertex &vertex : mesh.vertices)
-        {
-            vertexHandles.push_back(surfaceMesh.add_vertex(Kernel::Point_3(vertex.x, vertex.y, vertex.z)));
-        }
-
-        for (std::size_t faceIndex = 0; faceIndex < mesh.faces.size(); ++faceIndex)
-        {
-            const std::vector<std::size_t> &face = mesh.faces[faceIndex];
-            if (face.size() < 3)
-            {
-                throw std::runtime_error("OBJ face " + std::to_string(faceIndex) + " has fewer than three vertices.");
-            }
-
-            for (const std::size_t vertexIndex : face)
-            {
-                if (vertexIndex >= vertexHandles.size())
-                {
-                    throw std::runtime_error("OBJ face " + std::to_string(faceIndex) + " references an out-of-range vertex.");
-                }
-            }
-
-            if (face.size() == 3)
-            {
-                const auto newFace = surfaceMesh.add_face(
-                    vertexHandles[face[0]],
-                    vertexHandles[face[1]],
-                    vertexHandles[face[2]]);
-                if (newFace == SurfaceMesh::null_face())
-                {
-                    throw std::runtime_error("Failed to add OBJ face " + std::to_string(faceIndex) + " as a valid CGAL face.");
-                }
-                continue;
-            }
-
-            for (std::size_t i = 1; i + 1 < face.size(); ++i)
-            {
-                const auto newFace = surfaceMesh.add_face(
-                    vertexHandles[face[0]],
-                    vertexHandles[face[i]],
-                    vertexHandles[face[i + 1]]);
-                if (newFace == SurfaceMesh::null_face())
-                {
-                    throw std::runtime_error("Failed to triangulate OBJ face " + std::to_string(faceIndex) + " for CGAL.");
-                }
-            }
-        }
-
-        return surfaceMesh;
-    }
-
-    ObjMeshData makeObjMeshData(const SurfaceMesh &surfaceMesh)
-    {
-        ObjMeshData mesh;
-
-        if (surfaceMesh.number_of_vertices() == 0 || surfaceMesh.number_of_faces() == 0)
-        {
-            return mesh;
-        }
-
-        std::unordered_map<std::size_t, std::size_t> vertexMap;
-        mesh.vertices.reserve(surfaceMesh.number_of_vertices());
-        for (const auto vertex : surfaceMesh.vertices())
-        {
-            const auto point = surfaceMesh.point(vertex);
-            vertexMap.emplace(static_cast<std::size_t>(vertex.idx()), mesh.vertices.size());
-            mesh.vertices.push_back(ObjVertex{
-                CGAL::to_double(point.x()),
-                CGAL::to_double(point.y()),
-                CGAL::to_double(point.z())});
-        }
-
-        mesh.faces.reserve(surfaceMesh.number_of_faces());
-        for (const auto face : surfaceMesh.faces())
-        {
-            std::vector<std::size_t> meshFace;
-            for (const auto vertex : CGAL::vertices_around_face(surfaceMesh.halfedge(face), surfaceMesh))
-            {
-                meshFace.push_back(vertexMap.at(static_cast<std::size_t>(vertex.idx())));
-            }
-
-            if (meshFace.size() < 3)
-            {
-                throw std::runtime_error("CGAL surface mesh face is degenerate after conversion.");
-            }
-
-            mesh.faces.push_back(std::move(meshFace));
-        }
-
-        return mesh;
-    }
-
-    NefPolyhedron makeNef(const ObjMeshData &mesh)
-    {
-        return NefPolyhedron(makeSurfaceMesh(mesh));
-    }
-
-    ObjMeshData makeObjMeshData(const NefPolyhedron &nef)
-    {
-        if (nef.is_empty())
-        {
-            return ObjMeshData();
-        }
-        if (!nef.is_simple())
-        {
-            throw std::runtime_error("CGAL Nef result is not simple and cannot be converted to a mesh.");
-        }
-
-        SurfaceMesh surfaceMesh;
-        CGAL::convert_nef_polyhedron_to_polygon_mesh(nef, surfaceMesh, false);
-        CGAL::Polygon_mesh_processing::triangulate_faces(surfaceMesh);
-        return makeObjMeshData(surfaceMesh);
-    }
-
-    NefPolyhedron applyBoolean(const NefPolyhedron &lhs, const NefPolyhedron &rhs, BoolOp op)
-    {
-        switch (op)
-        {
-        case BoolOp::Union:
-            return (lhs + rhs).regularization();
-        case BoolOp::Intersection:
-            return (lhs * rhs).regularization();
-        case BoolOp::Difference:
-            return (lhs - rhs).regularization();
-        }
-
-        return NefPolyhedron(NefPolyhedron::EMPTY);
-    }
-
-    void storeResultStats(
-        ResultStats &outStats,
-        const ObjMeshData &mesh,
-        const Clock::time_point &solveStart,
-        const Clock::time_point &solveEnd,
-        const Clock::time_point &convertStart,
-        const Clock::time_point &convertEnd,
-        std::uint64_t sharedScale = 0)
-    {
-        outStats.solveMs = elapsedMilliseconds(solveStart, solveEnd);
-        outStats.convertMs = elapsedMilliseconds(convertStart, convertEnd);
-        outStats.resultVertexCount = mesh.vertices.size();
-        outStats.resultFaceCount = mesh.faces.size();
-        outStats.sharedScale = sharedScale;
-    }
-
-    bool prepareEmberInput(SceneData &scene, const UiState &ui, std::string &outError)
-    {
-        outError.clear();
-        if (!ui.emberAutoScale && ui.emberManualScale == 0)
-        {
-            outError = "EMBER shared scale must be a positive integer.";
-            return false;
-        }
-
-        QuantizeOptions options;
-        if (!ui.emberAutoScale)
-        {
-            options.explicitScale = ui.emberManualScale;
-        }
-
-        std::uint64_t sharedScale = 0;
-        if (!ember::chooseSharedScale({scene.workpieceMesh, scene.toolCurrentMesh}, options, sharedScale, outError))
-        {
-            return false;
-        }
-        if (scene.emberSharedScale == sharedScale && !scene.workpiecePolygons.empty())
-        {
+        ImGui_ImplGlfw_MouseButtonCallback(viewer->window, button, GLFW_RELEASE, modifier);
+        if (ImGui::GetIO().WantCaptureMouse)
             return true;
+
+        for (auto *widget : widgets)
+        {
+            if (widget->mouse_up(button, modifier))
+                return true;
         }
+
+        return false;
+    }
+};
+
+const char *toString(EngineKind engine) noexcept
+{
+    switch (engine)
+    {
+    case EngineKind::Ember:
+        return "ember";
+    case EngineKind::Cgal:
+        return "cgal";
+    }
+
+    return "unknown";
+}
+
+const char *toString(BoolOp op) noexcept
+{
+    switch (op)
+    {
+    case BoolOp::Union:
+        return "union";
+    case BoolOp::Intersection:
+        return "intersection";
+    case BoolOp::Difference:
+        return "difference";
+    }
+
+    return "unknown";
+}
+
+double elapsedMilliseconds(const Clock::time_point &start, const Clock::time_point &end)
+{
+    return std::chrono::duration<double, std::milli>(end - start).count();
+}
+
+ObjMeshData transformToolMesh(const ObjMeshData &mesh, const UiState &ui)
+{
+    ObjMeshData transformed = mesh;
+
+    const double rx = ui.pose.rx * 3.14159265358979323846 / 180.0;
+    const double ry = ui.pose.ry * 3.14159265358979323846 / 180.0;
+    const double rz = ui.pose.rz * 3.14159265358979323846 / 180.0;
+    const Eigen::Matrix3d rotation =
+        Eigen::AngleAxisd(rz, Eigen::Vector3d::UnitZ()).toRotationMatrix() *
+        Eigen::AngleAxisd(ry, Eigen::Vector3d::UnitY()).toRotationMatrix() *
+        Eigen::AngleAxisd(rx, Eigen::Vector3d::UnitX()).toRotationMatrix();
+    const Eigen::Vector3d translation(ui.pose.tx, ui.pose.ty, ui.pose.tz);
+
+    for (ObjVertex &vertex : transformed.vertices)
+    {
+        const Eigen::Vector3d point(vertex.x, vertex.y, vertex.z);
+        const Eigen::Vector3d transformedPoint = rotation * point + translation;
+        vertex.x = transformedPoint.x();
+        vertex.y = transformedPoint.y();
+        vertex.z = transformedPoint.z();
+    }
+
+    return transformed;
+}
+
+SurfaceMesh makeSurfaceMesh(const ObjMeshData &mesh)
+{
+    SurfaceMesh surfaceMesh;
+    std::vector<SurfaceMesh::Vertex_index> vertexHandles;
+    vertexHandles.reserve(mesh.vertices.size());
+    for (const ObjVertex &vertex : mesh.vertices)
+        vertexHandles.push_back(surfaceMesh.add_vertex(Kernel::Point_3(vertex.x, vertex.y, vertex.z)));
+
+    for (std::size_t faceIndex = 0; faceIndex < mesh.faces.size(); ++faceIndex)
+    {
+        const std::vector<std::size_t> &face = mesh.faces[faceIndex];
+        if (face.size() < 3)
+            throw std::runtime_error("OBJ face " + std::to_string(faceIndex) + " has fewer than three vertices.");
+
+        for (const std::size_t vertexIndex : face)
+        {
+            if (vertexIndex >= vertexHandles.size())
+                throw std::runtime_error("OBJ face " + std::to_string(faceIndex) + " references an out-of-range vertex.");
+        }
+
+        if (face.size() == 3)
+        {
+            const auto newFace = surfaceMesh.add_face(
+                                     vertexHandles[face[0]],
+                                     vertexHandles[face[1]],
+                                     vertexHandles[face[2]]);
+            if (newFace == SurfaceMesh::null_face())
+                throw std::runtime_error("Failed to add OBJ face " + std::to_string(faceIndex) + " as a valid CGAL face.");
+            continue;
+        }
+
+        for (std::size_t i = 1; i + 1 < face.size(); ++i)
+        {
+            const auto newFace = surfaceMesh.add_face(
+                                     vertexHandles[face[0]],
+                                     vertexHandles[face[i]],
+                                     vertexHandles[face[i + 1]]);
+            if (newFace == SurfaceMesh::null_face())
+                throw std::runtime_error("Failed to triangulate OBJ face " + std::to_string(faceIndex) + " for CGAL.");
+        }
+    }
+
+    return surfaceMesh;
+}
+
+ObjMeshData makeObjMeshData(const SurfaceMesh &surfaceMesh)
+{
+    ObjMeshData mesh;
+
+    if (surfaceMesh.number_of_vertices() == 0 || surfaceMesh.number_of_faces() == 0)
+        return mesh;
+
+    std::unordered_map<std::size_t, std::size_t> vertexMap;
+    mesh.vertices.reserve(surfaceMesh.number_of_vertices());
+    for (const auto vertex : surfaceMesh.vertices())
+    {
+        const auto point = surfaceMesh.point(vertex);
+        vertexMap.emplace(static_cast<std::size_t>(vertex.idx()), mesh.vertices.size());
+        mesh.vertices.push_back(ObjVertex{
+            CGAL::to_double(point.x()),
+            CGAL::to_double(point.y()),
+            CGAL::to_double(point.z())});
+    }
+
+    mesh.faces.reserve(surfaceMesh.number_of_faces());
+    for (const auto face : surfaceMesh.faces())
+    {
+        std::vector<std::size_t> meshFace;
+        for (const auto vertex : CGAL::vertices_around_face(surfaceMesh.halfedge(face), surfaceMesh))
+            meshFace.push_back(vertexMap.at(static_cast<std::size_t>(vertex.idx())));
+
+        if (meshFace.size() < 3)
+            throw std::runtime_error("CGAL surface mesh face is degenerate after conversion.");
+
+        mesh.faces.push_back(std::move(meshFace));
+    }
+
+    return mesh;
+}
+
+NefPolyhedron makeNef(const ObjMeshData &mesh)
+{
+    return NefPolyhedron(makeSurfaceMesh(mesh));
+}
+
+ObjMeshData makeObjMeshData(const NefPolyhedron &nef)
+{
+    if (nef.is_empty())
+        return ObjMeshData();
+    if (!nef.is_simple())
+        throw std::runtime_error("CGAL Nef result is not simple and cannot be converted to a mesh.");
+
+    SurfaceMesh surfaceMesh;
+    CGAL::convert_nef_polyhedron_to_polygon_mesh(nef, surfaceMesh, false);
+    CGAL::Polygon_mesh_processing::triangulate_faces(surfaceMesh);
+    return makeObjMeshData(surfaceMesh);
+}
+
+NefPolyhedron applyBoolean(const NefPolyhedron &lhs, const NefPolyhedron &rhs, BoolOp op)
+{
+    switch (op)
+    {
+    case BoolOp::Union:
+        return (lhs + rhs).regularization();
+    case BoolOp::Intersection:
+        return (lhs * rhs).regularization();
+    case BoolOp::Difference:
+        return (lhs - rhs).regularization();
+    }
+
+    return NefPolyhedron(NefPolyhedron::EMPTY);
+}
+
+void storeResultStats(
+    ResultStats &outStats,
+    const ObjMeshData &mesh,
+    const Clock::time_point &solveStart,
+    const Clock::time_point &solveEnd,
+    const Clock::time_point &convertStart,
+    const Clock::time_point &convertEnd,
+    std::uint64_t sharedScale = 0)
+{
+    outStats.solveMs = elapsedMilliseconds(solveStart, solveEnd);
+    outStats.convertMs = elapsedMilliseconds(convertStart, convertEnd);
+    outStats.resultVertexCount = mesh.vertices.size();
+    outStats.resultFaceCount = mesh.faces.size();
+    outStats.sharedScale = sharedScale;
+}
+
+bool prepareEmberInput(SceneData &scene, const UiState &ui, std::string &outError)
+{
+    outError.clear();
+    if (!ui.emberAutoScale && ui.emberManualScale == 0)
+    {
+        outError = "EMBER shared scale must be a positive integer.";
+        return false;
+    }
+
+    QuantizeOptions options;
+    if (!ui.emberAutoScale)
+        options.explicitScale = ui.emberManualScale;
+
+    std::uint64_t sharedScale = 0;
+    if (!ember::chooseSharedScale({scene.workpieceMesh, scene.toolCurrentMesh}, options, sharedScale, outError))
+    {
+        return false;
+    }
+    if (scene.emberSharedScale == sharedScale && !scene.workpiecePolygons.empty())
+        return true;
+
+    PolygonSoupBuildOptions polygonBuildOptions;
+    polygonBuildOptions.triangulateNonCoplanarFaces = true;
+
+    std::vector<Polygon256> workpiecePolygons;
+    if (!ember::buildPolygonSoup(scene.workpieceMesh, sharedScale, polygonBuildOptions, workpiecePolygons, outError))
+    {
+        outError = "Failed to build the EMBER workpiece polygon soup: " + outError;
+        return false;
+    }
+
+    scene.emberSharedScale = sharedScale;
+    scene.workpiecePolygons = std::move(workpiecePolygons);
+    return true;
+}
+
+bool computeEmberResult(SceneData &scene, const UiState &ui, ResultStats &outStats, std::string &outError)
+{
+    outStats = ResultStats();
+    outError.clear();
+
+    try
+    {
+        if (!prepareEmberInput(scene, ui, outError))
+        {
+            outError = "Failed to prepare the EMBER workpiece input: " + outError;
+            return false;
+        }
+        outStats.sharedScale = scene.emberSharedScale;
 
         PolygonSoupBuildOptions polygonBuildOptions;
         polygonBuildOptions.triangulateNonCoplanarFaces = true;
 
-        std::vector<Polygon256> workpiecePolygons;
-        if (!ember::buildPolygonSoup(scene.workpieceMesh, sharedScale, polygonBuildOptions, workpiecePolygons, outError))
+        std::vector<Polygon256> toolPolygons;
+        if (!ember::buildPolygonSoup(scene.toolCurrentMesh, scene.emberSharedScale, polygonBuildOptions, toolPolygons, outError))
         {
-            outError = "Failed to build the EMBER workpiece polygon soup: " + outError;
+            outError = "Failed to build the EMBER tool polygon soup: " + outError;
             return false;
         }
 
-        scene.emberSharedScale = sharedScale;
-        scene.workpiecePolygons = std::move(workpiecePolygons);
-        return true;
-    }
+        ember::BoolProblem problem(ui.leafThreshold);
+        problem.setOperation(ui.operation);
+        problem.setOperandAssumptions(
+            ember::BoolOperandAssumptions{true, true},
+            ember::BoolOperandAssumptions{true, true});
+        problem.setOperands(scene.workpiecePolygons, toolPolygons);
 
-    bool computeEmberResult(SceneData &scene, const UiState &ui, ResultStats &outStats, std::string &outError)
-    {
-        outStats = ResultStats();
-        outError.clear();
+        const Clock::time_point solveStart = Clock::now();
+        problem.solve();
+        const Clock::time_point solveEnd = Clock::now();
 
-        try
-        {
-            if (!prepareEmberInput(scene, ui, outError))
-            {
-                outError = "Failed to prepare the EMBER workpiece input: " + outError;
-                return false;
-            }
-            outStats.sharedScale = scene.emberSharedScale;
-
-            PolygonSoupBuildOptions polygonBuildOptions;
-            polygonBuildOptions.triangulateNonCoplanarFaces = true;
-
-            std::vector<Polygon256> toolPolygons;
-            if (!ember::buildPolygonSoup(scene.toolCurrentMesh, scene.emberSharedScale, polygonBuildOptions, toolPolygons, outError))
-            {
-                outError = "Failed to build the EMBER tool polygon soup: " + outError;
-                return false;
-            }
-
-            ember::BoolProblem problem(ui.leafThreshold);
-            problem.setOperation(ui.operation);
-            problem.setOperandAssumptions(
-                ember::BoolOperandAssumptions{true, true},
-                ember::BoolOperandAssumptions{true, true});
-            problem.setOperands(scene.workpiecePolygons, toolPolygons);
-
-            const Clock::time_point solveStart = Clock::now();
-            problem.solve();
-            const Clock::time_point solveEnd = Clock::now();
-
-            const Clock::time_point convertStart = Clock::now();
-            if (!ember::buildObjMeshFromPolygonSoup(
+        const Clock::time_point convertStart = Clock::now();
+        if (!ember::buildObjMeshFromPolygonSoup(
                     problem.resultFragments(),
                     scene.resultDisplayMesh,
                     outError,
                     scene.emberSharedScale))
-            {
-                outError = "Failed to convert the EMBER result polygon soup to an OBJ mesh: " + outError;
-                return false;
-            }
-            const Clock::time_point convertEnd = Clock::now();
-
-            storeResultStats(
-                outStats,
-                scene.resultDisplayMesh,
-                solveStart,
-                solveEnd,
-                convertStart,
-                convertEnd,
-                scene.emberSharedScale);
-            return true;
-        }
-        catch (const std::exception &ex)
         {
-            outError = std::string("EMBER solve failed: ") + ex.what();
+            outError = "Failed to convert the EMBER result polygon soup to an OBJ mesh: " + outError;
             return false;
         }
-    }
+        const Clock::time_point convertEnd = Clock::now();
 
-    bool computeCgalResult(SceneData &scene, const UiState &ui, ResultStats &outStats, std::string &outError)
-    {
-        outStats = ResultStats();
-        outError.clear();
-
-        try
-        {
-            const NefPolyhedron toolNef = makeNef(scene.toolCurrentMesh);
-
-            const Clock::time_point solveStart = Clock::now();
-            const NefPolyhedron result = applyBoolean(scene.workpieceNef, toolNef, ui.operation);
-            const Clock::time_point solveEnd = Clock::now();
-
-            const Clock::time_point convertStart = Clock::now();
-            scene.resultDisplayMesh = makeObjMeshData(result);
-            const Clock::time_point convertEnd = Clock::now();
-
-            storeResultStats(outStats, scene.resultDisplayMesh, solveStart, solveEnd, convertStart, convertEnd);
-            return true;
-        }
-        catch (const std::exception &ex)
-        {
-            outError = ex.what();
-            return false;
-        }
-    }
-
-    bool recomputeScene(SceneData &scene, UiState &ui)
-    {
-        ui.lastError.clear();
-
-        scene.toolCurrentMesh = transformToolMesh(scene.toolOriginalMesh, ui);
-        scene.toolDisplayMesh = scene.toolCurrentMesh;
-
-        switch (ui.engine)
-        {
-        case EngineKind::Ember:
-            return computeEmberResult(scene, ui, ui.stats, ui.lastError);
-        case EngineKind::Cgal:
-            return computeCgalResult(scene, ui, ui.stats, ui.lastError);
-        }
-
-        ui.lastError = "Unknown engine.";
-        return false;
-    }
-
-    ToolPose makeToolPose(
-        double tx,
-        double ty,
-        double tz,
-        double rx = 0.0,
-        double ry = 0.0,
-        double rz = 0.0) noexcept
-    {
-        ToolPose pose;
-        pose.tx = tx;
-        pose.ty = ty;
-        pose.tz = tz;
-        pose.rx = rx;
-        pose.ry = ry;
-        pose.rz = rz;
-        return pose;
-    }
-
-    bool drawPosePresetButton(const char *label, ToolPose &pose, const ToolPose &preset)
-    {
-        if (!ImGui::Button(label))
-        {
-            return false;
-        }
-
-        pose = preset;
+        storeResultStats(
+            outStats,
+            scene.resultDisplayMesh,
+            solveStart,
+            solveEnd,
+            convertStart,
+            convertEnd,
+            scene.emberSharedScale);
         return true;
     }
-
-    bool drawDoubleSliderInput(
-        const char *label,
-        double &value,
-        double minValue,
-        double maxValue,
-        double inputStep)
+    catch (const std::exception &ex)
     {
-        bool changed = false;
+        outError = std::string("EMBER solve failed: ") + ex.what();
+        return false;
+    }
+}
 
-        ImGui::PushID(label);
-        ImGui::TextUnformatted(label);
-        ImGui::SameLine(32.0f);
+bool computeCgalResult(SceneData &scene, const UiState &ui, ResultStats &outStats, std::string &outError)
+{
+    outStats = ResultStats();
+    outError.clear();
 
-        ImGui::SetNextItemWidth(150.0f);
-        double sliderValue = value;
-        if (ImGui::SliderScalar(
+    try
+    {
+        const NefPolyhedron toolNef = makeNef(scene.toolCurrentMesh);
+
+        const Clock::time_point solveStart = Clock::now();
+        const NefPolyhedron result = applyBoolean(scene.workpieceNef, toolNef, ui.operation);
+        const Clock::time_point solveEnd = Clock::now();
+
+        const Clock::time_point convertStart = Clock::now();
+        scene.resultDisplayMesh = makeObjMeshData(result);
+        const Clock::time_point convertEnd = Clock::now();
+
+        storeResultStats(outStats, scene.resultDisplayMesh, solveStart, solveEnd, convertStart, convertEnd);
+        return true;
+    }
+    catch (const std::exception &ex)
+    {
+        outError = ex.what();
+        return false;
+    }
+}
+
+bool recomputeScene(SceneData &scene, UiState &ui)
+{
+    ui.lastError.clear();
+
+    scene.toolCurrentMesh = transformToolMesh(scene.toolOriginalMesh, ui);
+    scene.toolDisplayMesh = scene.toolCurrentMesh;
+
+    switch (ui.engine)
+    {
+    case EngineKind::Ember:
+        return computeEmberResult(scene, ui, ui.stats, ui.lastError);
+    case EngineKind::Cgal:
+        return computeCgalResult(scene, ui, ui.stats, ui.lastError);
+    }
+
+    ui.lastError = "Unknown engine.";
+    return false;
+}
+
+ToolPose makeToolPose(
+    double tx,
+    double ty,
+    double tz,
+    double rx = 0.0,
+    double ry = 0.0,
+    double rz = 0.0) noexcept
+{
+    ToolPose pose;
+    pose.tx = tx;
+    pose.ty = ty;
+    pose.tz = tz;
+    pose.rx = rx;
+    pose.ry = ry;
+    pose.rz = rz;
+    return pose;
+}
+
+bool drawPosePresetButton(const char *label, ToolPose &pose, const ToolPose &preset)
+{
+    if (!ImGui::Button(label))
+        return false;
+
+    pose = preset;
+    return true;
+}
+
+bool drawDoubleSliderInput(
+    const char *label,
+    double &value,
+    double minValue,
+    double maxValue,
+    double inputStep)
+{
+    bool changed = false;
+
+    ImGui::PushID(label);
+    ImGui::TextUnformatted(label);
+    ImGui::SameLine(32.0f);
+
+    ImGui::SetNextItemWidth(150.0f);
+    double sliderValue = value;
+    if (ImGui::SliderScalar(
                 "##slider",
                 ImGuiDataType_Double,
                 &sliderValue,
@@ -586,148 +550,136 @@ namespace ember::visual_test
                 &maxValue,
                 "%.6f",
                 ImGuiSliderFlags_AlwaysClamp))
-        {
-            value = sliderValue;
-            changed = true;
-        }
-
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(110.0f);
-        double inputValue = value;
-        if (ImGui::InputDouble("##input", &inputValue, inputStep, inputStep * 10.0, "%.6f"))
-        {
-            value = inputValue;
-            changed = true;
-        }
-
-        ImGui::PopID();
-        return changed;
+    {
+        value = sliderValue;
+        changed = true;
     }
 
-    MeshLayerStyle workpieceLayerStyle()
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(110.0f);
+    double inputValue = value;
+    if (ImGui::InputDouble("##input", &inputValue, inputStep, inputStep * 10.0, "%.6f"))
     {
-        const Eigen::RowVector3d blue(0.25, 0.45, 0.95);
-        return MeshLayerStyle{blue, blue, false, true, true};
+        value = inputValue;
+        changed = true;
     }
 
-    MeshLayerStyle resultLayerStyle()
+    ImGui::PopID();
+    return changed;
+}
+
+MeshLayerStyle workpieceLayerStyle()
+{
+    const Eigen::RowVector3d blue(0.25, 0.45, 0.95);
+    return MeshLayerStyle{blue, blue, false, true, true};
+}
+
+MeshLayerStyle resultLayerStyle()
+{
+    return MeshLayerStyle{
+        Eigen::RowVector3d(0.95, 0.55, 0.20),
+        Eigen::RowVector3d(0.20, 0.08, 0.02),
+        true,
+        true,
+        true};
+}
+
+MeshLayerStyle toolLayerStyle()
+{
+    return MeshLayerStyle{
+        Eigen::RowVector3d(0.15, 0.80, 0.25),
+        Eigen::RowVector3d(0.05, 0.55, 0.12),
+        false,
+        true,
+        true};
+}
+
+void setViewerMesh(
+    igl::opengl::glfw::Viewer &viewer,
+    int meshId,
+    const ObjMeshData &mesh,
+    const MeshLayerStyle &style)
+{
+    Eigen::MatrixXd vertices;
+    vertices.resize(static_cast<Eigen::Index>(mesh.vertices.size()), 3);
+    for (std::size_t i = 0; i < mesh.vertices.size(); ++i)
     {
-        return MeshLayerStyle{
-            Eigen::RowVector3d(0.95, 0.55, 0.20),
-            Eigen::RowVector3d(0.20, 0.08, 0.02),
-            true,
-            true,
-            true};
+        vertices(static_cast<Eigen::Index>(i), 0) = mesh.vertices[i].x;
+        vertices(static_cast<Eigen::Index>(i), 1) = mesh.vertices[i].y;
+        vertices(static_cast<Eigen::Index>(i), 2) = mesh.vertices[i].z;
     }
 
-    MeshLayerStyle toolLayerStyle()
+    std::size_t viewerFaceCount = 0;
+    for (const std::vector<std::size_t> &face : mesh.faces)
     {
-        return MeshLayerStyle{
-            Eigen::RowVector3d(0.15, 0.80, 0.25),
-            Eigen::RowVector3d(0.05, 0.55, 0.12),
-            false,
-            true,
-            true};
+        if (face.size() >= 3)
+            viewerFaceCount += face.size() - 2;
     }
 
-    void setViewerMesh(
-        igl::opengl::glfw::Viewer &viewer,
-        int meshId,
-        const ObjMeshData &mesh,
-        const MeshLayerStyle &style)
+    Eigen::MatrixXi viewerFaces(static_cast<Eigen::Index>(viewerFaceCount), 3);
+    std::size_t viewerFaceIndex = 0;
+    for (const std::vector<std::size_t> &face : mesh.faces)
     {
-        Eigen::MatrixXd vertices;
-        vertices.resize(static_cast<Eigen::Index>(mesh.vertices.size()), 3);
-        for (std::size_t i = 0; i < mesh.vertices.size(); ++i)
+        for (std::size_t i = 1; i + 1 < face.size(); ++i)
         {
-            vertices(static_cast<Eigen::Index>(i), 0) = mesh.vertices[i].x;
-            vertices(static_cast<Eigen::Index>(i), 1) = mesh.vertices[i].y;
-            vertices(static_cast<Eigen::Index>(i), 2) = mesh.vertices[i].z;
-        }
-
-        std::size_t viewerFaceCount = 0;
-        for (const std::vector<std::size_t> &face : mesh.faces)
-        {
-            if (face.size() >= 3)
-            {
-                viewerFaceCount += face.size() - 2;
-            }
-        }
-
-        Eigen::MatrixXi viewerFaces(static_cast<Eigen::Index>(viewerFaceCount), 3);
-        std::size_t viewerFaceIndex = 0;
-        for (const std::vector<std::size_t> &face : mesh.faces)
-        {
-            for (std::size_t i = 1; i + 1 < face.size(); ++i)
-            {
-                if (face[0] >= mesh.vertices.size() ||
+            if (face[0] >= mesh.vertices.size() ||
                     face[i] >= mesh.vertices.size() ||
                     face[i + 1] >= mesh.vertices.size())
-                {
-                    continue;
-                }
+                continue;
 
-                viewerFaces(static_cast<Eigen::Index>(viewerFaceIndex), 0) = static_cast<int>(face[0]);
-                viewerFaces(static_cast<Eigen::Index>(viewerFaceIndex), 1) = static_cast<int>(face[i]);
-                viewerFaces(static_cast<Eigen::Index>(viewerFaceIndex), 2) = static_cast<int>(face[i + 1]);
-                ++viewerFaceIndex;
-            }
-        }
-        viewerFaces.conservativeResize(static_cast<Eigen::Index>(viewerFaceIndex), 3);
-
-        viewer.data(meshId).clear();
-        if (vertices.rows() > 0 && viewerFaces.rows() > 0)
-        {
-            viewer.data(meshId).set_mesh(vertices, viewerFaces);
-        }
-        viewer.data(meshId).set_face_based(true);
-        viewer.data(meshId).set_colors(style.color);
-        viewer.data(meshId).double_sided = style.doubleSided;
-        viewer.data(meshId).show_faces = style.showFaces;
-        viewer.data(meshId).show_lines = false;
-
-        if (style.showLines)
-        {
-            std::size_t edgeCount = 0;
-            for (const std::vector<std::size_t> &face : mesh.faces)
-            {
-                edgeCount += face.size();
-            }
-
-            Eigen::MatrixXd edgeStarts(static_cast<Eigen::Index>(edgeCount), 3);
-            Eigen::MatrixXd edgeEnds(static_cast<Eigen::Index>(edgeCount), 3);
-            std::size_t edgeIndex = 0;
-            for (const std::vector<std::size_t> &face : mesh.faces)
-            {
-                for (std::size_t i = 0; i < face.size(); ++i)
-                {
-                    const std::size_t start = face[i];
-                    const std::size_t end = face[(i + 1) % face.size()];
-                    if (start >= mesh.vertices.size() || end >= mesh.vertices.size())
-                    {
-                        continue;
-                    }
-
-                    const ObjVertex &startVertex = mesh.vertices[start];
-                    const ObjVertex &endVertex = mesh.vertices[end];
-                    edgeStarts(static_cast<Eigen::Index>(edgeIndex), 0) = startVertex.x;
-                    edgeStarts(static_cast<Eigen::Index>(edgeIndex), 1) = startVertex.y;
-                    edgeStarts(static_cast<Eigen::Index>(edgeIndex), 2) = startVertex.z;
-                    edgeEnds(static_cast<Eigen::Index>(edgeIndex), 0) = endVertex.x;
-                    edgeEnds(static_cast<Eigen::Index>(edgeIndex), 1) = endVertex.y;
-                    edgeEnds(static_cast<Eigen::Index>(edgeIndex), 2) = endVertex.z;
-                    ++edgeIndex;
-                }
-            }
-
-            edgeStarts.conservativeResize(static_cast<Eigen::Index>(edgeIndex), 3);
-            edgeEnds.conservativeResize(static_cast<Eigen::Index>(edgeIndex), 3);
-            if (edgeStarts.rows() > 0)
-            {
-                viewer.data(meshId).add_edges(edgeStarts, edgeEnds, style.lineColor);
-            }
+            viewerFaces(static_cast<Eigen::Index>(viewerFaceIndex), 0) = static_cast<int>(face[0]);
+            viewerFaces(static_cast<Eigen::Index>(viewerFaceIndex), 1) = static_cast<int>(face[i]);
+            viewerFaces(static_cast<Eigen::Index>(viewerFaceIndex), 2) = static_cast<int>(face[i + 1]);
+            ++viewerFaceIndex;
         }
     }
+    viewerFaces.conservativeResize(static_cast<Eigen::Index>(viewerFaceIndex), 3);
+
+    viewer.data(meshId).clear();
+    if (vertices.rows() > 0 && viewerFaces.rows() > 0)
+        viewer.data(meshId).set_mesh(vertices, viewerFaces);
+    viewer.data(meshId).set_face_based(true);
+    viewer.data(meshId).set_colors(style.color);
+    viewer.data(meshId).double_sided = style.doubleSided;
+    viewer.data(meshId).show_faces = style.showFaces;
+    viewer.data(meshId).show_lines = false;
+
+    if (style.showLines)
+    {
+        std::size_t edgeCount = 0;
+        for (const std::vector<std::size_t> &face : mesh.faces)
+            edgeCount += face.size();
+
+        Eigen::MatrixXd edgeStarts(static_cast<Eigen::Index>(edgeCount), 3);
+        Eigen::MatrixXd edgeEnds(static_cast<Eigen::Index>(edgeCount), 3);
+        std::size_t edgeIndex = 0;
+        for (const std::vector<std::size_t> &face : mesh.faces)
+        {
+            for (std::size_t i = 0; i < face.size(); ++i)
+            {
+                const std::size_t start = face[i];
+                const std::size_t end = face[(i + 1) % face.size()];
+                if (start >= mesh.vertices.size() || end >= mesh.vertices.size())
+                    continue;
+
+                const ObjVertex &startVertex = mesh.vertices[start];
+                const ObjVertex &endVertex = mesh.vertices[end];
+                edgeStarts(static_cast<Eigen::Index>(edgeIndex), 0) = startVertex.x;
+                edgeStarts(static_cast<Eigen::Index>(edgeIndex), 1) = startVertex.y;
+                edgeStarts(static_cast<Eigen::Index>(edgeIndex), 2) = startVertex.z;
+                edgeEnds(static_cast<Eigen::Index>(edgeIndex), 0) = endVertex.x;
+                edgeEnds(static_cast<Eigen::Index>(edgeIndex), 1) = endVertex.y;
+                edgeEnds(static_cast<Eigen::Index>(edgeIndex), 2) = endVertex.z;
+                ++edgeIndex;
+            }
+        }
+
+        edgeStarts.conservativeResize(static_cast<Eigen::Index>(edgeIndex), 3);
+        edgeEnds.conservativeResize(static_cast<Eigen::Index>(edgeIndex), 3);
+        if (edgeStarts.rows() > 0)
+            viewer.data(meshId).add_edges(edgeStarts, edgeEnds, style.lineColor);
+    }
+}
 }
 
 int main()
@@ -762,9 +714,7 @@ int main()
 
     UiState ui;
     if (!recomputeScene(scene, ui))
-    {
         std::cerr << ui.lastError << std::endl;
-    }
 
     igl::opengl::glfw::Viewer viewer;
     FixedImGuiPlugin plugin;
@@ -831,9 +781,7 @@ int main()
 
         ImGui::Separator();
         if (ImGui::Checkbox("auto scale", &proposed.emberAutoScale))
-        {
             changed = true;
-        }
         if (!proposed.emberAutoScale)
         {
             std::uint64_t proposedScale = proposed.emberManualScale;
@@ -906,9 +854,7 @@ int main()
     viewer.callback_pre_draw = [&](igl::opengl::glfw::Viewer &) -> bool
     {
         if (!ui.dirty)
-        {
             return false;
-        }
 
         const UiState previous = ui;
         ui.pose.tx = std::clamp(ui.pose.tx, kTranslationMin, kTranslationMax);
