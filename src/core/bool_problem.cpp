@@ -39,7 +39,8 @@ void validateSolveInputPolygons(const std::vector<Polygon256> &polygons)
             throw std::runtime_error(message.str());
         }
     }
-}
+
+}
 
 void validateSceneAABB(const AABB3i &sceneAABB)
 {
@@ -50,6 +51,17 @@ void validateSceneAABB(const AABB3i &sceneAABB)
     message << "BoolProblem requires a valid input scene AABB.";
     throw std::runtime_error(message.str());
 }
+
+void throwIfSolveAttempted(bool solveAttempted, const char *method)
+{
+    if (!solveAttempted)
+        return;
+
+    std::ostringstream message;
+    message << "BoolProblem::" << method
+            << "() cannot be called after solve(); each BoolProblem instance is single-use.";
+    throw std::runtime_error(message.str());
+}
 }
 
 BoolProblem::BoolProblem(std::size_t leafPolygonThreshold) noexcept
@@ -57,66 +69,48 @@ BoolProblem::BoolProblem(std::size_t leafPolygonThreshold) noexcept
 {
 }
 
-void BoolProblem::clear() noexcept
+void BoolProblem::setOperation(BoolOp op)
 {
-    polygons_.clear();
-    resetSolveState();
-}
-
-void BoolProblem::setOperation(BoolOp op) noexcept
-{
-    if (op_ == op)
-        return;
-
+    throwIfSolveAttempted(solveAttempted_, "setOperation");
     op_ = op;
-    resetSolveState();
-}
-
-void BoolProblem::setLeafPolygonThreshold(std::size_t threshold) noexcept
-{
-    const std::size_t sanitized = (threshold == 0) ? 1 : threshold;
-    if (leafPolygonThreshold_ == sanitized)
-        return;
-
-    leafPolygonThreshold_ = sanitized;
-    resetSolveState();
 }
 
 void BoolProblem::setOperandAssumptions(
     BoolOperandAssumptions lhsAssumptions,
-    BoolOperandAssumptions rhsAssumptions) noexcept
+    BoolOperandAssumptions rhsAssumptions)
 {
+    throwIfSolveAttempted(solveAttempted_, "setOperandAssumptions");
     lhsAssumptions_ = lhsAssumptions;
     rhsAssumptions_ = rhsAssumptions;
-    resetSolveState();
 }
 
 void BoolProblem::setOperands(const std::vector<Polygon256> &lhs, const std::vector<Polygon256> &rhs)
 {
+    throwIfSolveAttempted(solveAttempted_, "setOperands");
+
     std::vector<Polygon256> lhsCopy = lhs;
     std::vector<Polygon256> rhsCopy = rhs;
 
     assignOperandWNTV(lhsCopy, detail::kLhsOperandIndex);
-    assignOperandWNTV(rhsCopy, detail::kRhsOperandIndex);
+
+    assignOperandWNTV(rhsCopy, detail::kRhsOperandIndex);
 
     polygons_.clear();
     polygons_.reserve(lhsCopy.size() + rhsCopy.size());
     polygons_.insert(polygons_.end(), lhsCopy.begin(), lhsCopy.end());
     polygons_.insert(polygons_.end(), rhsCopy.begin(), rhsCopy.end());
-
-    resetSolveState();
 }
 
 void BoolProblem::solve(const AABB3i &sceneAABB)
 {
     REEMBER_PROFILE_ZONE("BoolProblem::solve");
 
-    resetSolveState();
+    throwIfSolveAttempted(solveAttempted_, "solve");
+    solveAttempted_ = true;
 
     if (polygons_.empty())
     {
         discarded_ = true;
-        solved_ = true;
         return;
     }
 
@@ -125,22 +119,15 @@ void BoolProblem::solve(const AABB3i &sceneAABB)
 
     SubdivisionSolver solver(op_, leafPolygonThreshold_, polygons_, sceneAABB, lhsAssumptions_, rhsAssumptions_);
     solver.solve();
-
     discarded_ = solver.isDiscarded();
-    resultFragments_ = solver.resultFragments();
-    leafSummaries_ = solver.leafSummaries();
+    solver.extractResultFragments(resultFragments_);
+    solver.extractLeafSummaries(leafSummaries_);
     solveMetrics_ = solver.solveMetrics();
-    solved_ = true;
 }
 
 bool BoolProblem::isDiscarded() const noexcept
 {
     return discarded_;
-}
-
-bool BoolProblem::isSolved() const noexcept
-{
-    return solved_;
 }
 
 const std::vector<Polygon256> &BoolProblem::resultFragments() const noexcept
@@ -156,15 +143,6 @@ const std::vector<BoolLeafSummary> &BoolProblem::leafSummaries() const noexcept
 const BoolSolveMetrics &BoolProblem::solveMetrics() const noexcept
 {
     return solveMetrics_;
-}
-
-void BoolProblem::resetSolveState() noexcept
-{
-    discarded_ = false;
-    solved_ = false;
-    resultFragments_.clear();
-    leafSummaries_.clear();
-    solveMetrics_ = BoolSolveMetrics();
 }
 
 void BoolProblem::assignOperandWNTV(std::vector<Polygon256> &polygons, std::size_t hotIndex)

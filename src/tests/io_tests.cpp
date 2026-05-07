@@ -426,8 +426,6 @@ ObjMeshData solveObjBooleanMesh(
         ember::BoolOperandAssumptions{true, true});
     problem.setOperands(lhsPolygons, rhsPolygons);
     problem.solve(makeSceneAABB(lhsAABB, rhsAABB));
-    if (!problem.isSolved())
-        throw std::runtime_error("io_tests BoolProblem did not report solved.");
 
     ObjMeshData result;
     if (!ember::buildObjMeshFromPolygonSoup(problem.resultFragments(), result, error, scale))
@@ -1017,7 +1015,6 @@ void runIoTests()
             ember::BoolOperandAssumptions{true, true});
         problem.setOperands(lhs, rhs);
         problem.solve(makeSceneAABB(0.0, 0.0, 0.0, 4.0, 4.0, 4.0, 1u));
-        assert(problem.isSolved());
         assert(problem.resultFragments().size() == 12u);
 
         const std::filesystem::path outputPath = makeTestPath("io_boolean_export.obj");
