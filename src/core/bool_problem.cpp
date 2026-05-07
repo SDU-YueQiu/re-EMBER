@@ -47,6 +47,16 @@ void preprocessSolveInputPolygons(std::vector<Polygon256> &polygons)
     for (Polygon256 &polygon : polygons)
         polygon.precomputeVertices();
 }
+
+void validateSceneAABB(const AABB3i &sceneAABB)
+{
+    if (isValidAABB(sceneAABB))
+        return;
+
+    std::ostringstream message;
+    message << "BoolProblem requires a valid input scene AABB.";
+    throw std::runtime_error(message.str());
+}
 }
 
 BoolProblem::BoolProblem(std::size_t leafPolygonThreshold) noexcept
@@ -104,7 +114,7 @@ void BoolProblem::setOperands(const std::vector<Polygon256> &lhs, const std::vec
     resetSolveState();
 }
 
-void BoolProblem::solve()
+void BoolProblem::solve(const AABB3i &sceneAABB)
 {
     REEMBER_PROFILE_ZONE("BoolProblem::solve");
 
@@ -117,10 +127,11 @@ void BoolProblem::solve()
         return;
     }
 
+    validateSceneAABB(sceneAABB);
     preprocessSolveInputPolygons(polygons_);
     validateSolveInputPolygons(polygons_);
 
-    SubdivisionSolver solver(op_, leafPolygonThreshold_, polygons_, lhsAssumptions_, rhsAssumptions_);
+    SubdivisionSolver solver(op_, leafPolygonThreshold_, polygons_, sceneAABB, lhsAssumptions_, rhsAssumptions_);
     solver.solve();
 
     discarded_ = solver.isDiscarded();

@@ -44,6 +44,7 @@ public:
         BoolOp op,
         std::size_t leafPolygonThreshold,
         const std::vector<Polygon256> &polygons,
+        const AABB3i &rootAABB,
         BoolOperandAssumptions lhsAssumptions,
         BoolOperandAssumptions rhsAssumptions);
 

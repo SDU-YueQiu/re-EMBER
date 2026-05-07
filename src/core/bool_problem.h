@@ -154,12 +154,14 @@ public:
     void setOperands(const std::vector<Polygon256> &lhs, const std::vector<Polygon256> &rhs);
 
     /**
-     * @brief 执行当前布尔问题。
+     * @brief 使用调用方提供的场景 AABB 执行当前布尔问题。
      *
-     * 如果输入、细分、leaf arrangement 或 WNV 分类无法保证正确，
-     * 当前实现会抛出 `std::runtime_error`，避免输出不可信结果。
+     * @param[in] sceneAABB 全部输入多边形所在的整数场景包围盒，调用方应在读入/量化阶段生成。
+     * @note `sceneAABB` 应包含足够 margin，使根参考点可取在输入几何外侧。
+     *       如果输入、细分、leaf arrangement 或 WNV 分类无法保证正确，
+     *       当前实现会抛出 `std::runtime_error`，避免输出不可信结果。
      */
-    void solve();
+    void solve(const AABB3i &sceneAABB);
 
     /**
      * @brief 判断当前问题是否已被判定为空。
