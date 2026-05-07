@@ -72,6 +72,20 @@ std::vector<Polygon256> makeAxisAlignedBox(int xmin, int ymin, int zmin, int xma
         makeFaceXY(zmax, xmin, xmax, ymin, ymax, 1)};
 }
 
+ember::AABB3i makeSceneAABB(int xmin, int ymin, int zmin, int xmax, int ymax, int zmax)
+{
+    ember::AABB3i box;
+    box.xMin = xmin;
+    box.xMax = xmax;
+    box.yMin = ymin;
+    box.yMax = ymax;
+    box.zMin = zmin;
+    box.zMax = zmax;
+    box.valid = true;
+    ember::expandAABB(box, 1);
+    return box;
+}
+
 void assignWNTV(std::vector<Polygon256> &polygons, const ember::WNV &wntv)
 {
     for (Polygon256 &polygon : polygons)
@@ -310,7 +324,8 @@ void assertResultFragmentIsGeometryOnly(const Polygon256 &fragment)
 void runBoolProblemTests()
 {
     const std::vector<Polygon256> lhs = makeAxisAlignedBox(0, 0, 0, 1, 1, 1);
-    const std::vector<Polygon256> rhs = makeAxisAlignedBox(3, 3, 3, 4, 4, 4);
+    const std::vector<Polygon256> rhs = makeAxisAlignedBox(3, 3, 3, 4, 4, 4);
+    const ember::AABB3i separatedSceneAABB = makeSceneAABB(0, 0, 0, 4, 4, 4);
 
     {
         const Polygon256 square = makeFaceXY(0, 0, 2, 0, 2, 1);
@@ -802,7 +817,7 @@ void runBoolProblemTests()
         problem.setOperation(BoolOp::Union);
         problem.setOperands(lhs, rhs);
 
-        problem.solve();
+        problem.solve(separatedSceneAABB);
 
         const std::vector<ember::BoolLeafSummary> &leaves = problem.leafSummaries();
 
@@ -828,9 +843,9 @@ void runBoolProblemTests()
         problem.setOperands({invalidPolygon}, {});
 
         assert(throwsRuntimeError(
-                   [&problem]()
+                   [&problem, &separatedSceneAABB]()
         {
-            problem.solve();
+            problem.solve(separatedSceneAABB);
         },
         "invalid"));
         assert(!problem.isSolved());
@@ -841,16 +856,16 @@ void runBoolProblemTests()
         ember::BoolProblem problem(2);
         problem.setOperation(BoolOp::Union);
         problem.setOperands(lhs, rhs);
-        problem.solve();
+        problem.solve(separatedSceneAABB);
         assert(problem.isSolved());
         assert(!problem.resultFragments().empty());
 
         const Polygon256 invalidPolygon = makeInvalidInwardSquareXY();
         problem.setOperands({invalidPolygon}, {});
         assert(throwsRuntimeError(
-                   [&problem]()
+                   [&problem, &separatedSceneAABB]()
         {
-            problem.solve();
+            problem.solve(separatedSceneAABB);
         },
         "invalid"));
         assert(!problem.isSolved());
@@ -861,7 +876,7 @@ void runBoolProblemTests()
         ember::BoolProblem problem(2);
         problem.setOperation(BoolOp::Intersection);
         problem.setOperands(lhs, rhs);
-        problem.solve();
+        problem.solve(separatedSceneAABB);
 
         assert(problem.isSolved());
         assert(problem.resultFragments().empty());
@@ -874,7 +889,7 @@ void runBoolProblemTests()
         ember::BoolProblem problem(2);
         problem.setOperation(BoolOp::Difference);
         problem.setOperands({}, rhsOnlySurface);
-        problem.solve();
+        problem.solve(separatedSceneAABB);
 
         assert(problem.isSolved());
         assert(problem.isDiscarded());
@@ -885,13 +900,14 @@ void runBoolProblemTests()
     {
         const std::vector<Polygon256> tallLhs = makeAxisAlignedBox(0, 0, 0, 1, 100, 1);
         const std::vector<Polygon256> tallRhs = makeAxisAlignedBox(3, 0, 0, 4, 100, 1);
+        const ember::AABB3i tallSceneAABB = makeSceneAABB(0, 0, 0, 4, 100, 1);
         const ember::BoolOperandAssumptions exactOperand{true, true};
 
         {
             ember::BoolProblem problem(6);
             problem.setOperation(BoolOp::Union);
             problem.setOperands(tallLhs, tallRhs);
-            problem.solve();
+            problem.solve(tallSceneAABB);
 
             const std::vector<ember::BoolLeafSummary> &leaves = problem.leafSummaries();
             assert(problem.isSolved());
@@ -909,7 +925,7 @@ void runBoolProblemTests()
             ember::BoolProblem problem(6);
             problem.setOperation(BoolOp::Intersection);
             problem.setOperands(tallLhs, tallRhs);
-            problem.solve();
+            problem.solve(tallSceneAABB);
 
             assert(problem.isSolved());
             assert(problem.isDiscarded());
@@ -921,7 +937,7 @@ void runBoolProblemTests()
             ember::BoolProblem problem(6);
             problem.setOperation(BoolOp::Difference);
             problem.setOperands(tallLhs, tallRhs);
-            problem.solve();
+            problem.solve(tallSceneAABB);
 
             const std::vector<ember::BoolLeafSummary> &leaves = problem.leafSummaries();
             assert(problem.isSolved());
@@ -937,7 +953,7 @@ void runBoolProblemTests()
             problem.setOperation(BoolOp::Union);
             problem.setOperandAssumptions(exactOperand, exactOperand);
             problem.setOperands(tallLhs, tallRhs);
-            problem.solve();
+            problem.solve(tallSceneAABB);
 
             assert(problem.isSolved());
             assert(!problem.isDiscarded());
@@ -949,7 +965,7 @@ void runBoolProblemTests()
             problem.setOperation(BoolOp::Intersection);
             problem.setOperandAssumptions(exactOperand, exactOperand);
             problem.setOperands(tallLhs, tallRhs);
-            problem.solve();
+            problem.solve(tallSceneAABB);
 
             assert(problem.isSolved());
             assert(problem.isDiscarded());
@@ -962,7 +978,7 @@ void runBoolProblemTests()
             problem.setOperation(BoolOp::Difference);
             problem.setOperandAssumptions(exactOperand, exactOperand);
             problem.setOperands(tallLhs, tallRhs);
-            problem.solve();
+            problem.solve(tallSceneAABB);
 
             assert(problem.isSolved());
             assert(!problem.isDiscarded());
@@ -973,6 +989,7 @@ void runBoolProblemTests()
     {
         const std::vector<Polygon256> singleLhs = makeAxisAlignedBox(0, 0, 0, 1, 1, 1);
         const std::vector<Polygon256> emptyRhs;
+        const ember::AABB3i singleSceneAABB = makeSceneAABB(0, 0, 0, 1, 1, 1);
 
         {
             ember::BoolProblem problem(2);
@@ -981,7 +998,7 @@ void runBoolProblemTests()
             problem.setOperation(BoolOp::Union);
             problem.setOperandAssumptions(lhsAssumptions, ember::BoolOperandAssumptions{});
             problem.setOperands(singleLhs, emptyRhs);
-            problem.solve();
+            problem.solve(singleSceneAABB);
 
             assert(problem.isSolved());
             assert(!problem.isDiscarded());
@@ -997,7 +1014,7 @@ void runBoolProblemTests()
             problem.setOperation(BoolOp::Union);
             problem.setOperandAssumptions(lhsAssumptions, ember::BoolOperandAssumptions{});
             problem.setOperands(singleLhs, emptyRhs);
-            problem.solve();
+            problem.solve(singleSceneAABB);
 
             assert(problem.isSolved());
             assert(!problem.isDiscarded());
@@ -1017,7 +1034,7 @@ void runBoolProblemTests()
             problem.setOperation(BoolOp::Difference);
             problem.setOperandAssumptions(lhsAssumptions, ember::BoolOperandAssumptions{});
             problem.setOperands(singleLhs, emptyRhs);
-            problem.solve();
+            problem.solve(singleSceneAABB);
 
             assert(problem.isSolved());
             assert(!problem.isDiscarded());
@@ -1039,12 +1056,12 @@ void runBoolProblemTests()
         ember::BoolProblem clean(2);
         clean.setOperation(BoolOp::Union);
         clean.setOperands(lhs, rhs);
-        clean.solve();
+        clean.solve(separatedSceneAABB);
 
         ember::BoolProblem retagged(2);
         retagged.setOperation(BoolOp::Union);
         retagged.setOperands(dirtyTaggedLhs, dirtyTaggedRhs);
-        retagged.solve();
+        retagged.solve(separatedSceneAABB);
 
         assert(clean.isSolved());
         assert(retagged.isSolved());
@@ -1056,10 +1073,9 @@ void runBoolProblemTests()
         ember::BoolProblem problem(2);
         problem.setOperation(BoolOp::Difference);
         problem.setOperands(lhs, rhs);
-        problem.solve();
+        problem.solve(separatedSceneAABB);
 
         assert(problem.isSolved());
         assert(problem.resultFragments().size() == 6u);
     }
 }
-

@@ -144,6 +144,7 @@ struct SceneData
     ObjMeshData toolDisplayMesh;
     ObjMeshData resultDisplayMesh;
     std::vector<Polygon256> workpiecePolygons;
+    AABB3i workpieceAABB;
     std::uint64_t emberSharedScale = 0;
     std::unique_ptr<NefPolyhedron> workpieceNef;
     Bounds3d workpieceBounds;
@@ -465,7 +466,14 @@ bool prepareEmberInput(SceneData &scene, const UiState &ui, std::string &outErro
     polygonBuildOptions.triangulateNonCoplanarFaces = true;
 
     std::vector<Polygon256> workpiecePolygons;
-    if (!ember::buildPolygonSoup(scene.workpieceMesh, sharedScale, polygonBuildOptions, workpiecePolygons, outError))
+    AABB3i workpieceAABB;
+    if (!ember::buildPolygonSoup(
+                scene.workpieceMesh,
+                sharedScale,
+                polygonBuildOptions,
+                workpiecePolygons,
+                workpieceAABB,
+                outError))
     {
         outError = "Failed to build the EMBER workpiece polygon soup: " + outError;
         return false;
@@ -473,6 +481,7 @@ bool prepareEmberInput(SceneData &scene, const UiState &ui, std::string &outErro
 
     scene.emberSharedScale = sharedScale;
     scene.workpiecePolygons = std::move(workpiecePolygons);
+    scene.workpieceAABB = workpieceAABB;
     return true;
 }
 
@@ -494,11 +503,23 @@ bool computeEmberResult(SceneData &scene, const UiState &ui, ResultStats &outSta
         polygonBuildOptions.triangulateNonCoplanarFaces = true;
 
         std::vector<Polygon256> toolPolygons;
-        if (!ember::buildPolygonSoup(scene.toolCurrentMesh, scene.emberSharedScale, polygonBuildOptions, toolPolygons, outError))
+        AABB3i toolAABB;
+        if (!ember::buildPolygonSoup(
+                    scene.toolCurrentMesh,
+                    scene.emberSharedScale,
+                    polygonBuildOptions,
+                    toolPolygons,
+                    toolAABB,
+                    outError))
         {
             outError = "Failed to build the EMBER tool polygon soup: " + outError;
             return false;
         }
+
+        AABB3i sceneAABB;
+        ember::mergeAABB(sceneAABB, scene.workpieceAABB);
+        ember::mergeAABB(sceneAABB, toolAABB);
+        ember::expandAABB(sceneAABB, 1);
 
         ember::BoolProblem problem(ui.leafThreshold);
         problem.setOperation(ui.operation);
@@ -508,7 +529,7 @@ bool computeEmberResult(SceneData &scene, const UiState &ui, ResultStats &outSta
         problem.setOperands(scene.workpiecePolygons, toolPolygons);
 
         const Clock::time_point solveStart = Clock::now();
-        problem.solve();
+        problem.solve(sceneAABB);
         const Clock::time_point solveEnd = Clock::now();
 
         const Clock::time_point convertStart = Clock::now();

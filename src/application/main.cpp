@@ -412,6 +412,9 @@ int main(int argc, char **argv)
         std::uint64_t sharedScale = 0;
         std::vector<ember::Polygon256> lhsPolygons;
         std::vector<ember::Polygon256> rhsPolygons;
+        ember::AABB3i lhsAABB;
+        ember::AABB3i rhsAABB;
+        ember::AABB3i sceneAABB;
         {
             REEMBER_PROFILE_ZONE("re-EMBER::prepare_polygons");
             if (!ember::chooseSharedScale({lhsMesh, rhsMesh}, quantizeOptions, sharedScale, error))
@@ -422,17 +425,20 @@ int main(int argc, char **argv)
 
             ember::PolygonSoupBuildOptions buildOptions;
             buildOptions.triangulateNonCoplanarFaces = true;
-            if (!ember::buildPolygonSoup(lhsMesh, sharedScale, buildOptions, lhsPolygons, error))
+            if (!ember::buildPolygonSoup(lhsMesh, sharedScale, buildOptions, lhsPolygons, lhsAABB, error))
             {
                 std::cerr << error << std::endl;
                 return 1;
             }
-            if (!ember::buildPolygonSoup(rhsMesh, sharedScale, buildOptions, rhsPolygons, error))
+            if (!ember::buildPolygonSoup(rhsMesh, sharedScale, buildOptions, rhsPolygons, rhsAABB, error))
             {
                 std::cerr << error << std::endl;
                 return 1;
             }
 
+            ember::mergeAABB(sceneAABB, lhsAABB);
+            ember::mergeAABB(sceneAABB, rhsAABB);
+            ember::expandAABB(sceneAABB, 1);
             timings.sharedScale = sharedScale;
             timings.lhsPolygonCount = lhsPolygons.size();
             timings.rhsPolygonCount = rhsPolygons.size();
@@ -452,7 +458,7 @@ int main(int argc, char **argv)
         const Clock::time_point solveStart = Clock::now();
         {
             REEMBER_PROFILE_ZONE("re-EMBER::solve_bool_problem");
-            problem.solve();
+            problem.solve(sceneAABB);
         }
         const Clock::time_point solveEnd = Clock::now();
         timings.solveMs = elapsedMilliseconds(solveStart, solveEnd);

@@ -754,12 +754,14 @@ SubdivisionSolver::SubdivisionSolver(
     BoolOp op,
     std::size_t leafPolygonThreshold,
     const std::vector<Polygon256> &polygons,
+    const AABB3i &rootAABB,
     BoolOperandAssumptions lhsAssumptions,
     BoolOperandAssumptions rhsAssumptions)
     : op_(op),
       leafPolygonThreshold_(leafPolygonThreshold == 0 ? 1 : leafPolygonThreshold),
       lhsAssumptions_(lhsAssumptions),
       rhsAssumptions_(rhsAssumptions),
+      aabb_(rootAABB),
       polygons_(polygons)
 {
 }
@@ -788,7 +790,9 @@ void SubdivisionSolver::solve()
 {
     REEMBER_PROFILE_ZONE("SubdivisionSolver::solve");
 
+    const AABB3i rootAABB = aabb_;
     resetSolveState();
+    aabb_ = rootAABB;
     solveMetrics_.inputPolygonCount = polygons_.size();
     if (polygons_.empty())
     {
@@ -797,11 +801,10 @@ void SubdivisionSolver::solve()
         return;
     }
 
-    aabb_ = computeAABB(polygons_);
     if (!isValidAABB(aabb_))
     {
         std::ostringstream message;
-        message << "SubdivisionSolver failed to compute a valid root AABB root_aabb="
+        message << "SubdivisionSolver received an invalid root AABB root_aabb="
                 << formatAABB(aabb_)
                 << ".";
         throw std::runtime_error(message.str());

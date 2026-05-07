@@ -71,6 +71,29 @@ bool quantizeVertex(const ObjVertex &vertex, std::uint64_t scale, Vec3i &outVert
     return true;
 }
 
+// 输入 AABB 在量化顶点阶段构造，避免布尔核心再从 256 位多边形反推根包围盒。
+void appendQuantizedVertexToAABB(AABB3i &box, const Vec3i &vertex) noexcept
+{
+    if (!box.valid)
+    {
+        box.xMin = vertex.x;
+        box.xMax = vertex.x;
+        box.yMin = vertex.y;
+        box.yMax = vertex.y;
+        box.zMin = vertex.z;
+        box.zMax = vertex.z;
+        box.valid = true;
+        return;
+    }
+
+    if (vertex.x < box.xMin) box.xMin = vertex.x;
+    if (vertex.x > box.xMax) box.xMax = vertex.x;
+    if (vertex.y < box.yMin) box.yMin = vertex.y;
+    if (vertex.y > box.yMax) box.yMax = vertex.y;
+    if (vertex.z < box.zMin) box.zMin = vertex.z;
+    if (vertex.z > box.zMax) box.zMax = vertex.z;
+}
+
 // 量化后重复顶点会让某些边退化成零长度，先在面级别提前拦截。
 bool hasDuplicateFaceVertex(const std::vector<Vec3i> &faceVertices) noexcept
 {
@@ -498,11 +521,34 @@ bool buildPolygonSoup(
 bool buildPolygonSoup(
     const ObjMeshData &mesh,
     std::uint64_t sharedScale,
+    std::vector<Polygon256> &outPolygons,
+    AABB3i &outAABB,
+    std::string &outError)
+{
+    return buildPolygonSoup(mesh, sharedScale, PolygonSoupBuildOptions(), outPolygons, outAABB, outError);
+}
+
+bool buildPolygonSoup(
+    const ObjMeshData &mesh,
+    std::uint64_t sharedScale,
     const PolygonSoupBuildOptions &options,
     std::vector<Polygon256> &outPolygons,
     std::string &outError)
 {
+    AABB3i unusedAABB;
+    return buildPolygonSoup(mesh, sharedScale, options, outPolygons, unusedAABB, outError);
+}
+
+bool buildPolygonSoup(
+    const ObjMeshData &mesh,
+    std::uint64_t sharedScale,
+    const PolygonSoupBuildOptions &options,
+    std::vector<Polygon256> &outPolygons,
+    AABB3i &outAABB,
+    std::string &outError)
+{
     outPolygons.clear();
+    outAABB = AABB3i();
     outError.clear();
 
     if (sharedScale == 0)
@@ -543,6 +589,7 @@ bool buildPolygonSoup(
             }
 
             faceVertices.push_back(quantizedVertices[vertexIndex]);
+            appendQuantizedVertexToAABB(outAABB, quantizedVertices[vertexIndex]);
         }
 
         Polygon256 polygon;

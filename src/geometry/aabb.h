@@ -4,11 +4,9 @@
  */
 #pragma once
 
-#include "core/perf_tracing.h"
 #include "geometry/geometry256.h"
 
 #include <array>
-#include <vector>
 
 namespace ember
 {
@@ -152,6 +150,38 @@ inline bool isValidAABB(const AABB3i &box) noexcept
     return box.valid && box.xMin <= box.xMax && box.yMin <= box.yMax && box.zMin <= box.zMax;
 }
 
+inline void expandAABB(AABB3i &box, const Integer &margin) noexcept
+{
+    if (!isValidAABB(box))
+        return;
+
+    box.xMin -= margin;
+    box.xMax += margin;
+    box.yMin -= margin;
+    box.yMax += margin;
+    box.zMin -= margin;
+    box.zMax += margin;
+}
+
+inline void mergeAABB(AABB3i &box, const AABB3i &source) noexcept
+{
+    if (!isValidAABB(source))
+        return;
+
+    if (!box.valid)
+    {
+        box = source;
+        return;
+    }
+
+    if (source.xMin < box.xMin) box.xMin = source.xMin;
+    if (source.xMax > box.xMax) box.xMax = source.xMax;
+    if (source.yMin < box.yMin) box.yMin = source.yMin;
+    if (source.yMax > box.yMax) box.yMax = source.yMax;
+    if (source.zMin < box.zMin) box.zMin = source.zMin;
+    if (source.zMax > box.zMax) box.zMax = source.zMax;
+}
+
 inline PlanePoint3i makeIntegerPoint(const Integer &x, const Integer &y, const Integer &z) noexcept
 {
     return PlanePoint3i(
@@ -180,63 +210,6 @@ inline std::array<Plane3i, 6> makeAABBPlanes(const AABB3i &box) noexcept
         Plane3i(0, 1, 0, -box.yMax),
         Plane3i(0, 0, -1, box.zMin),
         Plane3i(0, 0, 1, -box.zMax)};
-}
-
-inline AABB3i computeAABB(const std::vector<Polygon256> &polygons, const Integer &margin = 1)
-{
-    REEMBER_PROFILE_ZONE("computeAABB");
-
-    AABB3i box;
-    bool initialized = false;
-
-    for (const Polygon256 &poly : polygons)
-    {
-        const std::vector<PlanePoint3i> &cachedVertices = poly.vertices();
-        for (const PlanePoint3i &vertex : cachedVertices)
-        {
-            if (!vertex.hasUniqueIntersection() || isZero(vertex.x.w))
-                continue;
-
-            const Integer fx = floorDiv(vertex.x.x, vertex.x.w);
-            const Integer cx = ceilDiv(vertex.x.x, vertex.x.w);
-            const Integer fy = floorDiv(vertex.x.y, vertex.x.w);
-            const Integer cy = ceilDiv(vertex.x.y, vertex.x.w);
-            const Integer fz = floorDiv(vertex.x.z, vertex.x.w);
-            const Integer cz = ceilDiv(vertex.x.z, vertex.x.w);
-
-            if (!initialized)
-            {
-                box.xMin = fx;
-                box.xMax = cx;
-                box.yMin = fy;
-                box.yMax = cy;
-                box.zMin = fz;
-                box.zMax = cz;
-                initialized = true;
-            }
-            else
-            {
-                if (fx < box.xMin) box.xMin = fx;
-                if (cx > box.xMax) box.xMax = cx;
-                if (fy < box.yMin) box.yMin = fy;
-                if (cy > box.yMax) box.yMax = cy;
-                if (fz < box.zMin) box.zMin = fz;
-                if (cz > box.zMax) box.zMax = cz;
-            }
-        }
-    }
-
-    if (!initialized)
-        return box;
-
-    box.xMin -= margin;
-    box.xMax += margin;
-    box.yMin -= margin;
-    box.yMax += margin;
-    box.zMin -= margin;
-    box.zMax += margin;
-    box.valid = true;
-    return box;
 }
 
 inline bool isPointInsideOrOnAABB(const PlanePoint3i &point, const AABB3i &box) noexcept
