@@ -35,6 +35,7 @@ struct ClassifiedFragment
  * @brief 负责细分、局部编排和 WNV 分类的内部递归求解器。
  *
  * 公开调用方只使用 `BoolProblem`；该类独占临时节点树，
+ * 注意polygons会被swap到求解器内部，调用者的polygons会被置空
  * 避免递归细节泄露到公共 API。
  */
 class SubdivisionSolver
@@ -43,7 +44,7 @@ public:
     SubdivisionSolver(
         BoolOp op,
         std::size_t leafPolygonThreshold,
-        const std::vector<Polygon256> &polygons,
+        std::vector<Polygon256> &polygons,
         const AABB3i &rootAABB,
         BoolOperandAssumptions lhsAssumptions,
         BoolOperandAssumptions rhsAssumptions);
@@ -64,14 +65,14 @@ public:
     bool isDiscarded() const noexcept;
 
     /**
-     * @brief 返回从当前子树收集到的结果片段。
+     * @brief 从当前子树收集到的结果片段移动到 out 中。
      */
-    const std::vector<Polygon256> &resultFragments() const noexcept;
+    void extractResultFragments(std::vector<Polygon256>& out) noexcept;
 
     /**
-     * @brief 返回从当前子树收集到的叶子诊断信息。
+     * @brief 提取从当前子树收集到的叶子诊断信息。
      */
-    const std::vector<BoolLeafSummary> &leafSummaries() const noexcept;
+    void extractLeafSummaries(std::vector<BoolLeafSummary>& out) noexcept;
 
     /**
      * @brief 返回最近一次求解的高层统计信息。
@@ -241,14 +242,24 @@ private:
     BoolStatus evaluateBooleanIndicator(const WNV &wnv) const noexcept;
 
     /**
-     * @brief 追加当前子树中未丢弃的叶子摘要。
+     * @brief 以当前节点的轻量统计更新子树级高层指标。
      */
-    void collectLeafSummaries(std::vector<BoolLeafSummary> &outSummaries) const;
+    void finalizeNodeMetrics(bool isLeafNode) noexcept;
 
     /**
-     * @brief 递归收集当前子树的高层统计信息。
+     * @brief 叶子求解完成后写出摘要、封账并释放中间容器。
      */
-    void collectSolveMetrics(BoolSolveMetrics &outMetrics) const;
+    void finalizeLeafNode();
+
+    /**
+     * @brief 内部节点合并完子树后封账并释放当前节点输入。
+     */
+    void finalizeInternalNode();
+
+    /**
+     * @brief 释放当前节点后续不再需要的重量级容器存储。
+     */
+    void releaseTransientGeometry() noexcept;
 
     BoolOp op_ = BoolOp::Intersection;
     std::size_t leafPolygonThreshold_ = 25;
@@ -267,6 +278,9 @@ private:
     std::vector<Polygon256> resultFragments_;
     std::vector<BoolLeafSummary> leafSummaries_;
     BoolSolveMetrics solveMetrics_;
+    std::size_t polygonCount_ = 0;
+    std::size_t leafFragmentCount_ = 0;
+    std::size_t classifiedFragmentCount_ = 0;
     std::unique_ptr<SubdivisionSolver> leftChild_;
     std::unique_ptr<SubdivisionSolver> rightChild_;
 };

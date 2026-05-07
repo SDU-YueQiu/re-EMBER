@@ -11,6 +11,7 @@
 #include "geometry/polygon_ops.h"
 
 #include <algorithm>
+#include <iterator>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -28,6 +29,75 @@ std::string formatAABB(const AABB3i &box)
             << "], z=[" << box.zMin << ", " << box.zMax
             << "]}";
     return message.str();
+}
+
+template <typename T>
+void releaseVectorStorage(std::vector<T> &values)
+{
+    std::vector<T>().swap(values);
+}
+
+template <typename T>
+void appendMovedVector(std::vector<T> &destination, std::vector<T> &source)
+{
+    if (source.empty())
+        return;
+
+    if (destination.empty())
+    {
+        destination.swap(source);
+        return;
+    }
+
+    destination.reserve(destination.size() + source.size());
+    destination.insert(
+        destination.end(),
+        std::make_move_iterator(source.begin()),
+        std::make_move_iterator(source.end()));
+    source.clear();
+}
+
+void accumulateSolveMetrics(BoolSolveMetrics &target, const BoolSolveMetrics &source) noexcept
+{
+    target.nodeCount += source.nodeCount;
+    target.internalNodeCount += source.internalNodeCount;
+    target.leafNodeCount += source.leafNodeCount;
+    target.discardedNodeCount += source.discardedNodeCount;
+    target.maxDepth = std::max(target.maxDepth, source.maxDepth);
+    target.totalPolygonCount += source.totalPolygonCount;
+    target.leafFragmentCount += source.leafFragmentCount;
+    target.classifiedFragmentCount += source.classifiedFragmentCount;
+    target.resultFragmentCount += source.resultFragmentCount;
+    target.constantDiscardCount += source.constantDiscardCount;
+    target.invalidOrEmptyDiscardCount += source.invalidOrEmptyDiscardCount;
+    target.childConstantDiscardCount += source.childConstantDiscardCount;
+    target.leafThresholdStopCount += source.leafThresholdStopCount;
+    target.aabbNotSplittableStopCount += source.aabbNotSplittableStopCount;
+    target.splitFailureStopCount += source.splitFailureStopCount;
+    target.wntvAwareSplitCount += source.wntvAwareSplitCount;
+    target.centerRangeSplitCount += source.centerRangeSplitCount;
+    target.midpointSplitCount += source.midpointSplitCount;
+    target.childReferenceReuseCount += source.childReferenceReuseCount;
+    target.childReferenceTraceCount += source.childReferenceTraceCount;
+    target.childReferenceCandidateCount += source.childReferenceCandidateCount;
+    target.childReferenceFastCandidateCount += source.childReferenceFastCandidateCount;
+    target.childReferenceExhaustiveCandidateCount += source.childReferenceExhaustiveCandidateCount;
+    target.childReferenceCandidateTriedCount += source.childReferenceCandidateTriedCount;
+    target.childReferenceFastCandidateTriedCount += source.childReferenceFastCandidateTriedCount;
+    target.childReferenceExhaustiveCandidateTriedCount += source.childReferenceExhaustiveCandidateTriedCount;
+    target.singleOperandAssumptionStopCount += source.singleOperandAssumptionStopCount;
+    target.singleOperandAssumptionFallbackCount += source.singleOperandAssumptionFallbackCount;
+    target.singleOperandLeafBspSkipCount += source.singleOperandLeafBspSkipCount;
+    target.singleOperandClassificationReuseCount += source.singleOperandClassificationReuseCount;
+    target.leafBspBuildCount += source.leafBspBuildCount;
+    target.leafClassificationPointCandidateCount += source.leafClassificationPointCandidateCount;
+    target.leafClassificationPrimaryPointCandidateCount += source.leafClassificationPrimaryPointCandidateCount;
+    target.leafClassificationExpandedPointCandidateCount += source.leafClassificationExpandedPointCandidateCount;
+    target.leafClassificationTraceAttemptCount += source.leafClassificationTraceAttemptCount;
+    target.leafClassificationFastCandidateCount += source.leafClassificationFastCandidateCount;
+    target.leafClassificationFallbackCandidateCount += source.leafClassificationFallbackCandidateCount;
+    target.leafClassificationNormalCandidateCount += source.leafClassificationNormalCandidateCount;
+    target.leafClassificationInteriorBridgeCandidateCount += source.leafClassificationInteriorBridgeCandidateCount;
 }
 
 bool isPointOnAnyPolygonSupportPlane(
@@ -753,7 +823,7 @@ bool tryTraceChildReferenceCandidate(
 SubdivisionSolver::SubdivisionSolver(
     BoolOp op,
     std::size_t leafPolygonThreshold,
-    const std::vector<Polygon256> &polygons,
+    std::vector<Polygon256> &polygons,
     const AABB3i &rootAABB,
     BoolOperandAssumptions lhsAssumptions,
     BoolOperandAssumptions rhsAssumptions)
@@ -762,8 +832,10 @@ SubdivisionSolver::SubdivisionSolver(
       lhsAssumptions_(lhsAssumptions),
       rhsAssumptions_(rhsAssumptions),
       aabb_(rootAABB),
-      polygons_(polygons)
+      polygons_()
 {
+    polygons_.swap(polygons);
+    polygonCount_ = polygons_.size();
 }
 
 SubdivisionSolver::SubdivisionSolver(
@@ -784,6 +856,7 @@ SubdivisionSolver::SubdivisionSolver(
       reference_(std::move(reference)),
       polygons_(std::move(polygons))
 {
+    polygonCount_ = polygons_.size();
 }
 
 void SubdivisionSolver::solve()
@@ -793,8 +866,8 @@ void SubdivisionSolver::solve()
     const AABB3i rootAABB = aabb_;
     resetSolveState();
     aabb_ = rootAABB;
-    solveMetrics_.inputPolygonCount = polygons_.size();
-    if (polygons_.empty())
+    solveMetrics_.inputPolygonCount = polygonCount_;
+    if (polygonCount_ == 0)
     {
         discarded_ = true;
         solved_ = true;
@@ -812,13 +885,6 @@ void SubdivisionSolver::solve()
 
     initializeRootReference();
     solveRecursive();
-    leafSummaries_.clear();
-    collectLeafSummaries(leafSummaries_);
-    BoolSolveMetrics aggregatedMetrics;
-    aggregatedMetrics.inputPolygonCount = polygons_.size();
-    aggregatedMetrics.resultFragmentCount = resultFragments_.size();
-    collectSolveMetrics(aggregatedMetrics);
-    solveMetrics_ = aggregatedMetrics;
 }
 
 bool SubdivisionSolver::isDiscarded() const noexcept
@@ -826,14 +892,14 @@ bool SubdivisionSolver::isDiscarded() const noexcept
     return discarded_;
 }
 
-const std::vector<Polygon256> &SubdivisionSolver::resultFragments() const noexcept
+void SubdivisionSolver::extractResultFragments(std::vector<Polygon256>& out) noexcept
 {
-    return resultFragments_;
+    out.swap(resultFragments_);
 }
 
-const std::vector<BoolLeafSummary> &SubdivisionSolver::leafSummaries() const noexcept
+void SubdivisionSolver::extractLeafSummaries(std::vector<BoolLeafSummary>& out) noexcept
 {
-    return leafSummaries_;
+    leafSummaries_.swap(out);
 }
 
 const BoolSolveMetrics &SubdivisionSolver::solveMetrics() const noexcept
@@ -855,6 +921,9 @@ void SubdivisionSolver::resetSolveState() noexcept
     resultFragments_.clear();
     leafSummaries_.clear();
     solveMetrics_ = BoolSolveMetrics();
+    polygonCount_ = polygons_.size();
+    leafFragmentCount_ = 0;
+    classifiedFragmentCount_ = 0;
     leftChild_.reset();
     rightChild_.reset();
 }
@@ -867,12 +936,63 @@ void SubdivisionSolver::initializeRootReference()
     reference_.wnv.assign(detail::kBinaryWnvDimension, 0);
 }
 
+void SubdivisionSolver::finalizeNodeMetrics(bool isLeafNode) noexcept
+{
+    ++solveMetrics_.nodeCount;
+    if (isLeafNode)
+        ++solveMetrics_.leafNodeCount;
+    else
+        ++solveMetrics_.internalNodeCount;
+
+    if (discarded_)
+        ++solveMetrics_.discardedNodeCount;
+
+    solveMetrics_.maxDepth = std::max(solveMetrics_.maxDepth, depth_);
+    solveMetrics_.totalPolygonCount += polygonCount_;
+    solveMetrics_.leafFragmentCount += leafFragmentCount_;
+    solveMetrics_.classifiedFragmentCount += classifiedFragmentCount_;
+    solveMetrics_.resultFragmentCount = resultFragments_.size();
+}
+
+void SubdivisionSolver::releaseTransientGeometry() noexcept
+{
+    releaseVectorStorage(polygons_);
+    releaseVectorStorage(leafFragments_);
+    releaseVectorStorage(classifiedFragments_);
+}
+
+void SubdivisionSolver::finalizeLeafNode()
+{
+    REEMBER_PROFILE_ZONE("SubdivisionSolver::finalizeLeafNode");
+
+    leafFragmentCount_ = leafFragments_.size();
+    classifiedFragmentCount_ = classifiedFragments_.size();
+    leafSummaries_.clear();
+    if (!discarded_)
+        leafSummaries_.push_back(BoolLeafSummary{depth_, polygonCount_, aabb_, false});
+
+    finalizeNodeMetrics(true);
+    releaseTransientGeometry();
+    solved_ = true;
+}
+
+void SubdivisionSolver::finalizeInternalNode()
+{
+    REEMBER_PROFILE_ZONE("SubdivisionSolver::finalizeInternalNode");
+
+    leafFragmentCount_ = 0;
+    classifiedFragmentCount_ = 0;
+    finalizeNodeMetrics(false);
+    releaseTransientGeometry();
+    solved_ = true;
+}
+
 void SubdivisionSolver::finishCurrentNodeAsLeaf()
 {
     isLeaf_ = true;
     solveLeafArrangement();
     classifyLeafFragmentsAndCollectResults();
-    solved_ = true;
+    finalizeLeafNode();
 }
 
 bool SubdivisionSolver::tryDiscardInvalidOrEmptyNode()
@@ -885,7 +1005,7 @@ bool SubdivisionSolver::tryDiscardInvalidOrEmptyNode()
     ++solveMetrics_.invalidOrEmptyDiscardCount;
     discarded_ = true;
     isLeaf_ = true;
-    solved_ = true;
+    finalizeLeafNode();
     return true;
 }
 
@@ -900,7 +1020,7 @@ bool SubdivisionSolver::tryDiscardConstantIndicatorNode()
     ++solveMetrics_.constantDiscardCount;
     discarded_ = true;
     isLeaf_ = true;
-    solved_ = true;
+    finalizeLeafNode();
     return true;
 }
 
@@ -911,7 +1031,7 @@ bool SubdivisionSolver::tryFinishStoppedSubdivisionNode()
     if (!shouldStopSubdivision())
         return false;
 
-    const bool stoppedByLeafThreshold = polygons_.size() <= leafPolygonThreshold_;
+    const bool stoppedByLeafThreshold = polygonCount_ <= leafPolygonThreshold_;
     if (stoppedByLeafThreshold)
     {
         REEMBER_PROFILE_ZONE("SubdivisionSolver::stopByLeafThreshold");
@@ -929,26 +1049,31 @@ bool SubdivisionSolver::tryFinishStoppedSubdivisionNode()
 
 void SubdivisionSolver::mergeSolvedChildren()
 {
+    REEMBER_PROFILE_ZONE("SubdivisionSolver::mergeSolvedChildren");
+
     resultFragments_.clear();
-    if (leftChild_ && !leftChild_->discarded_)
+    leafSummaries_.clear();
+
+    const bool leftDiscarded = !leftChild_ || leftChild_->discarded_;
+    const bool rightDiscarded = !rightChild_ || rightChild_->discarded_;
+
+    if (leftChild_)
     {
-        resultFragments_.insert(
-            resultFragments_.end(),
-            leftChild_->resultFragments_.begin(),
-            leftChild_->resultFragments_.end());
+        appendMovedVector(resultFragments_, leftChild_->resultFragments_);
+        appendMovedVector(leafSummaries_, leftChild_->leafSummaries_);
+        accumulateSolveMetrics(solveMetrics_, leftChild_->solveMetrics_);
+        leftChild_.reset();
     }
-    if (rightChild_ && !rightChild_->discarded_)
+    if (rightChild_)
     {
-        resultFragments_.insert(
-            resultFragments_.end(),
-            rightChild_->resultFragments_.begin(),
-            rightChild_->resultFragments_.end());
+        appendMovedVector(resultFragments_, rightChild_->resultFragments_);
+        appendMovedVector(leafSummaries_, rightChild_->leafSummaries_);
+        accumulateSolveMetrics(solveMetrics_, rightChild_->solveMetrics_);
+        rightChild_.reset();
     }
 
-    discarded_ =
-        (!leftChild_ || leftChild_->discarded_) &&
-        (!rightChild_ || rightChild_->discarded_);
-    solved_ = true;
+    discarded_ = leftDiscarded && rightDiscarded;
+    finalizeInternalNode();
 }
 
 // 递归推进 subdivision；到达叶子后立即执行局部 BSP 和 WNV 分类。
@@ -960,10 +1085,7 @@ void SubdivisionSolver::solveRecursive()
         return;
 
     if (trySolveSingleOperandAssumptionLeaf())
-    {
-        solved_ = true;
         return;
-    }
 
     if (tryFinishStoppedSubdivisionNode())
         return;
@@ -991,6 +1113,7 @@ void SubdivisionSolver::solveRecursive()
     }
 
     isLeaf_ = false;
+    releaseTransientGeometry();
 
     if (leftChild_)
         leftChild_->solveRecursive();
@@ -1003,7 +1126,7 @@ void SubdivisionSolver::solveRecursive()
 // 叶子阈值和 AABB 可切分性共同决定当前节点是否停止递归。
 bool SubdivisionSolver::shouldStopSubdivision() const noexcept
 {
-    return polygons_.size() <= leafPolygonThreshold_ || !hasSplittableAxis(aabb_);
+    return polygonCount_ <= leafPolygonThreshold_ || !hasSplittableAxis(aabb_);
 }
 
 bool SubdivisionSolver::shouldDiscardSubproblemEarly(BoolStatus &constantStatus) const noexcept
@@ -1223,77 +1346,5 @@ bool SubdivisionSolver::tryReuseChildReference(
         outReference = reference_;
     }
     return true;
-}
-
-void SubdivisionSolver::collectLeafSummaries(std::vector<BoolLeafSummary> &outSummaries) const
-{
-    if (discarded_)
-        return;
-
-    if (isLeaf_)
-    {
-        outSummaries.push_back(BoolLeafSummary{depth_, polygons_.size(), aabb_, discarded_});
-        return;
-    }
-
-    if (leftChild_)
-        leftChild_->collectLeafSummaries(outSummaries);
-    if (rightChild_)
-        rightChild_->collectLeafSummaries(outSummaries);
-}
-
-void SubdivisionSolver::collectSolveMetrics(BoolSolveMetrics &outMetrics) const
-{
-    REEMBER_PROFILE_ZONE("SubdivisionSolver::collectSolveMetrics");
-
-    outMetrics.constantDiscardCount += solveMetrics_.constantDiscardCount;
-    outMetrics.invalidOrEmptyDiscardCount += solveMetrics_.invalidOrEmptyDiscardCount;
-    outMetrics.childConstantDiscardCount += solveMetrics_.childConstantDiscardCount;
-    outMetrics.leafThresholdStopCount += solveMetrics_.leafThresholdStopCount;
-    outMetrics.aabbNotSplittableStopCount += solveMetrics_.aabbNotSplittableStopCount;
-    outMetrics.splitFailureStopCount += solveMetrics_.splitFailureStopCount;
-    outMetrics.wntvAwareSplitCount += solveMetrics_.wntvAwareSplitCount;
-    outMetrics.centerRangeSplitCount += solveMetrics_.centerRangeSplitCount;
-    outMetrics.midpointSplitCount += solveMetrics_.midpointSplitCount;
-    outMetrics.childReferenceReuseCount += solveMetrics_.childReferenceReuseCount;
-    outMetrics.childReferenceTraceCount += solveMetrics_.childReferenceTraceCount;
-    outMetrics.childReferenceCandidateCount += solveMetrics_.childReferenceCandidateCount;
-    outMetrics.childReferenceFastCandidateCount += solveMetrics_.childReferenceFastCandidateCount;
-    outMetrics.childReferenceExhaustiveCandidateCount += solveMetrics_.childReferenceExhaustiveCandidateCount;
-    outMetrics.childReferenceCandidateTriedCount += solveMetrics_.childReferenceCandidateTriedCount;
-    outMetrics.childReferenceFastCandidateTriedCount += solveMetrics_.childReferenceFastCandidateTriedCount;
-    outMetrics.childReferenceExhaustiveCandidateTriedCount += solveMetrics_.childReferenceExhaustiveCandidateTriedCount;
-    outMetrics.singleOperandAssumptionStopCount += solveMetrics_.singleOperandAssumptionStopCount;
-    outMetrics.singleOperandAssumptionFallbackCount += solveMetrics_.singleOperandAssumptionFallbackCount;
-    outMetrics.singleOperandLeafBspSkipCount += solveMetrics_.singleOperandLeafBspSkipCount;
-    outMetrics.singleOperandClassificationReuseCount += solveMetrics_.singleOperandClassificationReuseCount;
-    outMetrics.leafBspBuildCount += solveMetrics_.leafBspBuildCount;
-    outMetrics.leafClassificationPointCandidateCount += solveMetrics_.leafClassificationPointCandidateCount;
-    outMetrics.leafClassificationPrimaryPointCandidateCount += solveMetrics_.leafClassificationPrimaryPointCandidateCount;
-    outMetrics.leafClassificationExpandedPointCandidateCount += solveMetrics_.leafClassificationExpandedPointCandidateCount;
-    outMetrics.leafClassificationTraceAttemptCount += solveMetrics_.leafClassificationTraceAttemptCount;
-    outMetrics.leafClassificationFastCandidateCount += solveMetrics_.leafClassificationFastCandidateCount;
-    outMetrics.leafClassificationFallbackCandidateCount += solveMetrics_.leafClassificationFallbackCandidateCount;
-    outMetrics.leafClassificationNormalCandidateCount += solveMetrics_.leafClassificationNormalCandidateCount;
-    outMetrics.leafClassificationInteriorBridgeCandidateCount += solveMetrics_.leafClassificationInteriorBridgeCandidateCount;
-    ++outMetrics.nodeCount;
-    outMetrics.totalPolygonCount += polygons_.size();
-    outMetrics.maxDepth = std::max(outMetrics.maxDepth, depth_);
-    if (discarded_)
-        ++outMetrics.discardedNodeCount;
-
-    if (isLeaf_)
-    {
-        ++outMetrics.leafNodeCount;
-        outMetrics.leafFragmentCount += leafFragments_.size();
-        outMetrics.classifiedFragmentCount += classifiedFragments_.size();
-        return;
-    }
-
-    ++outMetrics.internalNodeCount;
-    if (leftChild_)
-        leftChild_->collectSolveMetrics(outMetrics);
-    if (rightChild_)
-        rightChild_->collectSolveMetrics(outMetrics);
 }
 }

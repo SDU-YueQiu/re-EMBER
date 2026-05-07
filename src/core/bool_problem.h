@@ -111,26 +111,11 @@ public:
     BoolProblem &operator=(BoolProblem &&) noexcept = default;
 
     /**
-     * @brief 清空当前问题的输入与求解结果。
-     *
-     * @note 该操作不会重置 `BoolOp` 和叶子阈值配置。
-     */
-    void clear() noexcept;
-
-    /**
      * @brief 设置当前布尔运算类型。
      *
      * @param[in] op 目标布尔运算。
      */
-    void setOperation(BoolOp op) noexcept;
-
-    /**
-     * @brief 设置叶子停止细分阈值。
-     *
-     * @param[in] threshold 当子问题多边形数量不超过该值时停止继续细分。
-     * @note 传入 `0` 时会自动收敛到 `1`。
-     */
-    void setLeafPolygonThreshold(std::size_t threshold) noexcept;
+    void setOperation(BoolOp op);
 
     /**
      * @brief 设置左右操作数可用于 4.5.x 快路径与单操作数 early-stop 的输入假设。
@@ -141,7 +126,7 @@ public:
      */
     void setOperandAssumptions(
         BoolOperandAssumptions lhsAssumptions,
-        BoolOperandAssumptions rhsAssumptions) noexcept;
+        BoolOperandAssumptions rhsAssumptions);
 
     /**
      * @brief 设置二元布尔的左右输入，并自动写入基础 WNTV。
@@ -150,6 +135,7 @@ public:
      * @param[in] rhs 右操作数多边形集合。
      * @note 该接口会覆盖输入多边形现有的 `WNTV`，统一按二元约定写入：
      *       `lhs -> (1, 0)`，`rhs -> (0, 1)`。
+     * @note 一旦调用过 `solve()`，同一个 `BoolProblem` 就不能再修改输入。
      */
     void setOperands(const std::vector<Polygon256> &lhs, const std::vector<Polygon256> &rhs);
 
@@ -160,6 +146,8 @@ public:
      * @note `sceneAABB` 应包含足够 margin，使根参考点可取在输入几何外侧。
      *       如果输入、细分、leaf arrangement 或 WNV 分类无法保证正确，
      *       当前实现会抛出 `std::runtime_error`，避免输出不可信结果。
+     * @note 每个 `BoolProblem` 实例只允许执行一次 `solve()`；无论成功还是抛错，
+     *       后续都不能再次 `solve()` 或修改配置。
      */
     void solve(const AABB3i &sceneAABB);
 
@@ -169,13 +157,6 @@ public:
      * @return 当前问题没有任何可输出结果时返回 `true`。
      */
     bool isDiscarded() const noexcept;
-
-    /**
-     * @brief 判断当前问题是否已经完成求解。
-     *
-     * @return `solve()` 成功运行完成时返回 `true`。
-     */
-    bool isSolved() const noexcept;
 
     /**
      * @brief 读取最终布尔结果多边形集合。
@@ -197,11 +178,6 @@ public:
     const BoolSolveMetrics &solveMetrics() const noexcept;
 
 private:
-    /**
-     * @brief 重置求解派生状态，保留输入多边形集合和配置。
-     */
-    void resetSolveState() noexcept;
-
     /**
      * @brief 为一组输入多边形写入二元操作数基础 WNTV。
      *
@@ -225,8 +201,8 @@ private:
     /// 当前问题是否已被判定为空。
     bool discarded_ = false;
 
-    /// 当前问题是否已完成求解流程。
-    bool solved_ = false;
+    /// 当前实例是否已经执行过一次 `solve()` 尝试。
+    bool solveAttempted_ = false;
 
     /// 当前问题的输入多边形集合，所有元素都必须属于 lhs `{1,0}` 或 rhs `{0,1}`。
     std::vector<Polygon256> polygons_;

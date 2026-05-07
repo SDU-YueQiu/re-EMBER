@@ -821,7 +821,6 @@ void runBoolProblemTests()
 
         const std::vector<ember::BoolLeafSummary> &leaves = problem.leafSummaries();
 
-        assert(problem.isSolved());
         assert(!problem.isDiscarded());
         assert(problem.resultFragments().size() == 12u);
         assert(!leaves.empty());
@@ -832,6 +831,40 @@ void runBoolProblemTests()
         }
         for (const Polygon256 &fragment : problem.resultFragments())
             assertResultFragmentIsGeometryOnly(fragment);
+    }
+
+    {
+        ember::BoolProblem problem(2);
+        problem.setOperation(BoolOp::Union);
+        problem.setOperands(lhs, rhs);
+        problem.solve(separatedSceneAABB);
+
+        assert(problem.resultFragments().size() == 12u);
+        assert(throwsRuntimeError(
+                   [&problem, &separatedSceneAABB]()
+        {
+            problem.solve(separatedSceneAABB);
+        },
+        "single-use"));
+        assert(problem.resultFragments().size() == 12u);
+        assert(throwsRuntimeError(
+                   [&problem]()
+        {
+            problem.setOperation(BoolOp::Difference);
+        },
+        "single-use"));
+        assert(throwsRuntimeError(
+                   [&problem]()
+        {
+            problem.setOperandAssumptions(ember::BoolOperandAssumptions{}, ember::BoolOperandAssumptions{});
+        },
+        "single-use"));
+        assert(throwsRuntimeError(
+                   [&problem, &lhs, &rhs]()
+        {
+            problem.setOperands(lhs, rhs);
+        },
+        "single-use"));
     }
 
     {
@@ -848,27 +881,12 @@ void runBoolProblemTests()
             problem.solve(separatedSceneAABB);
         },
         "invalid"));
-        assert(!problem.isSolved());
-        assert(problem.resultFragments().empty());
-    }
-
-    {
-        ember::BoolProblem problem(2);
-        problem.setOperation(BoolOp::Union);
-        problem.setOperands(lhs, rhs);
-        problem.solve(separatedSceneAABB);
-        assert(problem.isSolved());
-        assert(!problem.resultFragments().empty());
-
-        const Polygon256 invalidPolygon = makeInvalidInwardSquareXY();
-        problem.setOperands({invalidPolygon}, {});
         assert(throwsRuntimeError(
                    [&problem, &separatedSceneAABB]()
         {
             problem.solve(separatedSceneAABB);
         },
-        "invalid"));
-        assert(!problem.isSolved());
+        "single-use"));
         assert(problem.resultFragments().empty());
     }
 
@@ -878,7 +896,6 @@ void runBoolProblemTests()
         problem.setOperands(lhs, rhs);
         problem.solve(separatedSceneAABB);
 
-        assert(problem.isSolved());
         assert(problem.resultFragments().empty());
     }
 
@@ -891,7 +908,6 @@ void runBoolProblemTests()
         problem.setOperands({}, rhsOnlySurface);
         problem.solve(separatedSceneAABB);
 
-        assert(problem.isSolved());
         assert(problem.isDiscarded());
         assert(problem.resultFragments().empty());
         assert(problem.leafSummaries().empty());
@@ -910,7 +926,6 @@ void runBoolProblemTests()
             problem.solve(tallSceneAABB);
 
             const std::vector<ember::BoolLeafSummary> &leaves = problem.leafSummaries();
-            assert(problem.isSolved());
             assert(!problem.isDiscarded());
             assert(problem.resultFragments().size() == 12u);
             assert(leaves.size() == 2u);
@@ -927,7 +942,6 @@ void runBoolProblemTests()
             problem.setOperands(tallLhs, tallRhs);
             problem.solve(tallSceneAABB);
 
-            assert(problem.isSolved());
             assert(problem.isDiscarded());
             assert(problem.resultFragments().empty());
             assert(problem.leafSummaries().empty());
@@ -940,7 +954,6 @@ void runBoolProblemTests()
             problem.solve(tallSceneAABB);
 
             const std::vector<ember::BoolLeafSummary> &leaves = problem.leafSummaries();
-            assert(problem.isSolved());
             assert(!problem.isDiscarded());
             assert(problem.resultFragments().size() == 6u);
             assert(leaves.size() == 1u);
@@ -955,7 +968,6 @@ void runBoolProblemTests()
             problem.setOperands(tallLhs, tallRhs);
             problem.solve(tallSceneAABB);
 
-            assert(problem.isSolved());
             assert(!problem.isDiscarded());
             assert(problem.resultFragments().size() == 12u);
         }
@@ -967,7 +979,6 @@ void runBoolProblemTests()
             problem.setOperands(tallLhs, tallRhs);
             problem.solve(tallSceneAABB);
 
-            assert(problem.isSolved());
             assert(problem.isDiscarded());
             assert(problem.resultFragments().empty());
             assert(problem.leafSummaries().empty());
@@ -980,7 +991,6 @@ void runBoolProblemTests()
             problem.setOperands(tallLhs, tallRhs);
             problem.solve(tallSceneAABB);
 
-            assert(problem.isSolved());
             assert(!problem.isDiscarded());
             assert(problem.resultFragments().size() == 6u);
         }
@@ -1000,7 +1010,6 @@ void runBoolProblemTests()
             problem.setOperands(singleLhs, emptyRhs);
             problem.solve(singleSceneAABB);
 
-            assert(problem.isSolved());
             assert(!problem.isDiscarded());
             assert(problem.resultFragments().size() == 6u);
             assert(problem.solveMetrics().singleOperandAssumptionStopCount == 0u);
@@ -1016,7 +1025,6 @@ void runBoolProblemTests()
             problem.setOperands(singleLhs, emptyRhs);
             problem.solve(singleSceneAABB);
 
-            assert(problem.isSolved());
             assert(!problem.isDiscarded());
             assert(problem.resultFragments().size() == 6u);
             assert(problem.solveMetrics().nodeCount == 1u);
@@ -1036,7 +1044,6 @@ void runBoolProblemTests()
             problem.setOperands(singleLhs, emptyRhs);
             problem.solve(singleSceneAABB);
 
-            assert(problem.isSolved());
             assert(!problem.isDiscarded());
             assert(problem.resultFragments().size() == 6u);
             assert(problem.solveMetrics().nodeCount == 1u);
@@ -1063,8 +1070,6 @@ void runBoolProblemTests()
         retagged.setOperands(dirtyTaggedLhs, dirtyTaggedRhs);
         retagged.solve(separatedSceneAABB);
 
-        assert(clean.isSolved());
-        assert(retagged.isSolved());
         assert(clean.resultFragments().size() == retagged.resultFragments().size());
         assert(clean.solveMetrics().resultFragmentCount == retagged.solveMetrics().resultFragmentCount);
     }
@@ -1075,7 +1080,6 @@ void runBoolProblemTests()
         problem.setOperands(lhs, rhs);
         problem.solve(separatedSceneAABB);
 
-        assert(problem.isSolved());
         assert(problem.resultFragments().size() == 6u);
     }
 }
