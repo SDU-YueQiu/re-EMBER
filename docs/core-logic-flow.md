@@ -117,7 +117,7 @@ flowchart TD
 
 当前 `solveRecursive()` 的决策顺序非常关键，真实实现顺序如下：
 
-1. 尝试 `single operand assumption leaf` 快路径。
+1. 尝试 `single operand assumption leaf` 快路径；一旦命中，当前节点直接按普通叶节点完整求解。
 2. 若达到叶子阈值，或 AABB 已不可再切分，则转叶子求解。
 3. 否则选择切分面并创建左右子节点。
 4. 常量 indicator 剪枝只发生在 child 创建前。
@@ -125,7 +125,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["solveRecursive()"] --> B{"trySolveSingleOperandAssumptionLeaf() 成功?"}
+    A["solveRecursive()"] --> B{"trySolveSingleOperandAssumptionLeaf() 命中?"}
     B -->|是| C["当前节点直接作为叶子完成"]
     B -->|否| D{"达到停止条件?"}
     D -->|是| E["finishCurrentNodeAsLeaf()"]
@@ -270,7 +270,7 @@ flowchart TD
 
 1. 以当前节点参考点 `reference_` 作为局部参考点。
 2. 遍历 `leafFragments_`。
-3. 如果单操作数分类结果可复用，则直接复用上一个片段的 `front/back WNV`。
+3. 如果单操作数分类结果可复用，则第一个片段负责真实分类，其余片段直接复用同一组 `front/back WNV`。
 4. 否则调用 `classifyLeafFragment()` 为当前片段尝试路径传播。
 5. 分类成功后，根据 `(frontStatus, backStatus)` 决定是否写入 `resultFragments_`。
 6. 如果分类失败，当前实现直接抛异常，不输出不可信结果。
@@ -316,9 +316,10 @@ flowchart TD
     F --> G["再次按 fast -> fallback -> normal -> interior-bridge 尝试"]
     G --> H{"已成功?"}
     H -->|是| E
-    H -->|否且 lastStatus=PATH_INVALID 且允许回退| I["返回 RetryPathInvalid"]
-    H -->|否则| J["返回 Failure"]
+    H -->|否| J["返回 Failure"]
 ```
+
+当前实现不会因为 `PATH_INVALID` 回退到递归细分；无论是普通叶节点还是入口单操作数快路径，一旦叶分类穷尽候选仍失败，就按叶节点失败处理。
 
 ### 8.2 目标点与路径候选来源
 
@@ -371,3 +372,4 @@ flowchart TD
 - 子参考传播类：`childReferenceReuseCount`、`childReferenceTraceCount`、`childReferenceCandidateCount`
 - 叶片分类类：`leafFragmentCount`、`classifiedFragmentCount`、`leafClassificationTraceAttemptCount`
 - 早停/剪枝类：`constantDiscardCount`、`singleOperandAssumptionStopCount`、`singleOperandAssumptionFallbackCount`
+  其中 `singleOperandAssumptionFallbackCount` 为兼容保留字段，当前实现应保持为 `0`。

@@ -778,13 +778,7 @@ bool tryTraceChildReferenceCandidate(
 
     ++solveMetrics.childReferenceCandidateCount;
 
-    if (!sourceReferenceIsStrictInterior &&
-            candidateSeed.buildMode == detail::AABBPathBuildMode::Empty &&
-            areSamePlanePoint(candidateSeed.targetPoint, sourcePoint) &&
-            isPointOnAnyPolygonSupportPlane(candidateSeed.targetPoint, childPolygons))
-        return true;
-
-    if (isPointOnAnyPolygonSurface(candidateSeed.targetPoint, childPolygons))
+    if (isPointOnAnyPolygonSupportPlane(candidateSeed.targetPoint, childPolygons))
         return true;
 
     if (!detail::buildAABBPathFromSeed(sourcePoint, candidateSeed, searchState.candidatePath))
@@ -1272,7 +1266,7 @@ bool SubdivisionSolver::tryReuseChildReference(
     REEMBER_PROFILE_ZONE("SubdivisionSolver::tryReuseChildReference");
 
     if (!isPointStrictlyInsideAABB(reference_.point, childBox) ||
-            isPointOnAnyPolygonSurface(reference_.point, childPolygons))
+            isPointOnAnyPolygonSupportPlane(reference_.point, childPolygons))
         return false;
 
     {

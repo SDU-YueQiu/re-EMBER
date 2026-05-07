@@ -67,7 +67,7 @@ struct BoolSolveMetrics
     std::size_t childReferenceFastCandidateTriedCount = 0; ///< 子参考点快速候选阶段实际尝试追踪的候选数。
     std::size_t childReferenceExhaustiveCandidateTriedCount = 0; ///< 子参考点穷举候选阶段实际尝试追踪的候选数。
     std::size_t singleOperandAssumptionStopCount = 0; ///< NSI/NNC 单操作数假设提前停止细分的次数。
-    std::size_t singleOperandAssumptionFallbackCount = 0; ///< NSI/NNC 单操作数提前停止探测失败并回退细分的次数。
+    std::size_t singleOperandAssumptionFallbackCount = 0; ///< 保留兼容的历史计数；当前实现不再在单操作数快路径中回退细分。
     std::size_t singleOperandLeafBspSkipCount = 0;  ///< 单操作数叶子跳过局部 BSP 的次数。
     std::size_t singleOperandClassificationReuseCount = 0; ///< 单操作数叶子复用分类结果的次数。
     std::size_t leafBspBuildCount = 0;              ///< 真实执行局部 BSP 构建的次数。
