@@ -610,6 +610,41 @@ void runBoolProblemTests()
     }
 
     {
+        ember::AABB3i leftBox;
+        leftBox.xMin = 0;
+        leftBox.xMax = 2;
+        leftBox.yMin = 0;
+        leftBox.yMax = 2;
+        leftBox.zMin = 0;
+        leftBox.zMax = 2;
+        leftBox.valid = true;
+
+        ember::AABB3i touchingBox = leftBox;
+        touchingBox.xMin = 2;
+        touchingBox.xMax = 4;
+        assert(ember::doAABBsOverlap(leftBox, touchingBox));
+
+        ember::AABB3i separatedBox = leftBox;
+        separatedBox.xMin = 3;
+        separatedBox.xMax = 4;
+        assert(!ember::doAABBsOverlap(leftBox, separatedBox));
+
+        assert(ember::doesPlaneIntersectAABB(
+                   Plane3i::fromPointNormal(Vec3i(2, 0, 0), Vec3i(1, 0, 0)),
+                   leftBox));
+        assert(!ember::doesPlaneIntersectAABB(
+                   Plane3i::fromPointNormal(Vec3i(3, 0, 0), Vec3i(1, 0, 0)),
+                   leftBox));
+
+        const Polygon256 square = makeFaceXY(0, 0, 2, 0, 2, 1);
+        const Polygon256 farFace = makeFaceYZ(10, 0, 2, 0, 2, 1);
+        Plane3i splitPlane;
+        Plane3i v0;
+        Plane3i v1;
+        assert(!ember::computePolygonIntersectionCarrier(square, farFace, splitPlane, v0, v1));
+    }
+
+    {
         Polygon256 crossingSurface = makeFaceYZ(0, -1, 1, -1, 1, 1);
         crossingSurface.WNTV = {1, 0};
         const std::vector<Polygon256> polygons{crossingSurface};
@@ -656,6 +691,33 @@ void runBoolProblemTests()
                    polygons,
                    targetWNV) == ember::SUCCESS);
         assert(targetWNV == ember::WNV({0, 0}));
+    }
+
+    {
+        Polygon256 crossingSurface = makeFaceYZ(0, -1, 1, -1, 1, 1);
+        crossingSurface.WNTV = {1, 0};
+        const std::vector<Polygon256> polygons{crossingSurface};
+
+        const PlanePoint3i farLeft = ember::makeIntegerPoint(-1, 5, 0);
+        const PlanePoint3i farRight = ember::makeIntegerPoint(1, 5, 0);
+        const ember::Path missedCrossing = makeAxisPath({farLeft, farRight});
+
+        const ember::detail::PolygonBoundaryContact missContact =
+            ember::detail::classifySegmentPolygonBoundaryContactUnchecked(
+                missedCrossing.front(),
+                crossingSurface);
+        assert(missContact.type == ember::detail::PolygonBoundaryContactType::None);
+
+        PlanePoint3i hitPoint;
+        assert(!ember::intersectionSegmentPolygon(missedCrossing.front(), crossingSurface, hitPoint));
+
+        ember::WNV targetWNV;
+        assert(ember::tracePathWNV(
+                   ember::refPoint(farLeft, ember::WNV{4, 2}),
+                   missedCrossing,
+                   polygons,
+                   targetWNV) == ember::SUCCESS);
+        assert(targetWNV == ember::WNV({4, 2}));
     }
 
     {

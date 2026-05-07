@@ -194,7 +194,7 @@ private:
      * @brief 将当前多边形集合裁剪为左右子节点 polygon soup。
      */
     bool buildSplitChildPolygonSoups(
-        const Plane3i &splitPlane,
+        const AABBSplit3i &split,
         std::vector<Polygon256> &leftPolygons,
         std::vector<Polygon256> &rightPolygons) const;
 

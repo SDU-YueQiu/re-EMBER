@@ -137,7 +137,8 @@ void Polygon256::addEdgePlane(const Plane3i &edge, PolygonEdgeProvenance provena
 void Polygon256::invalidateDerivedCaches() noexcept
 {
     cachedVertices_.clear();
-    vertexCacheValid_ = false;
+    cachedAABB_ = AABB3i();
+    derivedCachesValid_ = false;
     validityCacheValid_ = false;
     cachedValidity_ = false;
 }
@@ -151,35 +152,44 @@ void Polygon256::invalidateValidityCache() const noexcept
 void Polygon256::precomputeVertices() const
 {
     invalidateValidityCache();
-    rebuildVertexCache();
+    rebuildDerivedCaches();
 }
 
-void Polygon256::rebuildVertexCache() const
+void Polygon256::rebuildDerivedCaches() const
 {
     REEMBER_PROFILE_ZONE("precomputeVertices");
     cachedVertices_.clear();
+    cachedAABB_ = AABB3i();
     const std::size_t n = edgePlanes.size();
     cachedVertices_.reserve(n);
     for (std::size_t i = 0; i < n; ++i)
     {
         const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
         cachedVertices_.emplace_back(plane, edgePlanes[i], edgePlanes[prev]);
+        appendPointToAABB(cachedAABB_, cachedVertices_.back());
     }
-    vertexCacheValid_ = true;
+    derivedCachesValid_ = true;
 }
 
 const PlanePoint3i &Polygon256::vertex(std::size_t vertexIndex) const
 {
-    if (!vertexCacheValid_)
-        rebuildVertexCache();
+    if (!derivedCachesValid_)
+        rebuildDerivedCaches();
     return cachedVertices_[vertexIndex];
 }
 
 const std::vector<PlanePoint3i> &Polygon256::vertices() const
 {
-    if (!vertexCacheValid_)
-        rebuildVertexCache();
+    if (!derivedCachesValid_)
+        rebuildDerivedCaches();
     return cachedVertices_;
+}
+
+const AABB3i &Polygon256::aabb() const
+{
+    if (!derivedCachesValid_)
+        rebuildDerivedCaches();
+    return cachedAABB_;
 }
 
 std::size_t Polygon256::edgeCount() const noexcept
@@ -283,6 +293,10 @@ int Polygon256::classify(const PlanePoint3i &point) const noexcept
     const int planeSide = point.classify(plane);
     if (planeSide != 0)
         return planeSide;
+
+    const AABB3i &polygonBox = aabb();
+    if (isValidAABB(polygonBox) && !isPointInsideOrOnAABB(point, polygonBox))
+        return 2;
 
     // `isValid()` 已要求边平面法向向外；支撑平面内只要落在任一边平面正侧就是外部。
     for (const Plane3i &edge : edgePlanes)
@@ -418,6 +432,14 @@ bool areParallel(const Line256 &lhs, const Line256 &rhs) noexcept
 
 bool intersectionSegmentPolygon(const Segment256 &seg, const Polygon256 &poly, PlanePoint3i &outPoint)
 {
+    const AABB3i &polygonBox = poly.aabb();
+    AABB3i segmentBox;
+    if (isValidAABB(polygonBox) &&
+            buildPointPairAABB(seg.getStartPointRef(), seg.getEndPointRef(), segmentBox) &&
+            (!doAABBsOverlap(segmentBox, polygonBox) ||
+             !doesPlaneIntersectAABB(poly.plane, segmentBox)))
+        return false;
+
     outPoint = intersect(seg.direction, poly.plane);
 
     if (outPoint.hasUniqueIntersection() == false || poly.containsOrOnBoundary(outPoint) == false)

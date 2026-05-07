@@ -32,6 +32,20 @@ inline bool isPointOnSegment(const PlanePoint3i &point, const Segment256 &seg) n
 
 namespace detail
 {
+inline bool isSegmentRelevantToPolygonByAABB(const Segment256 &seg, const Polygon256 &poly) noexcept
+{
+    const AABB3i &polygonBox = poly.aabb();
+    if (!isValidAABB(polygonBox))
+        return true;
+
+    AABB3i segmentBox;
+    if (!buildPointPairAABB(seg.getStartPointRef(), seg.getEndPointRef(), segmentBox))
+        return true;
+
+    return doAABBsOverlap(segmentBox, polygonBox) &&
+           doesPlaneIntersectAABB(poly.plane, segmentBox);
+}
+
 enum class PolygonSurfaceLocation
 {
     Outside,
@@ -172,6 +186,9 @@ inline PolygonBoundaryContact classifySegmentPolygonBoundaryContactUnchecked(
     PolygonBoundaryContact contact;
     const PlanePoint3i &startPoint = seg.getStartPointRef();
     const PlanePoint3i &endPoint = seg.getEndPointRef();
+    if (!isSegmentRelevantToPolygonByAABB(seg, poly))
+        return contact;
+
     const bool segmentInSupportPlane =
         startPoint.classify(poly.plane) == 0 &&
         endPoint.classify(poly.plane) == 0;

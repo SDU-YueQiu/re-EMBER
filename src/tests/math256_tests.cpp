@@ -117,6 +117,14 @@ void runMath256Tests()
         assert(poly.edgeCount() == 4u);
         assert(poly.classify(lineHit) == 0);
         assert(poly.containsOrOnBoundary(lineHit));
+        const ember::AABB3i &polyAABB = poly.aabb();
+        assert(polyAABB.valid);
+        assert(polyAABB.xMin == Integer(0));
+        assert(polyAABB.xMax == Integer(2));
+        assert(polyAABB.yMin == Integer(0));
+        assert(polyAABB.yMax == Integer(2));
+        assert(polyAABB.zMin == Integer(3));
+        assert(polyAABB.zMax == Integer(3));
 
         {
             const ember::Plane3i leftEdgeCarrier =
@@ -140,6 +148,10 @@ void runMath256Tests()
             const ember::Plane3i vertexOnlyTouch =
                 ember::Plane3i::fromPointNormal(Vec3i(0, 0, 3), Vec3i(1, 1, 0));
             assert(!ember::computePolygonPlaneIntersection(poly, vertexOnlyTouch, p0, p1));
+
+            const ember::Plane3i aabbSeparatedPlane =
+                ember::Plane3i::fromPointNormal(Vec3i(0, 5, 0), Vec3i(0, 1, 0));
+            assert(!ember::computePolygonPlaneIntersection(poly, aabbSeparatedPlane, p0, p1));
         }
 
         {
@@ -290,6 +302,43 @@ void runMath256Tests()
         for (const ember::PlanePoint3i &vertex : cachedSquare.vertices())
             assert(vertex.hasUniqueIntersection());
         assert(cachedSquare.isValid());
+        const ember::AABB3i &cachedSquareAABB = cachedSquare.aabb();
+        assert(cachedSquareAABB.valid);
+        assert(cachedSquareAABB.xMin == Integer(0));
+        assert(cachedSquareAABB.xMax == Integer(2));
+        assert(cachedSquareAABB.yMin == Integer(0));
+        assert(cachedSquareAABB.yMax == Integer(2));
+        assert(cachedSquareAABB.zMin == Integer(3));
+        assert(cachedSquareAABB.zMax == Integer(3));
+
+        cachedSquare.edgePlanes[1] =
+            ember::Plane3i::fromPointNormal(Vec3i(4, 0, 3), Vec3i(1, 0, 0));
+        cachedSquare.precomputeVertices();
+        const ember::AABB3i &expandedSquareAABB = cachedSquare.aabb();
+        assert(expandedSquareAABB.valid);
+        assert(expandedSquareAABB.xMin == Integer(0));
+        assert(expandedSquareAABB.xMax == Integer(4));
+        assert(expandedSquareAABB.yMin == Integer(0));
+        assert(expandedSquareAABB.yMax == Integer(2));
+        assert(expandedSquareAABB.zMin == Integer(3));
+        assert(expandedSquareAABB.zMax == Integer(3));
+
+        const ember::Polygon256 rationalTriangle(
+            ember::Plane3i::fromPointNormal(Vec3i(0, 0, 0), Vec3i(0, 0, 1)),
+            std::vector<ember::Plane3i> {
+                ember::Plane3i(0, -1, 0, 0),
+                ember::Plane3i(2, 2, 0, -1),
+                ember::Plane3i(-1, 0, 0, 0)
+            });
+        assert(rationalTriangle.isValid());
+        const ember::AABB3i &rationalTriangleAABB = rationalTriangle.aabb();
+        assert(rationalTriangleAABB.valid);
+        assert(rationalTriangleAABB.xMin == Integer(0));
+        assert(rationalTriangleAABB.xMax == Integer(1));
+        assert(rationalTriangleAABB.yMin == Integer(0));
+        assert(rationalTriangleAABB.yMax == Integer(1));
+        assert(rationalTriangleAABB.zMin == Integer(0));
+        assert(rationalTriangleAABB.zMax == Integer(0));
     }
 
     {

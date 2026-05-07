@@ -116,6 +116,12 @@ traceStatus tracePathWNVImpl(
                 continue;
             }
 
+            if (!detail::isSegmentRelevantToPolygonByAABB(seg, poly))
+            {
+                pcs = pce;
+                continue;
+            }
+
             const detail::PolygonBoundaryContact boundaryContact =
                 detail::classifySegmentPolygonBoundaryContactUnchecked(seg, poly);
             if (boundaryContact.type == detail::PolygonBoundaryContactType::EndpointOnBoundary ||
@@ -222,6 +228,12 @@ traceStatus tracePathWNVToSurfacePointImpl(
             if (!isLastSegment && pce == 0)
                 return PATH_INVALID;
             if (isSameStrictSide(pcs, pce))
+            {
+                pcs = pce;
+                continue;
+            }
+
+            if (!detail::isSegmentRelevantToPolygonByAABB(seg, poly))
             {
                 pcs = pce;
                 continue;

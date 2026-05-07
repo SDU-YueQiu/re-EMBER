@@ -47,6 +47,9 @@ void BSPTree::insertTrusted(const Polygon256 &polygon, std::size_t incomingOrder
 {
     REEMBER_PROFILE_ZONE("BSPTree::insertTrusted");
 
+    if (!doAABBsOverlap(basePolygon.aabb(), polygon.aabb()))
+        return;
+
     Plane3i segmentPlane;
     Plane3i v0;
     Plane3i v1;

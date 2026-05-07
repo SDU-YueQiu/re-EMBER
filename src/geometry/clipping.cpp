@@ -74,6 +74,10 @@ bool computePolygonPlaneIntersection(
     Plane3i& p0,
     Plane3i& p1)
 {
+    const AABB3i &sourceBox = source.aabb();
+    if (!isValidAABB(sourceBox) || !doesPlaneIntersectAABB(target, sourceBox))
+        return false;
+
     const std::size_t n = source.edgeCount();
 
     std::vector<int> sides;
@@ -173,6 +177,9 @@ bool detail::computePolygonIntersectionCarrierTrusted(
     Plane3i& outV0,
     Plane3i& outV1)
 {
+    if (!doAABBsOverlap(target.aabb(), incoming.aabb()))
+        return false;
+
     //法向平行要么共面要么不相交
     if (arePlaneNormalsParallel(target.plane, incoming.plane))
         return false;
@@ -200,6 +207,9 @@ bool detail::computeBidirectionalPolygonIntersectionCarriersTrusted(
     IntersectionCarrier& outLhsCarrier,
     IntersectionCarrier& outRhsCarrier)
 {
+    if (!doAABBsOverlap(lhs.aabb(), rhs.aabb()))
+        return false;
+
     if (arePlaneNormalsParallel(lhs.plane, rhs.plane))
         return false;
 
