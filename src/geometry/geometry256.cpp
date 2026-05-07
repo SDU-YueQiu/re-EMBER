@@ -118,7 +118,6 @@ Polygon256::Polygon256(
     if (edgeProvenances.empty())
         edgeProvenances.assign(edgePlanes.size(), PolygonEdgeProvenance::Regular);
     orientPolygonEdgesOutward(plane, edgePlanes);
-    precomputeVertices();
 }
 
 Segment256::Segment256(const Plane3i &startPlane, const Plane3i &endPlane, const Line256 &directionLine) noexcept
@@ -132,9 +131,30 @@ void Polygon256::addEdgePlane(const Plane3i &edge, PolygonEdgeProvenance provena
 {
     edgePlanes.push_back(primitivePlane(edge));
     edgeProvenances.push_back(provenance);
+    invalidateDerivedCaches();
 }
 
-void Polygon256::precomputeVertices()
+void Polygon256::invalidateDerivedCaches() noexcept
+{
+    cachedVertices_.clear();
+    vertexCacheValid_ = false;
+    validityCacheValid_ = false;
+    cachedValidity_ = false;
+}
+
+void Polygon256::invalidateValidityCache() const noexcept
+{
+    validityCacheValid_ = false;
+    cachedValidity_ = false;
+}
+
+void Polygon256::precomputeVertices() const
+{
+    invalidateValidityCache();
+    rebuildVertexCache();
+}
+
+void Polygon256::rebuildVertexCache() const
 {
     REEMBER_PROFILE_ZONE("precomputeVertices");
     cachedVertices_.clear();
@@ -145,15 +165,20 @@ void Polygon256::precomputeVertices()
         const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
         cachedVertices_.emplace_back(plane, edgePlanes[i], edgePlanes[prev]);
     }
+    vertexCacheValid_ = true;
 }
 
-const PlanePoint3i &Polygon256::vertex(std::size_t vertexIndex) const noexcept
+const PlanePoint3i &Polygon256::vertex(std::size_t vertexIndex) const
 {
+    if (!vertexCacheValid_)
+        rebuildVertexCache();
     return cachedVertices_[vertexIndex];
 }
 
-const std::vector<PlanePoint3i> &Polygon256::vertices() const noexcept
+const std::vector<PlanePoint3i> &Polygon256::vertices() const
 {
+    if (!vertexCacheValid_)
+        rebuildVertexCache();
     return cachedVertices_;
 }
 
@@ -169,7 +194,18 @@ PolygonEdgeProvenance Polygon256::edgeProvenance(std::size_t edgeIndex) const no
     return edgeProvenances[edgeIndex];
 }
 
-bool Polygon256::isValid() const noexcept
+bool Polygon256::isValid() const
+{
+    if (!validityCacheValid_)
+    {
+        cachedValidity_ = computeValidity();
+        validityCacheValid_ = true;
+    }
+
+    return cachedValidity_;
+}
+
+bool Polygon256::computeValidity() const
 {
     // >3边
     const std::size_t n = edgePlanes.size();
@@ -278,7 +314,7 @@ bool Polygon256::containsOrOnBoundary(const PlanePoint3i &point) const noexcept
 }
 
 // 向内平移两条边构造内部点
-bool Polygon256::findStrictInteriorPoint(PlanePoint3i &outPoint) const noexcept
+bool Polygon256::findStrictInteriorPoint(PlanePoint3i &outPoint) const
 {
     const std::size_t n = edgePlanes.size();
     if (n < 3)

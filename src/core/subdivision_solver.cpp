@@ -182,7 +182,7 @@ bool tryEvaluateConstantBinaryIndicator(
     return hasStatus;
 }
 
-bool appendPolygonBoundsToAABB(AABB3i &box, const Polygon256 &polygon) noexcept
+bool appendPolygonBoundsToAABB(AABB3i &box, const Polygon256 &polygon)
 {
     bool hasVertex = false;
     const std::vector<PlanePoint3i> &cachedVertices = polygon.vertices();

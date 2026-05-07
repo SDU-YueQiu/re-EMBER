@@ -7,13 +7,13 @@
 当前代码已经具备一条可运行的基础布尔流水线：
 
 ```text
-OBJ -> 多边形集合 -> BoolProblem(顶点预处理/校验) -> SubdivisionSolver -> resultFragments -> OBJ n 边面
+OBJ -> 多边形集合 + 输入AABB -> BoolProblem(校验/懒顶点缓存) -> SubdivisionSolver -> resultFragments -> OBJ n 边面
 ```
 
 重要边界如下：
 
 - `src/application/main.cpp`：命令行入口，只负责解析参数、读写 OBJ、组装二元布尔任务。
-- `src/io/io.h/.cpp`：OBJ 读取、共享量化尺度选择、`Polygon256` 多边形集合构建、OBJ n 边面导出。
+- `src/io/io.h/.cpp`：OBJ 读取、共享量化尺度选择、`Polygon256` 多边形集合和量化输入 AABB 构建、OBJ n 边面导出。
 - `src/core/bool_problem.h/.cpp`：公开布尔问题门面，接收输入、保存配置、调用内部求解器并缓存结果。
 - `src/core/subdivision_solver.h/.cpp`：内部细分求解器，独占递归节点、AABB、参考点、叶片片段和结果汇总。
 - `src/core/leaf_classifier.cpp`：叶片局部编排后的 WNV 分类与结果筛选。
@@ -22,7 +22,7 @@ OBJ -> 多边形集合 -> BoolProblem(顶点预处理/校验) -> SubdivisionSolv
 - `src/tests/`：仓库自定义断言测试，不依赖第三方测试框架。
 - `tools/profile-re-ember.ps1`：端到端性能测试、Tracy 捕获和报告入口。
 
-`BoolProblem` 现在只暴露应用需要的二元门面接口：`setOperation`、`setLeafPolygonThreshold`、`setOperandAssumptions`、`setOperands`、`solve`、`isSolved`、`isDiscarded`、`resultFragments`、`leafSummaries` 和 `solveMetrics`。`setOperands()` 会统一覆写输入多边形的 `WNTV`，强制收敛到 `lhs={1,0}`、`rhs={0,1}` 的二元约定，不再暴露“直接注入任意带标签 polygon 集合”的公开入口。`solve()` 在进入 `SubdivisionSolver` 前会先统一预计算输入 `Polygon256` 的顶点缓存，再做合法性校验，避免后续细分、裁剪、叶片分类和 OBJ 导出阶段反复从边平面重建同一批顶点。递归子问题状态属于 `SubdivisionSolver` 内部实现；测试或诊断需要看叶子结构时使用 `leafSummaries()`，需要看求解规模和剪枝/候选统计时使用 `solveMetrics()`。
+`BoolProblem` 现在只暴露应用需要的二元门面接口：`setOperation`、`setLeafPolygonThreshold`、`setOperandAssumptions`、`setOperands`、`solve(sceneAABB)`、`isSolved`、`isDiscarded`、`resultFragments`、`leafSummaries` 和 `solveMetrics`。`setOperands()` 会统一覆写输入多边形的 `WNTV`，强制收敛到 `lhs={1,0}`、`rhs={0,1}` 的二元约定，不再暴露“直接注入任意带标签 polygon 集合”的公开入口。根场景 AABB 由 OBJ 量化/构建 polygon soup 阶段生成，调用方合并左右输入后加 margin 并传给 `solve(sceneAABB)`；`SubdivisionSolver` 不再从 256 位多边形顶点反推根 AABB。`Polygon256` 顶点缓存改为按需构造，首次调用 `vertex()` / `vertices()` 时生成，后续复用。递归子问题状态属于 `SubdivisionSolver` 内部实现；测试或诊断需要看叶子结构时使用 `leafSummaries()`，需要看求解规模和剪枝/候选统计时使用 `solveMetrics()`。
 
 ## 构建与测试
 

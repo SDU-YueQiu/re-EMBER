@@ -41,13 +41,6 @@ void validateSolveInputPolygons(const std::vector<Polygon256> &polygons)
     }
 }
 
-void preprocessSolveInputPolygons(std::vector<Polygon256> &polygons)
-{
-    REEMBER_PROFILE_ZONE("preprocessSolveInputPolygons");
-    for (Polygon256 &polygon : polygons)
-        polygon.precomputeVertices();
-}
-
 void validateSceneAABB(const AABB3i &sceneAABB)
 {
     if (isValidAABB(sceneAABB))
@@ -128,7 +121,6 @@ void BoolProblem::solve(const AABB3i &sceneAABB)
     }
 
     validateSceneAABB(sceneAABB);
-    preprocessSolveInputPolygons(polygons_);
     validateSolveInputPolygons(polygons_);
 
     SubdivisionSolver solver(op_, leafPolygonThreshold_, polygons_, sceneAABB, lhsAssumptions_, rhsAssumptions_);

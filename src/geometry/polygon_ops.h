@@ -16,7 +16,7 @@ namespace ember
 /**
  * @brief 从支撑平面和相邻边平面读取一个多边形顶点。
  */
-inline const PlanePoint3i &getPolygonVertex(const Polygon256 &poly, std::size_t index) noexcept
+inline const PlanePoint3i &getPolygonVertex(const Polygon256 &poly, std::size_t index)
 {
     return poly.vertex(index);
 }
@@ -26,7 +26,7 @@ inline const PlanePoint3i &getPolygonVertex(const Polygon256 &poly, std::size_t 
  *
  * @pre `lhs` 与 `rhs` 都是可取顶点的有效多边形。
  */
-inline bool areCoplanarPolygons(const Polygon256 &lhs, const Polygon256 &rhs) noexcept
+inline bool areCoplanarPolygons(const Polygon256 &lhs, const Polygon256 &rhs)
 {
     if (!arePlaneNormalsParallel(lhs.plane, rhs.plane))
         return false;
