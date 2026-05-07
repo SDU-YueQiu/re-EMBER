@@ -146,11 +146,6 @@ private:
     void finishCurrentNodeAsLeaf();
 
     /**
-     * @brief 当当前节点为空或 AABB 非法时直接丢弃。
-     */
-    bool tryDiscardInvalidOrEmptyNode();
-
-    /**
      * @brief 当当前节点布尔指示函数已恒定时直接丢弃。
      */
     bool tryDiscardConstantIndicatorNode();
