@@ -4,7 +4,7 @@
  */
 #pragma once
 
-#include "geometry/geometry256.h"
+#include "geometry/plane_geometry256.h"
 
 #include <array>
 
@@ -150,19 +150,6 @@ inline bool isValidAABB(const AABB3i &box) noexcept
     return box.valid && box.xMin <= box.xMax && box.yMin <= box.yMax && box.zMin <= box.zMax;
 }
 
-inline void expandAABB(AABB3i &box, const Integer &margin) noexcept
-{
-    if (!isValidAABB(box))
-        return;
-
-    box.xMin -= margin;
-    box.xMax += margin;
-    box.yMin -= margin;
-    box.yMax += margin;
-    box.zMin -= margin;
-    box.zMax += margin;
-}
-
 inline void mergeAABB(AABB3i &box, const AABB3i &source) noexcept
 {
     if (!isValidAABB(source))
@@ -180,6 +167,100 @@ inline void mergeAABB(AABB3i &box, const AABB3i &source) noexcept
     if (source.yMax > box.yMax) box.yMax = source.yMax;
     if (source.zMin < box.zMin) box.zMin = source.zMin;
     if (source.zMax > box.zMax) box.zMax = source.zMax;
+}
+
+inline void appendPointCoordinateIntervalToAABB(
+    AABB3i &box,
+    const Integer &xMin,
+    const Integer &xMax,
+    const Integer &yMin,
+    const Integer &yMax,
+    const Integer &zMin,
+    const Integer &zMax) noexcept
+{
+    AABB3i pointBox;
+    pointBox.xMin = xMin;
+    pointBox.xMax = xMax;
+    pointBox.yMin = yMin;
+    pointBox.yMax = yMax;
+    pointBox.zMin = zMin;
+    pointBox.zMax = zMax;
+    pointBox.valid = true;
+    mergeAABB(box, pointBox);
+}
+
+inline bool appendPointToAABB(AABB3i &box, const PlanePoint3i &point) noexcept
+{
+    if (!point.hasUniqueIntersection() || isZero(point.x.w))
+        return false;
+
+    appendPointCoordinateIntervalToAABB(
+        box,
+        floorDiv(point.x.x, point.x.w),
+        ceilDiv(point.x.x, point.x.w),
+        floorDiv(point.x.y, point.x.w),
+        ceilDiv(point.x.y, point.x.w),
+        floorDiv(point.x.z, point.x.w),
+        ceilDiv(point.x.z, point.x.w));
+    return true;
+}
+
+inline bool buildPointPairAABB(
+    const PlanePoint3i &first,
+    const PlanePoint3i &second,
+    AABB3i &outBox) noexcept
+{
+    outBox = AABB3i();
+    if (!appendPointToAABB(outBox, first) || !appendPointToAABB(outBox, second))
+    {
+        outBox = AABB3i();
+        return false;
+    }
+
+    return isValidAABB(outBox);
+}
+
+inline bool doAABBsOverlap(const AABB3i &lhs, const AABB3i &rhs) noexcept
+{
+    return isValidAABB(lhs) &&
+           isValidAABB(rhs) &&
+           lhs.xMin <= rhs.xMax &&
+           rhs.xMin <= lhs.xMax &&
+           lhs.yMin <= rhs.yMax &&
+           rhs.yMin <= lhs.yMax &&
+           lhs.zMin <= rhs.zMax &&
+           rhs.zMin <= lhs.zMax;
+}
+
+inline bool doesPlaneIntersectAABB(const Plane3i &plane, const AABB3i &box) noexcept
+{
+    if (!isValidAABB(box))
+        return false;
+
+    const Integer minValue =
+        (plane.a >= 0 ? plane.a * box.xMin : plane.a * box.xMax) +
+        (plane.b >= 0 ? plane.b * box.yMin : plane.b * box.yMax) +
+        (plane.c >= 0 ? plane.c * box.zMin : plane.c * box.zMax) +
+        plane.d;
+    const Integer maxValue =
+        (plane.a >= 0 ? plane.a * box.xMax : plane.a * box.xMin) +
+        (plane.b >= 0 ? plane.b * box.yMax : plane.b * box.yMin) +
+        (plane.c >= 0 ? plane.c * box.zMax : plane.c * box.zMin) +
+        plane.d;
+    return minValue <= 0 && maxValue >= 0;
+}
+
+inline void expandAABB(AABB3i &box, const Integer &margin) noexcept
+{
+    if (!isValidAABB(box))
+        return;
+
+    box.xMin -= margin;
+    box.xMax += margin;
+    box.yMin -= margin;
+    box.yMax += margin;
+    box.zMin -= margin;
+    box.zMax += margin;
 }
 
 inline PlanePoint3i makeIntegerPoint(const Integer &x, const Integer &y, const Integer &z) noexcept

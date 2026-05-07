@@ -5,6 +5,7 @@
 #pragma once
 
 #include "geometry/aabb.h"
+#include "geometry/geometry256.h"
 
 #include <cstddef>
 #include <cstdint>
