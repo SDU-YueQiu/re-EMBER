@@ -191,9 +191,6 @@ inline void appendPointCoordinateIntervalToAABB(
 
 inline bool appendPointToAABB(AABB3i &box, const PlanePoint3i &point) noexcept
 {
-    if (!point.hasUniqueIntersection() || isZero(point.x.w))
-        return false;
-
     appendPointCoordinateIntervalToAABB(
         box,
         floorDiv(point.x.x, point.x.w),
