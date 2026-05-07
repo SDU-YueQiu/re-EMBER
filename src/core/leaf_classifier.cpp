@@ -9,7 +9,8 @@
 #include "algorithm/WNV_tracing.h"
 #include "core/perf_tracing.h"
 #include "core/solver_shared.h"
-#include "geometry/polygon_ops.h"
+
+#include "geometry/polygon_ops.h"
 
 #include <sstream>
 #include <stdexcept>
@@ -24,7 +25,8 @@ struct LeafClassificationAttemptStats
 {
     bool classified = false;
     traceStatus lastStatus = FAIL;
-};
+
+};
 
 enum class LeafClassificationResult
 {
@@ -235,7 +237,8 @@ bool attemptLeafClassificationPointCandidates(
 {
     REEMBER_PROFILE_ZONE("LeafClassification::attemptPointCandidates");
 
-    context.solveMetrics.leafClassificationPointCandidateCount += pointCandidates.size();
+
+    context.solveMetrics.leafClassificationPointCandidateCount += pointCandidates.size();
 
     bool allowFallback = attemptFastPointCandidates(
                              context,
@@ -331,7 +334,8 @@ LeafClassificationResult classifyLeafFragment(
 
     return LeafClassificationResult::Failure;
 }
-}
+
+}
 
 // 对叶子节点内的每个多边形建立局部 BSP，并收集启用的片段。
 void SubdivisionSolver::solveLeafArrangement()
@@ -354,7 +358,8 @@ void SubdivisionSolver::solveLeafArrangement()
 
     ++solveMetrics_.leafBspBuildCount;
     leafFragments_ = buildLeafArrangement(polygons_);
-}
+
+}
 
 void SubdivisionSolver::appendResultFragmentFromClassification(const ClassifiedFragment &classifiedFragment)
 {
@@ -456,10 +461,12 @@ bool SubdivisionSolver::classifyLeafFragmentsAndCollectResults(bool allowRetryFa
         appendResultFragmentFromClassification(classifiedFragments_.back());
     }
     return true;
-}
+
+}
 
 bool SubdivisionSolver::trySolveSingleOperandAssumptionLeaf()
 {
+    REEMBER_PROFILE_ZONE("SubdivisionSolver::trySolveSingleOperandAssumptionLeaf");
     BoolOperandAssumptions assumptions;
     if (!tryGetSingleOperandAssumptions(assumptions) ||
             !assumptions.noSelfIntersections ||
@@ -473,7 +480,6 @@ bool SubdivisionSolver::trySolveSingleOperandAssumptionLeaf()
     if (!classifyLeafFragmentsAndCollectResults(true))
     {
         solveMetrics_ = metricsSnapshot;
-        REEMBER_PROFILE_ZONE("SubdivisionSolver::singleOperandAssumptionFallback");
         ++solveMetrics_.singleOperandAssumptionFallbackCount;
         isLeaf_ = true;
         leafFragmentCount_ = 0;
@@ -485,11 +491,10 @@ bool SubdivisionSolver::trySolveSingleOperandAssumptionLeaf()
         return false;
     }
 
-    REEMBER_PROFILE_ZONE("SubdivisionSolver::singleOperandAssumptionStop");
     ++solveMetrics_.singleOperandAssumptionStopCount;
     finalizeLeafNode();
     return true;
-}
+}
 
 // 将 WNV 交给当前布尔运算的二元指示函数，返回内外状态。
 BoolStatus SubdivisionSolver::evaluateBooleanIndicator(const WNV &wnv) const noexcept

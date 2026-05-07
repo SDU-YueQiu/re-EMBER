@@ -967,16 +967,11 @@ bool SubdivisionSolver::tryFinishStoppedSubdivisionNode()
 
     const bool stoppedByLeafThreshold = polygonCount_ <= leafPolygonThreshold_;
     if (stoppedByLeafThreshold)
-    {
-        REEMBER_PROFILE_ZONE("SubdivisionSolver::stopByLeafThreshold");
         ++solveMetrics_.leafThresholdStopCount;
-    }
     else
-    {
-        REEMBER_PROFILE_ZONE("SubdivisionSolver::stopByAabbNotSplittable");
         ++solveMetrics_.aabbNotSplittableStopCount;
-    }
 
+    REEMBER_PROFILE_ZONE("SubdivisionSolver::tryFinishStoppedSubdivisionNode_finishCurrentNodeAsLeaf");
     finishCurrentNodeAsLeaf();
     return true;
 }
