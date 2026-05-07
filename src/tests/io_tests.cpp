@@ -412,8 +412,11 @@ ObjMeshData solveObjBooleanMesh(
     std::vector<Polygon256> rhsPolygons;
     ember::AABB3i lhsAABB;
     ember::AABB3i rhsAABB;
-    if (!ember::buildPolygonSoup(lhs, scale, polygonBuildOptions, lhsPolygons, lhsAABB, error) ||
-            !ember::buildPolygonSoup(rhs, scale, polygonBuildOptions, rhsPolygons, rhsAABB, error))
+    if (!ember::computeScaledMeshAABB(lhs, scale, lhsAABB, error) ||
+            !ember::computeScaledMeshAABB(rhs, scale, rhsAABB, error))
+        throw std::runtime_error("io_tests failed to compute input AABB: " + error);
+    if (!ember::buildPolygonSoup(lhs, scale, polygonBuildOptions, lhsPolygons, error) ||
+            !ember::buildPolygonSoup(rhs, scale, polygonBuildOptions, rhsPolygons, error))
         throw std::runtime_error("io_tests failed to build polygon soup: " + error);
 
     ember::BoolProblem problem(leafThreshold);
@@ -558,8 +561,10 @@ void runIoTests()
         std::vector<Polygon256> rhsPolygons;
         ember::AABB3i lhsAABB;
         ember::AABB3i rhsAABB;
-        assert(ember::buildPolygonSoup(lhs, scale, lhsPolygons, lhsAABB, error));
-        assert(ember::buildPolygonSoup(rhs, scale, rhsPolygons, rhsAABB, error));
+        assert(ember::computeScaledMeshAABB(lhs, scale, lhsAABB, error));
+        assert(ember::computeScaledMeshAABB(rhs, scale, rhsAABB, error));
+        assert(ember::buildPolygonSoup(lhs, scale, lhsPolygons, error));
+        assert(ember::buildPolygonSoup(rhs, scale, rhsPolygons, error));
 
         ember::BoolProblem problem(25);
         problem.setOperation(BoolOp::Difference);
@@ -718,8 +723,10 @@ void runIoTests()
         std::vector<Polygon256> rhsPolygons;
         ember::AABB3i lhsAABB;
         ember::AABB3i rhsAABB;
-        assert(ember::buildPolygonSoup(lhs, scale, lhsPolygons, lhsAABB, error));
-        assert(ember::buildPolygonSoup(rhs, scale, rhsPolygons, rhsAABB, error));
+        assert(ember::computeScaledMeshAABB(lhs, scale, lhsAABB, error));
+        assert(ember::computeScaledMeshAABB(rhs, scale, rhsAABB, error));
+        assert(ember::buildPolygonSoup(lhs, scale, lhsPolygons, error));
+        assert(ember::buildPolygonSoup(rhs, scale, rhsPolygons, error));
 
         ember::BoolProblem problem(25);
         problem.setOperation(BoolOp::Difference);
@@ -1065,8 +1072,10 @@ void runIoTests()
         std::vector<Polygon256> rhsPolygons;
         ember::AABB3i lhsAABB;
         ember::AABB3i rhsAABB;
-        assert(ember::buildPolygonSoup(workpiece, 1000u, lhsPolygons, lhsAABB, error));
-        assert(ember::buildPolygonSoup(tool, 1000u, rhsPolygons, rhsAABB, error));
+        assert(ember::computeScaledMeshAABB(workpiece, 1000u, lhsAABB, error));
+        assert(ember::computeScaledMeshAABB(tool, 1000u, rhsAABB, error));
+        assert(ember::buildPolygonSoup(workpiece, 1000u, lhsPolygons, error));
+        assert(ember::buildPolygonSoup(tool, 1000u, rhsPolygons, error));
 
         ember::BoolProblem problem(25);
         problem.setOperation(BoolOp::Union);
