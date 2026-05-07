@@ -130,6 +130,83 @@ function Count-ObjFaces {
     return (Select-String -LiteralPath $Path -Pattern '^\s*f\s+' -ErrorAction Stop).Count
 }
 
+function Get-ObjBounds {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw ("Cannot read bounds from missing OBJ: {0}" -f $Path)
+    }
+
+    $vertexPattern = '^\s*v\s+(?<x>[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)\s+' +
+                     '(?<y>[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)\s+' +
+                     '(?<z>[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)'
+    $minX = [double]::PositiveInfinity
+    $minY = [double]::PositiveInfinity
+    $minZ = [double]::PositiveInfinity
+    $maxX = [double]::NegativeInfinity
+    $maxY = [double]::NegativeInfinity
+    $maxZ = [double]::NegativeInfinity
+    $vertexCount = 0
+
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        $match = [System.Text.RegularExpressions.Regex]::Match($line, $vertexPattern)
+        if (-not $match.Success) {
+            continue
+        }
+
+        $x = [double]::Parse($match.Groups["x"].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+        $y = [double]::Parse($match.Groups["y"].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+        $z = [double]::Parse($match.Groups["z"].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+        $minX = [Math]::Min($minX, $x)
+        $minY = [Math]::Min($minY, $y)
+        $minZ = [Math]::Min($minZ, $z)
+        $maxX = [Math]::Max($maxX, $x)
+        $maxY = [Math]::Max($maxY, $y)
+        $maxZ = [Math]::Max($maxZ, $z)
+        ++$vertexCount
+    }
+
+    if ($vertexCount -eq 0) {
+        throw ("OBJ contains no vertices: {0}" -f $Path)
+    }
+
+    return [pscustomobject]@{
+        MinX = $minX
+        MinY = $minY
+        MinZ = $minZ
+        MaxX = $maxX
+        MaxY = $maxY
+        MaxZ = $maxZ
+        SizeX = $maxX - $minX
+        SizeY = $maxY - $minY
+        SizeZ = $maxZ - $minZ
+        CenterX = ($minX + $maxX) / 2.0
+        CenterY = ($minY + $maxY) / 2.0
+        CenterZ = ($minZ + $maxZ) / 2.0
+    }
+}
+
+function Get-VisualTranslationRange {
+    param(
+        [object]$WorkpieceBounds,
+        [object]$ToolBounds
+    )
+
+    $dominantExtent = (
+        @(
+            [double]$WorkpieceBounds.SizeX,
+            [double]$WorkpieceBounds.SizeY,
+            [double]$WorkpieceBounds.SizeZ,
+            [double]$ToolBounds.SizeX,
+            [double]$ToolBounds.SizeY,
+            [double]$ToolBounds.SizeZ,
+            1.0
+        ) | Measure-Object -Maximum
+    ).Maximum
+
+    return 2.0 * [double]$dominantExtent
+}
+
 function Format-ObjScalar {
     param([double]$Value)
 
@@ -180,6 +257,27 @@ function Write-TranslatedObjCopy {
 
     Set-Content -LiteralPath $DestinationPath -Value $translatedLines -Encoding UTF8
     return $DestinationPath
+}
+
+function Write-CenterAlignedObjCopy {
+    param(
+        [string]$SourcePath,
+        [string]$ReferencePath,
+        [string]$DestinationPath,
+        [double]$OffsetX,
+        [double]$OffsetY,
+        [double]$OffsetZ
+    )
+
+    $sourceBounds = Get-ObjBounds $SourcePath
+    $referenceBounds = Get-ObjBounds $ReferencePath
+
+    return Write-TranslatedObjCopy `
+        $SourcePath `
+        $DestinationPath `
+        ($referenceBounds.CenterX - $sourceBounds.CenterX + $OffsetX) `
+        ($referenceBounds.CenterY - $sourceBounds.CenterY + $OffsetY) `
+        ($referenceBounds.CenterZ - $sourceBounds.CenterZ + $OffsetZ)
 }
 
 function Join-CommandLine {
@@ -571,12 +669,18 @@ function Get-Workloads {
         return $items
     }
 
+    $visualWorkpieceSource = "assets\visual_test\workpiece_block.obj"
     $visualToolSource = "assets\visual_test\tool_box.obj"
     $visualToolOverlapPosePath = Join-Path $PerfRoot "visual_test_overlap_pose_tool.obj"
     $visualToolUiDefaultPosePath = Join-Path $PerfRoot "visual_test_ui_default_pose_tool.obj"
-    if (Test-Path -LiteralPath $visualToolSource) {
-        [void](Write-TranslatedObjCopy $visualToolSource $visualToolOverlapPosePath 0.5 0.2 0.35)
-        [void](Write-TranslatedObjCopy $visualToolSource $visualToolUiDefaultPosePath 0.5 0.5 0.35)
+    if ((Test-Path -LiteralPath $visualWorkpieceSource) -and (Test-Path -LiteralPath $visualToolSource)) {
+        $visualWorkpieceBounds = Get-ObjBounds $visualWorkpieceSource
+        $visualToolBounds = Get-ObjBounds $visualToolSource
+        $visualTranslationRange = Get-VisualTranslationRange $visualWorkpieceBounds $visualToolBounds
+        $overlapOffsetY = -0.25 * $visualTranslationRange
+
+        [void](Write-CenterAlignedObjCopy $visualToolSource $visualWorkpieceSource $visualToolOverlapPosePath 0.0 $overlapOffsetY 0.0)
+        [void](Write-CenterAlignedObjCopy $visualToolSource $visualWorkpieceSource $visualToolUiDefaultPosePath 0.0 0.0 0.0)
     }
 
     $defaults = @(
