@@ -32,12 +32,6 @@ std::string formatAABB(const AABB3i &box)
 }
 
 template <typename T>
-void releaseVectorStorage(std::vector<T> &values)
-{
-    std::vector<T>().swap(values);
-}
-
-template <typename T>
 void appendMovedVector(std::vector<T> &destination, std::vector<T> &source)
 {
     if (source.empty())
@@ -864,25 +858,9 @@ void SubdivisionSolver::solve()
     REEMBER_PROFILE_ZONE("SubdivisionSolver::solve");
 
     const AABB3i rootAABB = aabb_;
-    resetSolveState();
     aabb_ = rootAABB;
     solveMetrics_.inputPolygonCount = polygonCount_;
-    if (polygonCount_ == 0)
-    {
-        discarded_ = true;
-        solved_ = true;
-        return;
-    }
-
-    if (!isValidAABB(aabb_))
-    {
-        std::ostringstream message;
-        message << "SubdivisionSolver received an invalid root AABB root_aabb="
-                << formatAABB(aabb_)
-                << ".";
-        throw std::runtime_error(message.str());
-    }
-
+    
     initializeRootReference();
     solveRecursive();
 }
@@ -907,31 +885,8 @@ const BoolSolveMetrics &SubdivisionSolver::solveMetrics() const noexcept
     return solveMetrics_;
 }
 
-void SubdivisionSolver::resetSolveState() noexcept
-{
-    depth_ = 0;
-    isLeaf_ = true;
-    discarded_ = false;
-    solved_ = false;
-    splitPlane_ = Plane3i();
-    aabb_ = AABB3i();
-    reference_ = SubdivisionRefState();
-    leafFragments_.clear();
-    classifiedFragments_.clear();
-    resultFragments_.clear();
-    leafSummaries_.clear();
-    solveMetrics_ = BoolSolveMetrics();
-    polygonCount_ = polygons_.size();
-    leafFragmentCount_ = 0;
-    classifiedFragmentCount_ = 0;
-    leftChild_.reset();
-    rightChild_.reset();
-}
-
 void SubdivisionSolver::initializeRootReference()
 {
-    REEMBER_PROFILE_ZONE("SubdivisionSolver::initializeRootReference");
-
     reference_.point = getAABBCornerPoint(aabb_, false, false, false);
     reference_.wnv.assign(detail::kBinaryWnvDimension, 0);
 }
@@ -954,17 +909,8 @@ void SubdivisionSolver::finalizeNodeMetrics(bool isLeafNode) noexcept
     solveMetrics_.resultFragmentCount = resultFragments_.size();
 }
 
-void SubdivisionSolver::releaseTransientGeometry() noexcept
-{
-    releaseVectorStorage(polygons_);
-    releaseVectorStorage(leafFragments_);
-    releaseVectorStorage(classifiedFragments_);
-}
-
 void SubdivisionSolver::finalizeLeafNode()
 {
-    REEMBER_PROFILE_ZONE("SubdivisionSolver::finalizeLeafNode");
-
     leafFragmentCount_ = leafFragments_.size();
     classifiedFragmentCount_ = classifiedFragments_.size();
     leafSummaries_.clear();
@@ -972,7 +918,6 @@ void SubdivisionSolver::finalizeLeafNode()
         leafSummaries_.push_back(BoolLeafSummary{depth_, polygonCount_, aabb_, false});
 
     finalizeNodeMetrics(true);
-    releaseTransientGeometry();
     solved_ = true;
 }
 
@@ -983,7 +928,6 @@ void SubdivisionSolver::finalizeInternalNode()
     leafFragmentCount_ = 0;
     classifiedFragmentCount_ = 0;
     finalizeNodeMetrics(false);
-    releaseTransientGeometry();
     solved_ = true;
 }
 
@@ -1113,7 +1057,6 @@ void SubdivisionSolver::solveRecursive()
     }
 
     isLeaf_ = false;
-    releaseTransientGeometry();
 
     if (leftChild_)
         leftChild_->solveRecursive();
