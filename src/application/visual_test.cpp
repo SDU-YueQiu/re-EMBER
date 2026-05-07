@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -77,13 +78,11 @@ std::string resolveDefaultAssetPath(const std::string &relativePath)
 using Clock = std::chrono::steady_clock;
 
 inline std::size_t kLeafThreshold = 25;
-inline double kTranslationMin = -0.25;
-inline double kTranslationMax = 1.25;
 inline double kRotationMinDegrees = -180.0;
 inline double kRotationMaxDegrees = 180.0;
-inline double kDefaultTx = 0.5;
-inline double kDefaultTy = 0.5;
-inline double kDefaultTz = 0.35;
+inline double kDefaultTx = 0.0;
+inline double kDefaultTy = 0.0;
+inline double kDefaultTz = 0.0;
 inline std::uint64_t kVisualTestManualScale = 1000;
 
 enum class EngineKind
@@ -99,6 +98,13 @@ struct ResultStats
     std::size_t resultVertexCount = 0;
     std::size_t resultFaceCount = 0;
     std::uint64_t sharedScale = 0;
+};
+
+struct Bounds3d
+{
+    Eigen::Vector3d min = Eigen::Vector3d::Zero();
+    Eigen::Vector3d max = Eigen::Vector3d::Zero();
+    bool valid = false;
 };
 
 struct ToolPose
@@ -119,7 +125,9 @@ struct UiState
     bool emberAutoScale = true;
     std::uint64_t emberManualScale = kVisualTestManualScale;
     std::size_t leafThreshold = kLeafThreshold;
-    bool dirty = false;
+    bool previewDirty = false;
+    bool solveRequested = false;
+    bool resultStale = false;
     std::string lastError;
     ResultStats stats;
 };
@@ -137,6 +145,11 @@ struct SceneData
     std::vector<Polygon256> workpiecePolygons;
     std::uint64_t emberSharedScale = 0;
     NefPolyhedron workpieceNef;
+    Bounds3d workpieceBounds;
+    Bounds3d toolOriginalBounds;
+    Eigen::Vector3d toolBaseTranslation = Eigen::Vector3d::Zero();
+    Eigen::Vector3d touchOffsets = Eigen::Vector3d::Ones();
+    double translationRange = 1.0;
 };
 
 struct MeshLayerStyle
@@ -200,7 +213,73 @@ double elapsedMilliseconds(const Clock::time_point &start, const Clock::time_poi
     return std::chrono::duration<double, std::milli>(end - start).count();
 }
 
-ObjMeshData transformToolMesh(const ObjMeshData &mesh, const UiState &ui)
+Bounds3d computeBounds(const ObjMeshData &mesh)
+{
+    Bounds3d bounds;
+    if (mesh.vertices.empty())
+        return bounds;
+
+    bounds.valid = true;
+    bounds.min = Eigen::Vector3d(
+        mesh.vertices.front().x,
+        mesh.vertices.front().y,
+        mesh.vertices.front().z);
+    bounds.max = bounds.min;
+    for (const ObjVertex &vertex : mesh.vertices)
+    {
+        const Eigen::Vector3d point(vertex.x, vertex.y, vertex.z);
+        bounds.min = bounds.min.cwiseMin(point);
+        bounds.max = bounds.max.cwiseMax(point);
+    }
+    return bounds;
+}
+
+Eigen::Vector3d boundsCenter(const Bounds3d &bounds)
+{
+    if (!bounds.valid)
+        return Eigen::Vector3d::Zero();
+    return 0.5 * (bounds.min + bounds.max);
+}
+
+Eigen::Vector3d boundsExtent(const Bounds3d &bounds)
+{
+    if (!bounds.valid)
+        return Eigen::Vector3d::Zero();
+    return bounds.max - bounds.min;
+}
+
+void initializeScenePlacement(SceneData &scene)
+{
+    scene.workpieceBounds = computeBounds(scene.workpieceMesh);
+    scene.toolOriginalBounds = computeBounds(scene.toolOriginalMesh);
+    scene.toolBaseTranslation = boundsCenter(scene.workpieceBounds) - boundsCenter(scene.toolOriginalBounds);
+
+    const Eigen::Vector3d workpieceExtent = boundsExtent(scene.workpieceBounds);
+    const Eigen::Vector3d toolExtent = boundsExtent(scene.toolOriginalBounds);
+    scene.touchOffsets = 0.5 * (workpieceExtent + toolExtent);
+
+    const double dominantExtent = std::max(
+        {workpieceExtent.x(), workpieceExtent.y(), workpieceExtent.z(),
+         toolExtent.x(), toolExtent.y(), toolExtent.z(), 1.0});
+    scene.translationRange = 2.0 * dominantExtent;
+}
+
+Eigen::Vector3d toolWorldTranslation(const SceneData &scene, const UiState &ui)
+{
+    return scene.toolBaseTranslation + Eigen::Vector3d(ui.pose.tx, ui.pose.ty, ui.pose.tz);
+}
+
+void clampPose(UiState &ui, const SceneData &scene)
+{
+    ui.pose.tx = std::clamp(ui.pose.tx, -scene.translationRange, scene.translationRange);
+    ui.pose.ty = std::clamp(ui.pose.ty, -scene.translationRange, scene.translationRange);
+    ui.pose.tz = std::clamp(ui.pose.tz, -scene.translationRange, scene.translationRange);
+    ui.pose.rx = std::clamp(ui.pose.rx, kRotationMinDegrees, kRotationMaxDegrees);
+    ui.pose.ry = std::clamp(ui.pose.ry, kRotationMinDegrees, kRotationMaxDegrees);
+    ui.pose.rz = std::clamp(ui.pose.rz, kRotationMinDegrees, kRotationMaxDegrees);
+}
+
+ObjMeshData transformToolMesh(const ObjMeshData &mesh, const SceneData &scene, const UiState &ui)
 {
     ObjMeshData transformed = mesh;
 
@@ -211,7 +290,7 @@ ObjMeshData transformToolMesh(const ObjMeshData &mesh, const UiState &ui)
         Eigen::AngleAxisd(rz, Eigen::Vector3d::UnitZ()).toRotationMatrix() *
         Eigen::AngleAxisd(ry, Eigen::Vector3d::UnitY()).toRotationMatrix() *
         Eigen::AngleAxisd(rx, Eigen::Vector3d::UnitX()).toRotationMatrix();
-    const Eigen::Vector3d translation(ui.pose.tx, ui.pose.ty, ui.pose.tz);
+    const Eigen::Vector3d translation = toolWorldTranslation(scene, ui);
 
     for (ObjVertex &vertex : transformed.vertices)
     {
@@ -223,6 +302,12 @@ ObjMeshData transformToolMesh(const ObjMeshData &mesh, const UiState &ui)
     }
 
     return transformed;
+}
+
+void updateToolPreview(SceneData &scene, const UiState &ui)
+{
+    scene.toolCurrentMesh = transformToolMesh(scene.toolOriginalMesh, scene, ui);
+    scene.toolDisplayMesh = scene.toolCurrentMesh;
 }
 
 SurfaceMesh makeSurfaceMesh(const ObjMeshData &mesh)
@@ -485,8 +570,7 @@ bool recomputeScene(SceneData &scene, UiState &ui)
 {
     ui.lastError.clear();
 
-    scene.toolCurrentMesh = transformToolMesh(scene.toolOriginalMesh, ui);
-    scene.toolDisplayMesh = scene.toolCurrentMesh;
+    updateToolPreview(scene, ui);
 
     switch (ui.engine)
     {
@@ -524,6 +608,17 @@ bool drawPosePresetButton(const char *label, ToolPose &pose, const ToolPose &pre
         return false;
 
     pose = preset;
+    return true;
+}
+
+bool drawOffsetPresetButton(const char *label, ToolPose &pose, const Eigen::Vector3d &offset)
+{
+    if (!ImGui::Button(label))
+        return false;
+
+    pose.tx = offset.x();
+    pose.ty = offset.y();
+    pose.tz = offset.z();
     return true;
 }
 
@@ -712,6 +807,8 @@ int main()
         return 1;
     }
 
+    initializeScenePlacement(scene);
+
     UiState ui;
     if (!recomputeScene(scene, ui))
         std::cerr << ui.lastError << std::endl;
@@ -743,6 +840,7 @@ int main()
     {
         UiState proposed = ui;
         bool changed = false;
+        const Eigen::Vector3d worldTranslation = toolWorldTranslation(scene, proposed);
 
         ImGui::Text("visual-test");
         ImGui::Separator();
@@ -780,6 +878,18 @@ int main()
         }
 
         ImGui::Separator();
+        ImGui::Text("offset range = +/- %.6f", scene.translationRange);
+        ImGui::Text(
+            "auto-align world t = (%.6f, %.6f, %.6f)",
+            scene.toolBaseTranslation.x(),
+            scene.toolBaseTranslation.y(),
+            scene.toolBaseTranslation.z());
+        ImGui::Text(
+            "current world t = (%.6f, %.6f, %.6f)",
+            worldTranslation.x(),
+            worldTranslation.y(),
+            worldTranslation.z());
+
         if (ImGui::Checkbox("auto scale", &proposed.emberAutoScale))
             changed = true;
         if (!proposed.emberAutoScale)
@@ -799,9 +909,9 @@ int main()
             changed = true;
         }
 
-        changed = drawDoubleSliderInput("tx", proposed.pose.tx, kTranslationMin, kTranslationMax, 0.001) || changed;
-        changed = drawDoubleSliderInput("ty", proposed.pose.ty, kTranslationMin, kTranslationMax, 0.001) || changed;
-        changed = drawDoubleSliderInput("tz", proposed.pose.tz, kTranslationMin, kTranslationMax, 0.001) || changed;
+        changed = drawDoubleSliderInput("dx", proposed.pose.tx, -scene.translationRange, scene.translationRange, 0.001) || changed;
+        changed = drawDoubleSliderInput("dy", proposed.pose.ty, -scene.translationRange, scene.translationRange, 0.001) || changed;
+        changed = drawDoubleSliderInput("dz", proposed.pose.tz, -scene.translationRange, scene.translationRange, 0.001) || changed;
         changed = drawDoubleSliderInput("rx", proposed.pose.rx, kRotationMinDegrees, kRotationMaxDegrees, 0.01) || changed;
         changed = drawDoubleSliderInput("ry", proposed.pose.ry, kRotationMinDegrees, kRotationMaxDegrees, 0.01) || changed;
         changed = drawDoubleSliderInput("rz", proposed.pose.rz, kRotationMinDegrees, kRotationMaxDegrees, 0.01) || changed;
@@ -812,22 +922,39 @@ int main()
             changed = true;
         }
         ImGui::SameLine();
-        changed = drawPosePresetButton("Thin rx", proposed.pose, makeToolPose(-0.080, 0.681, 0.350, 43.417)) || changed;
+        changed = drawOffsetPresetButton("Center", proposed.pose, Eigen::Vector3d::Zero()) || changed;
 
-        ImGui::Text("Coplanar presets");
-        changed = drawPosePresetButton("Z 0/1", proposed.pose, makeToolPose(0.500, 0.500, 0.500)) || changed;
+        ImGui::Text("AABB touch presets");
+        changed = drawOffsetPresetButton("X min", proposed.pose, Eigen::Vector3d(-scene.touchOffsets.x(), 0.0, 0.0)) || changed;
         ImGui::SameLine();
-        changed = drawPosePresetButton("X min", proposed.pose, makeToolPose(0.080, 0.500, 0.500)) || changed;
+        changed = drawOffsetPresetButton("X max", proposed.pose, Eigen::Vector3d(scene.touchOffsets.x(), 0.0, 0.0)) || changed;
         ImGui::SameLine();
-        changed = drawPosePresetButton("X max", proposed.pose, makeToolPose(0.920, 0.500, 0.500)) || changed;
-        changed = drawPosePresetButton("Y min", proposed.pose, makeToolPose(0.500, 0.080, 0.500)) || changed;
+        changed = drawOffsetPresetButton("Y min", proposed.pose, Eigen::Vector3d(0.0, -scene.touchOffsets.y(), 0.0)) || changed;
         ImGui::SameLine();
-        changed = drawPosePresetButton("Y max", proposed.pose, makeToolPose(0.500, 0.920, 0.500)) || changed;
+        changed = drawOffsetPresetButton("Y max", proposed.pose, Eigen::Vector3d(0.0, scene.touchOffsets.y(), 0.0)) || changed;
+        changed = drawOffsetPresetButton("Z min", proposed.pose, Eigen::Vector3d(0.0, 0.0, -scene.touchOffsets.z())) || changed;
+        ImGui::SameLine();
+        changed = drawOffsetPresetButton("Z max", proposed.pose, Eigen::Vector3d(0.0, 0.0, scene.touchOffsets.z())) || changed;
 
         if (changed)
         {
             ui = proposed;
-            ui.dirty = true;
+            ui.previewDirty = true;
+            ui.resultStale = true;
+            ui.lastError.clear();
+            ui.stats = ResultStats();
+        }
+
+        if (ImGui::Button("Run Boolean"))
+        {
+            ui.solveRequested = true;
+        }
+        ImGui::SameLine();
+        ImGui::TextUnformatted(ui.resultStale ? "result stale" : "result current");
+
+        if (ui.engine == EngineKind::Ember && ui.resultStale)
+        {
+            ImGui::TextWrapped("移动和参数修改只更新刀具预览；点击 Run Boolean 后再执行求解。");
         }
 
         ImGui::Separator();
@@ -853,28 +980,38 @@ int main()
 
     viewer.callback_pre_draw = [&](igl::opengl::glfw::Viewer &) -> bool
     {
-        if (!ui.dirty)
+        if (ui.previewDirty)
+        {
+            clampPose(ui, scene);
+            updateToolPreview(scene, ui);
+            setViewerMesh(viewer, toolMeshId, scene.toolDisplayMesh, toolLayerStyle());
+
+            if (ui.resultStale)
+            {
+                scene.resultDisplayMesh = {};
+                setViewerMesh(viewer, resultMeshId, scene.resultDisplayMesh, resultLayerStyle());
+            }
+
+            ui.previewDirty = false;
+        }
+
+        if (!ui.solveRequested)
             return false;
 
-        const UiState previous = ui;
-        ui.pose.tx = std::clamp(ui.pose.tx, kTranslationMin, kTranslationMax);
-        ui.pose.ty = std::clamp(ui.pose.ty, kTranslationMin, kTranslationMax);
-        ui.pose.tz = std::clamp(ui.pose.tz, kTranslationMin, kTranslationMax);
-        ui.pose.rx = std::clamp(ui.pose.rx, kRotationMinDegrees, kRotationMaxDegrees);
-        ui.pose.ry = std::clamp(ui.pose.ry, kRotationMinDegrees, kRotationMaxDegrees);
-        ui.pose.rz = std::clamp(ui.pose.rz, kRotationMinDegrees, kRotationMaxDegrees);
-
+        clampPose(ui, scene);
+        ui.solveRequested = false;
         if (!recomputeScene(scene, ui))
         {
-            const std::string recomputeError = ui.lastError;
-            ui = previous;
-            ui.lastError = recomputeError.empty() ? "visual-test recompute failed." : recomputeError;
-            ui.dirty = false;
+            ui.lastError = ui.lastError.empty() ? "visual-test recompute failed." : ui.lastError;
+            scene.resultDisplayMesh = {};
+            ui.stats = ResultStats();
+            ui.resultStale = true;
+            updateViewerMeshes();
             return false;
         }
 
+        ui.resultStale = false;
         updateViewerMeshes();
-        ui.dirty = false;
         return false;
     };
 
