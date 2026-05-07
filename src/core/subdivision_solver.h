@@ -166,11 +166,6 @@ private:
         std::size_t leafPolygonThreshold) noexcept;
 
     /**
-     * @brief 分类叶片片段并收集结果，可选择在分类失败时回退。
-     */
-    bool classifyLeafFragmentsAndCollectResults(bool allowRetryFallback);
-
-    /**
      * @brief 将一个已分类叶片按 indicator 结果写入输出集合。
      */
     void appendResultFragmentFromClassification(const ClassifiedFragment &classifiedFragment);
