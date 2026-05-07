@@ -101,6 +101,19 @@ public:
     const BoolSolveMetrics &solveMetrics() const noexcept;
 
 private:
+    /**
+     * @brief 当前节点基于 4.5.1 单操作数输入假设得到的共享策略。
+     *
+     * 该策略在节点构造时计算一次，统一决定递归入口探测、
+     * 叶子 BSP 跳过和叶片分类复用，避免把同一语义拆散到多个局部判断里。
+     */
+    struct SingleOperandAssumptionPolicy
+    {
+        bool maySkipLeafBsp = false;
+        bool mayReuseLeafClassification = false;
+        bool mayProbeEarlyLeaf = false;
+    };
+
     SubdivisionSolver(
         BoolOp op,
         std::size_t leafPolygonThreshold,
@@ -123,7 +136,7 @@ private:
     void solveRecursive();
 
     /**
-     * @brief 为当前叶子节点构建局部 BSP 编排。
+     * @brief 为当前叶子节点构建局部 BSP 编排，必要时按共享单操作数策略跳过。
      */
     void solveLeafArrangement();
 
@@ -133,7 +146,7 @@ private:
     void classifyLeafFragmentsAndCollectResults();
 
     /**
-     * @brief 尝试用 NSI/NNC 单操作数假设提前把当前节点作为叶子求解。
+     * @brief 按共享单操作数策略尝试提前把当前节点作为叶子求解。
      */
     bool trySolveSingleOperandAssumptionLeaf();
 
@@ -143,9 +156,14 @@ private:
     bool shouldStopSubdivision() const noexcept;
 
     /**
-     * @brief 若当前节点只含一个二元操作数 WNTV 类，返回该类假设配置。
+     * @brief 按当前节点的二元扫描结果与输入假设计算共享单操作数策略。
      */
-    bool tryGetSingleOperandAssumptions(BoolOperandAssumptions &outAssumptions) const noexcept;
+    static SingleOperandAssumptionPolicy buildSingleOperandAssumptionPolicy(
+        const BinaryPolygonScanSummary &polygonScan,
+        const BoolOperandAssumptions &lhsAssumptions,
+        const BoolOperandAssumptions &rhsAssumptions,
+        std::size_t polygonCount,
+        std::size_t leafPolygonThreshold) noexcept;
 
     /**
      * @brief 分类叶片片段并收集结果，可选择在分类失败时回退。
@@ -219,11 +237,10 @@ private:
         SubdivisionRefState &outReference);
 
     /**
-     * @brief 尝试直接复用单操作数分类结果。
+     * @brief 当共享单操作数策略允许时，直接复用上一片段的分类结果。
      */
     bool tryReuseSingleOperandFragmentClassification(
         const Polygon256 &fragment,
-        bool reuseSingleOperandClassification,
         bool hasReusableClassification,
         const WNV &reusableFrontWNV,
         const WNV &reusableBackWNV);
@@ -260,6 +277,7 @@ private:
     AABB3i aabb_;
     SubdivisionRefState reference_;
     BinaryPolygonScanSummary polygonScan_;
+    SingleOperandAssumptionPolicy singleOperandPolicy_;
     std::vector<Polygon256> polygons_;
     std::vector<Polygon256> leafFragments_;
     std::vector<ClassifiedFragment> classifiedFragments_;

@@ -1014,6 +1014,12 @@ void runBoolProblemTests()
             assert(!problem.isDiscarded());
             assert(problem.resultFragments().size() == 6u);
             assert(problem.solveMetrics().singleOperandAssumptionStopCount == 0u);
+            assert(problem.solveMetrics().singleOperandAssumptionFallbackCount == 0u);
+            assert(problem.solveMetrics().singleOperandLeafBspSkipCount != 0u);
+            assert(problem.solveMetrics().singleOperandLeafBspSkipCount ==
+                   problem.solveMetrics().leafNodeCount);
+            assert(problem.solveMetrics().singleOperandClassificationReuseCount == 0u);
+            assert(problem.solveMetrics().leafBspBuildCount == 0u);
         }
 
         {
@@ -1033,6 +1039,9 @@ void runBoolProblemTests()
             assert(problem.solveMetrics().maxDepth == 0u);
             assert(problem.solveMetrics().singleOperandAssumptionStopCount == 1u);
             assert(problem.solveMetrics().singleOperandAssumptionFallbackCount == 0u);
+            assert(problem.solveMetrics().singleOperandLeafBspSkipCount == 1u);
+            assert(problem.solveMetrics().singleOperandClassificationReuseCount == 5u);
+            assert(problem.solveMetrics().leafBspBuildCount == 0u);
         }
 
         {
@@ -1052,6 +1061,9 @@ void runBoolProblemTests()
             assert(problem.solveMetrics().maxDepth == 0u);
             assert(problem.solveMetrics().singleOperandAssumptionStopCount == 1u);
             assert(problem.solveMetrics().singleOperandAssumptionFallbackCount == 0u);
+            assert(problem.solveMetrics().singleOperandLeafBspSkipCount == 1u);
+            assert(problem.solveMetrics().singleOperandClassificationReuseCount == 5u);
+            assert(problem.solveMetrics().leafBspBuildCount == 0u);
         }
     }
 

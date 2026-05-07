@@ -347,8 +347,7 @@ void SubdivisionSolver::solveLeafArrangement()
     if (discarded_ || polygons_.empty())
         return;
 
-    BoolOperandAssumptions assumptions;
-    if (tryGetSingleOperandAssumptions(assumptions) && assumptions.noSelfIntersections)
+    if (singleOperandPolicy_.maySkipLeafBsp)
     {
         REEMBER_PROFILE_ZONE("SubdivisionSolver::skipLeafBspBySingleOperandAssumption");
         ++solveMetrics_.singleOperandLeafBspSkipCount;
@@ -373,12 +372,11 @@ void SubdivisionSolver::appendResultFragmentFromClassification(const ClassifiedF
 
 bool SubdivisionSolver::tryReuseSingleOperandFragmentClassification(
     const Polygon256 &fragment,
-    bool reuseSingleOperandClassification,
     bool hasReusableClassification,
     const WNV &reusableFrontWNV,
     const WNV &reusableBackWNV)
 {
-    if (!reuseSingleOperandClassification || !hasReusableClassification)
+    if (!singleOperandPolicy_.mayReuseLeafClassification || !hasReusableClassification)
         return false;
 
     REEMBER_PROFILE_ZONE("LeafClassification::reuseSingleOperandClassification");
@@ -411,11 +409,6 @@ bool SubdivisionSolver::classifyLeafFragmentsAndCollectResults(bool allowRetryFa
         solveMetrics_,
         classifiedFragments_,
         depth_};
-    BoolOperandAssumptions assumptions;
-    const bool reuseSingleOperandClassification =
-        tryGetSingleOperandAssumptions(assumptions) &&
-        assumptions.noSelfIntersections &&
-        assumptions.noNestedComponents;
     bool hasReusableClassification = false;
     WNV reusableFrontWNV;
     WNV reusableBackWNV;
@@ -424,7 +417,6 @@ bool SubdivisionSolver::classifyLeafFragmentsAndCollectResults(bool allowRetryFa
         Polygon256 &fragment = leafFragments_[fragmentIndex];
         if (tryReuseSingleOperandFragmentClassification(
                     fragment,
-                    reuseSingleOperandClassification,
                     hasReusableClassification,
                     reusableFrontWNV,
                     reusableBackWNV))
@@ -450,7 +442,7 @@ bool SubdivisionSolver::classifyLeafFragmentsAndCollectResults(bool allowRetryFa
             throw std::runtime_error(summary.str());
         }
 
-        if (reuseSingleOperandClassification && !hasReusableClassification)
+        if (singleOperandPolicy_.mayReuseLeafClassification && !hasReusableClassification)
         {
             const ClassifiedFragment &classifiedFragment = classifiedFragments_.back();
             reusableFrontWNV = classifiedFragment.frontWNV;
@@ -467,11 +459,7 @@ bool SubdivisionSolver::classifyLeafFragmentsAndCollectResults(bool allowRetryFa
 bool SubdivisionSolver::trySolveSingleOperandAssumptionLeaf()
 {
     REEMBER_PROFILE_ZONE("SubdivisionSolver::trySolveSingleOperandAssumptionLeaf");
-    BoolOperandAssumptions assumptions;
-    if (!tryGetSingleOperandAssumptions(assumptions) ||
-            !assumptions.noSelfIntersections ||
-            !assumptions.noNestedComponents ||
-            polygonCount_ <= leafPolygonThreshold_)
+    if (!singleOperandPolicy_.mayProbeEarlyLeaf)
         return false;
 
     const BoolSolveMetrics metricsSnapshot = solveMetrics_;
