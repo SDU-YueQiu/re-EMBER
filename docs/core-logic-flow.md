@@ -19,12 +19,12 @@
 当前对外流水线是：
 
 ```text
-OBJ -> 共享量化 -> Polygon soup -> BoolProblem(顶点预处理/校验) -> SubdivisionSolver -> resultFragments -> OBJ n-gon
+OBJ -> 共享量化 -> Polygon soup + 输入AABB -> BoolProblem(校验/懒顶点缓存) -> SubdivisionSolver -> resultFragments -> OBJ n-gon
 ```
 
 其中职责边界是：
 
-- `main.cpp` 只负责 CLI、OBJ 读写、共享量化尺度选择、驱动 `BoolProblem`。
+- `main.cpp` 只负责 CLI、OBJ 读写、共享量化尺度选择、合并输入 AABB、驱动 `BoolProblem`。
 - `BoolProblem` 是公开门面，只保存输入、布尔配置和最终结果。
 - `SubdivisionSolver` 独占递归树、AABB、参考点传播、叶片片段、分类片段和结果汇总。
 - `writePolygonSoupObj()` 默认直接导出 n 边面结果，不主动三角化输出。
@@ -33,13 +33,14 @@ OBJ -> 共享量化 -> Polygon soup -> BoolProblem(顶点预处理/校验) -> Su
 flowchart TD
     A["CLI: main(argc, argv)"] --> B["readObjMesh(lhs/rhs)"]
     B --> C["chooseSharedScale()"]
-    C --> D["buildPolygonSoup(lhs/rhs)"]
-    D --> E["BoolProblem::setOperation() / setOperandAssumptions() / setOperands()"]
-    E --> F["BoolProblem::solve()"]
-    F --> G["SubdivisionSolver::solve()"]
-    G --> H["resultFragments()"]
-    H --> I["writePolygonSoupObj()"]
-    I --> J["OBJ n-gon 输出"]
+    C --> D["buildPolygonSoup(lhs/rhs, outAABB)"]
+    D --> E["mergeAABB(lhs/rhs); expandAABB(margin=1)"]
+    E --> F["BoolProblem::setOperation() / setOperandAssumptions() / setOperands()"]
+    F --> G["BoolProblem::solve(sceneAABB)"]
+    G --> H["SubdivisionSolver::solve()"]
+    H --> I["resultFragments()"]
+    I --> J["writePolygonSoupObj()"]
+    J --> K["OBJ n-gon 输出"]
 ```
 
 ## 2. 应用层到 BoolProblem
@@ -49,34 +50,36 @@ flowchart TD
 1. 解析 `--lhs --rhs --op --out --scale --leaf-threshold`。
 2. 读取左右 OBJ。
 3. 选择共享 `scale`，把左右输入放进同一个整数坐标系。
-4. 调用 `buildPolygonSoup()` 把 OBJ 面片转换为 `Polygon256` 集合。
-5. 构造 `BoolProblem`，设置布尔运算、输入假设和左右操作数。
-6. 调用 `problem.solve()`。
-7. 把 `problem.resultFragments()` 直接写回 OBJ。
+4. 调用 `buildPolygonSoup()` 把 OBJ 面片转换为 `Polygon256` 集合，同时得到量化输入 AABB。
+5. 合并左右输入 AABB，并扩展一圈 margin 作为根场景 AABB。
+6. 构造 `BoolProblem`，设置布尔运算、输入假设和左右操作数。
+7. 调用 `problem.solve(sceneAABB)`。
+8. 把 `problem.resultFragments()` 直接写回 OBJ。
 
-这里有两个实现细节值得单独记住：
+这里有几个实现细节值得单独记住：
 
 - `setOperands()` 会给左操作数写入基础 `WNTV={1,0}`，给右操作数写入 `WNTV={0,1}`。
 - `BoolProblem` 不再暴露直接注入任意 `WNTV` polygon 集合的公开入口，公开输入边界固定为二元操作数。
+- 根场景 AABB 来自 OBJ 量化输入顶点，不再由 `SubdivisionSolver` 从 256 位多边形顶点反推。
 - 应用层构建 polygon soup 时启用了 `triangulateNonCoplanarFaces=true`，但最终结果导出仍保持 polygon soup / n-gon 语义。
 
 ## 3. BoolProblem 门面流程
 
-`BoolProblem::solve()` 本身很薄，但现在会先做一次输入多边形预处理。主流程是四件事：
+`BoolProblem::solve(sceneAABB)` 本身很薄。主流程是四件事：
 
 1. 重置上一次求解状态。
-2. 统一预计算输入 `Polygon256` 的顶点缓存。
+2. 非空输入要求调用方提供合法 `sceneAABB`。
 3. 校验输入多边形集合合法性，并确认所有输入都符合二元 `lhs/rhs` 标签约定。
 4. 构造内部 `SubdivisionSolver`，并把结果复制回公开门面。
 
 ```mermaid
 flowchart TD
-    A["BoolProblem::solve()"] --> B["resetSolveState()"]
+    A["BoolProblem::solve(sceneAABB)"] --> B["resetSolveState()"]
     B --> C{"polygons_ 为空?"}
     C -->|是| D["discarded_=true; solved_=true; 返回"]
-    C -->|否| E["preprocessSolveInputPolygons(polygons_)"]
+    C -->|否| E["validateSceneAABB(sceneAABB)"]
     E --> F["validateSolveInputPolygons(polygons_)"]
-    F --> G["构造 SubdivisionSolver(op, threshold, polygons, assumptions)"]
+    F --> G["构造 SubdivisionSolver(op, threshold, polygons, sceneAABB, assumptions)"]
     G --> H["solver.solve()"]
     H --> I["复制 solver.isDiscarded()"]
     I --> J["复制 solver.resultFragments()"]
@@ -89,7 +92,7 @@ flowchart TD
 `SubdivisionSolver::solve()` 是当前实现的真正总控入口：
 
 1. 重置内部运行时状态。
-2. 计算根节点 AABB。
+2. 使用调用方传入的根节点 AABB。
 3. 在根 AABB 最小角点初始化参考点，初始 `WNV` 全零。
 4. 进入 `solveRecursive()`。
 5. 递归结束后汇总 `leafSummaries()` 和 `solveMetrics()`。
@@ -99,10 +102,9 @@ flowchart TD
     A["SubdivisionSolver::solve()"] --> B["resetSolveState()"]
     B --> C{"polygons_ 为空?"}
     C -->|是| D["discarded_=true; solved_=true"]
-    C -->|否| E["computeAABB(polygons_)"]
-    E --> F{"AABB 有效?"}
-    F -->|否| G["抛出异常"]
-    F -->|是| H["initializeRootReference()"]
+    C -->|否| E{"传入 AABB 有效?"}
+    E -->|否| F["抛出异常"]
+    E -->|是| H["initializeRootReference()"]
     H --> I["reference.point = 根 AABB 最小角点"]
     I --> J["reference.wnv = 全零向量"]
     J --> K["solveRecursive()"]

@@ -123,26 +123,26 @@ struct Polygon256
      * @note 若调用方在构建缓存后又直接改写 `plane` 或 `edgePlanes`，
      *       必须手动再次调用该函数同步缓存。
      */
-    void precomputeVertices();
+    void precomputeVertices() const;
 
     /**
      * @brief 读取指定下标的缓存顶点。
      *
-     * @pre 调用方已保证顶点缓存和当前几何定义同步。
+     * 首次访问时会按当前几何定义懒构造顶点缓存，后续访问直接复用缓存。
      */
-    const PlanePoint3i &vertex(std::size_t vertexIndex) const noexcept;
+    const PlanePoint3i &vertex(std::size_t vertexIndex) const;
 
     /**
      * @brief 读取当前多边形按边顺序缓存的全部顶点。
      *
-     * @pre 调用方已保证顶点缓存和当前几何定义同步。
+     * 首次访问时会按当前几何定义懒构造顶点缓存，后续访问直接复用缓存。
      * @return 顶点顺序满足 `v_i = (plane, edge_i, edge_{i-1})`。
      */
-    const std::vector<PlanePoint3i> &vertices() const noexcept;
+    const std::vector<PlanePoint3i> &vertices() const;
     std::size_t edgeCount() const noexcept;
     PolygonEdgeProvenance edgeProvenance(std::size_t edgeIndex) const noexcept;
 
-    bool isValid() const noexcept;
+    bool isValid() const;
 
     // 临时返回约定：
     // -2: 输入点无唯一交点，属于数据错误
@@ -153,10 +153,18 @@ struct Polygon256
 
     bool containsStrictly(const PlanePoint3i &point) const noexcept;
     bool containsOrOnBoundary(const PlanePoint3i &point) const noexcept;
-    bool findStrictInteriorPoint(PlanePoint3i &outPoint) const noexcept;
+    bool findStrictInteriorPoint(PlanePoint3i &outPoint) const;
 
 private:
-    std::vector<PlanePoint3i> cachedVertices_;
+    void invalidateDerivedCaches() noexcept;
+    void invalidateValidityCache() const noexcept;
+    void rebuildVertexCache() const;
+    bool computeValidity() const;
+
+    mutable std::vector<PlanePoint3i> cachedVertices_;
+    mutable bool vertexCacheValid_ = false;
+    mutable bool validityCacheValid_ = false;
+    mutable bool cachedValidity_ = false;
 };
 
 inline Line256 makeLine(const Plane3i &p1, const Plane3i &p2) noexcept
