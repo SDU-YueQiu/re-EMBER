@@ -30,18 +30,26 @@ struct LeafPairRelation
 
 LeafPairRelation buildLeafPairRelation(const Polygon256 &lhs, const Polygon256 &rhs)
 {
+    REEMBER_PROFILE_ZONE("buildLeafPairRelation");
+
     LeafPairRelation relation;
     if (!doAABBsOverlap(lhs.aabb(), rhs.aabb()))
-        return relation;
-
-    if (detail::computeBidirectionalPolygonIntersectionCarriersTrusted(
-                lhs,
-                rhs,
-                relation.lhsCarrier,
-                relation.rhsCarrier))
     {
-        relation.kind = LeafPairRelationKind::Segment;
+        REEMBER_PROFILE_ZONE("buildLeafPairRelation::aabbReject");
         return relation;
+    }
+
+    {
+        REEMBER_PROFILE_ZONE("buildLeafPairRelation::bidirectionalCarrier");
+        if (detail::computeBidirectionalPolygonIntersectionCarriersTrusted(
+                    lhs,
+                    rhs,
+                    relation.lhsCarrier,
+                    relation.rhsCarrier))
+        {
+            relation.kind = LeafPairRelationKind::Segment;
+            return relation;
+        }
     }
 
     Plane3i lhsSplitPlane;
@@ -50,21 +58,27 @@ LeafPairRelation buildLeafPairRelation(const Polygon256 &lhs, const Polygon256 &
     Plane3i rhsSplitPlane;
     Plane3i rhsV0;
     Plane3i rhsV1;
-    if (detail::computePolygonIntersectionCarrierTrusted(lhs, rhs, lhsSplitPlane, lhsV0, lhsV1) &&
-            detail::computePolygonIntersectionCarrierTrusted(rhs, lhs, rhsSplitPlane, rhsV0, rhsV1))
     {
-        relation.kind = LeafPairRelationKind::Segment;
-        relation.lhsCarrier.splitPlane = lhsSplitPlane;
-        relation.lhsCarrier.v0 = lhsV0;
-        relation.lhsCarrier.v1 = lhsV1;
-        relation.rhsCarrier.splitPlane = rhsSplitPlane;
-        relation.rhsCarrier.v0 = rhsV0;
-        relation.rhsCarrier.v1 = rhsV1;
-        return relation;
+        REEMBER_PROFILE_ZONE("buildLeafPairRelation::singleDirectionFallback");
+        if (detail::computePolygonIntersectionCarrierTrusted(lhs, rhs, lhsSplitPlane, lhsV0, lhsV1) &&
+                detail::computePolygonIntersectionCarrierTrusted(rhs, lhs, rhsSplitPlane, rhsV0, rhsV1))
+        {
+            relation.kind = LeafPairRelationKind::Segment;
+            relation.lhsCarrier.splitPlane = lhsSplitPlane;
+            relation.lhsCarrier.v0 = lhsV0;
+            relation.lhsCarrier.v1 = lhsV1;
+            relation.rhsCarrier.splitPlane = rhsSplitPlane;
+            relation.rhsCarrier.v0 = rhsV0;
+            relation.rhsCarrier.v1 = rhsV1;
+            return relation;
+        }
     }
 
-    if (areCoplanarPolygons(lhs, rhs))
-        relation.kind = LeafPairRelationKind::Coplanar;
+    {
+        REEMBER_PROFILE_ZONE("buildLeafPairRelation::coplanarCheck");
+        if (areCoplanarPolygons(lhs, rhs))
+            relation.kind = LeafPairRelationKind::Coplanar;
+    }
 
     return relation;
 }
@@ -78,8 +92,10 @@ std::vector<Polygon256> buildLeafArrangement(const std::vector<Polygon256> &poly
     const std::size_t polygonCount = polygons.size();
     if (polygonCount < 8u)
     {
+        REEMBER_PROFILE_ZONE("buildLeafArrangement::smallCase");
         for (std::size_t i = 0; i < polygonCount; ++i)
         {
+            REEMBER_PROFILE_ZONE("buildLeafArrangement::smallCaseBasePolygon");
             BSPTree tree;
             tree.setBasePolygon(polygons[i], i);
             for (std::size_t j = 0; j < polygonCount; ++j)
@@ -102,14 +118,18 @@ std::vector<Polygon256> buildLeafArrangement(const std::vector<Polygon256> &poly
     std::vector<std::vector<LeafPairRelation>> pairRelations(
         polygonCount,
         std::vector<LeafPairRelation>(polygonCount));
-    for (std::size_t i = 0; i < polygonCount; ++i)
     {
-        for (std::size_t j = i + 1; j < polygonCount; ++j)
-            pairRelations[i][j] = buildLeafPairRelation(polygons[i], polygons[j]);
+        REEMBER_PROFILE_ZONE("buildLeafArrangement::pairRelationMatrix");
+        for (std::size_t i = 0; i < polygonCount; ++i)
+        {
+            for (std::size_t j = i + 1; j < polygonCount; ++j)
+                pairRelations[i][j] = buildLeafPairRelation(polygons[i], polygons[j]);
+        }
     }
 
     for (std::size_t i = 0; i < polygonCount; ++i)
     {
+        REEMBER_PROFILE_ZONE("buildLeafArrangement::basePolygon");
         BSPTree tree;
         tree.setBasePolygon(polygons[i], i);
         for (std::size_t j = 0; j < polygonCount; ++j)
