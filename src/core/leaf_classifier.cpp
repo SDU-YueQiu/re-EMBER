@@ -448,8 +448,6 @@ bool SubdivisionSolver::trySolveSingleOperandAssumptionLeaf()
     if (!singleOperandPolicy_.mayProbeEarlyLeaf)
         return false;
 
-    // 一旦命中入口单操作数快路径，就完整执行普通叶节点求解，
-    // 不再因 PATH_INVALID 回滚到递归细分。
     isLeaf_ = true;
     solveLeafArrangement();
     classifyLeafFragmentsAndCollectResults();
