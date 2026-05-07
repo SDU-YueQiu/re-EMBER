@@ -91,11 +91,6 @@ private:
         BoolOperandAssumptions rhsAssumptions);
 
     /**
-     * @brief 重置上一次求解派生出的运行时状态。
-     */
-    void resetSolveState() noexcept;
-
-    /**
      * @brief 初始化根节点参考点和零 WNV。
      */
     void initializeRootReference();
@@ -252,14 +247,9 @@ private:
     void finalizeLeafNode();
 
     /**
-     * @brief 内部节点合并完子树后封账并释放当前节点输入。
+     * @brief 内部节点合并完子树后封账。
      */
     void finalizeInternalNode();
-
-    /**
-     * @brief 释放当前节点后续不再需要的重量级容器存储。
-     */
-    void releaseTransientGeometry() noexcept;
 
     BoolOp op_ = BoolOp::Intersection;
     std::size_t leafPolygonThreshold_ = 25;
