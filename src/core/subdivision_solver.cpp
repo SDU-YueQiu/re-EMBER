@@ -971,8 +971,10 @@ bool SubdivisionSolver::tryFinishStoppedSubdivisionNode()
     else
         ++solveMetrics_.aabbNotSplittableStopCount;
 
-    REEMBER_PROFILE_ZONE("SubdivisionSolver::tryFinishStoppedSubdivisionNode_finishCurrentNodeAsLeaf");
-    finishCurrentNodeAsLeaf();
+    {
+        REEMBER_PROFILE_ZONE("SubdivisionSolver::tryFinishStoppedSubdivisionNode_finishCurrentNodeAsLeaf");
+        finishCurrentNodeAsLeaf();
+    }
     return true;
 }
 
