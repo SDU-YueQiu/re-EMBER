@@ -262,67 +262,6 @@ bool tryEvaluateConstantBinaryIndicator(
     return false;
 }
 
-bool appendPolygonBoundsToAABB(AABB3i &box, const Polygon256 &polygon)
-{
-    bool hasVertex = false;
-    const std::vector<PlanePoint3i> &cachedVertices = polygon.vertices();
-    for (const PlanePoint3i &vertex : cachedVertices)
-    {
-        if (!vertex.hasUniqueIntersection() || isZero(vertex.x.w))
-            continue;
-
-        const Integer fx = floorDiv(vertex.x.x, vertex.x.w);
-        const Integer cx = ceilDiv(vertex.x.x, vertex.x.w);
-        const Integer fy = floorDiv(vertex.x.y, vertex.x.w);
-        const Integer cy = ceilDiv(vertex.x.y, vertex.x.w);
-        const Integer fz = floorDiv(vertex.x.z, vertex.x.w);
-        const Integer cz = ceilDiv(vertex.x.z, vertex.x.w);
-
-        if (!box.valid)
-        {
-            box.xMin = fx;
-            box.xMax = cx;
-            box.yMin = fy;
-            box.yMax = cy;
-            box.zMin = fz;
-            box.zMax = cz;
-            box.valid = true;
-        }
-        else
-        {
-            if (fx < box.xMin) box.xMin = fx;
-            if (cx > box.xMax) box.xMax = cx;
-            if (fy < box.yMin) box.yMin = fy;
-            if (cy > box.yMax) box.yMax = cy;
-            if (fz < box.zMin) box.zMin = fz;
-            if (cz > box.zMax) box.zMax = cz;
-        }
-
-        hasVertex = true;
-    }
-
-    return hasVertex;
-}
-
-void appendAABBToAABB(AABB3i &box, const AABB3i &source) noexcept
-{
-    if (!isValidAABB(source))
-        return;
-
-    if (!box.valid)
-    {
-        box = source;
-        return;
-    }
-
-    if (source.xMin < box.xMin) box.xMin = source.xMin;
-    if (source.xMax > box.xMax) box.xMax = source.xMax;
-    if (source.yMin < box.yMin) box.yMin = source.yMin;
-    if (source.yMax > box.yMax) box.yMax = source.yMax;
-    if (source.zMin < box.zMin) box.zMin = source.zMin;
-    if (source.zMax > box.zMax) box.zMax = source.zMax;
-}
-
 struct WntvSubdivisionGroup
 {
     WNV wntv;
@@ -416,15 +355,15 @@ bool buildSubdivisionSplitStats(
             it = stats.wntvGroups.end() - 1;
         }
 
-        AABB3i polygonBox;
-        if (!appendPolygonBoundsToAABB(polygonBox, polygon) || !isValidAABB(polygonBox))
+        const AABB3i &polygonBox = polygon.aabb();
+        if (!isValidAABB(polygonBox))
             return false;
 
         const Integer centerX = axisMidpoint(polygonBox, SplitAxis3i::X);
         const Integer centerY = axisMidpoint(polygonBox, SplitAxis3i::Y);
         const Integer centerZ = axisMidpoint(polygonBox, SplitAxis3i::Z);
 
-        appendAABBToAABB(it->box, polygonBox);
+        mergeAABB(it->box, polygonBox);
         it->sumCenterX += centerX;
         it->sumCenterY += centerY;
         it->sumCenterZ += centerZ;
@@ -680,12 +619,28 @@ bool chooseSubdivisionSplit(
 
 bool appendSplitChildPolygons(
     const Polygon256 &polygon,
-    const Plane3i &splitPlane,
+    const AABBSplit3i &split,
     std::vector<Polygon256> &leftPolygons,
     std::vector<Polygon256> &rightPolygons)
 {
     REEMBER_PROFILE_ZONE("appendSplitChildPolygons");
 
+    const AABB3i &polygonBox = polygon.aabb();
+    if (isValidAABB(polygonBox))
+    {
+        if (axisMaximum(polygonBox, split.axis) <= split.coordinate)
+        {
+            leftPolygons.push_back(polygon);
+            return true;
+        }
+        if (axisMinimum(polygonBox, split.axis) >= split.coordinate)
+        {
+            rightPolygons.push_back(polygon);
+            return true;
+        }
+    }
+
+    const Plane3i &splitPlane = split.splitPlane;
     bool hasPositive = false;
     bool hasNegative = false;
     const std::size_t edgeCount = polygon.edgeCount();
@@ -1098,7 +1053,7 @@ bool SubdivisionSolver::createChildrenFromSplit(const AABBSplit3i &split)
 
     std::vector<Polygon256> leftPolygons;
     std::vector<Polygon256> rightPolygons;
-    if (!buildSplitChildPolygonSoups(split.splitPlane, leftPolygons, rightPolygons))
+    if (!buildSplitChildPolygonSoups(split, leftPolygons, rightPolygons))
         return false;
 
     if (leftPolygons.empty() && rightPolygons.empty())
@@ -1140,7 +1095,7 @@ bool SubdivisionSolver::createChildrenFromSplit(const AABBSplit3i &split)
 }
 
 bool SubdivisionSolver::buildSplitChildPolygonSoups(
-    const Plane3i &splitPlane,
+    const AABBSplit3i &split,
     std::vector<Polygon256> &leftPolygons,
     std::vector<Polygon256> &rightPolygons) const
 {
@@ -1151,7 +1106,7 @@ bool SubdivisionSolver::buildSplitChildPolygonSoups(
 
     for (const Polygon256 &polygon : polygons_)
     {
-        if (!appendSplitChildPolygons(polygon, splitPlane, leftPolygons, rightPolygons))
+        if (!appendSplitChildPolygons(polygon, split, leftPolygons, rightPolygons))
             return false;
     }
 

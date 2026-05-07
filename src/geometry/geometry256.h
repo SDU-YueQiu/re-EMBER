@@ -5,6 +5,7 @@
 #pragma once
 
 #include "math/math256.h"
+#include "geometry/aabb.h"
 #include "geometry/plane_geometry256.h"
 #include "math/winding_number_f.h"
 
@@ -118,10 +119,10 @@ struct Polygon256
         PolygonEdgeProvenance provenance = PolygonEdgeProvenance::Regular);
 
     /**
-     * @brief 按当前 `plane` 和 `edgePlanes` 全量重建顶点缓存。
+     * @brief 按当前 `plane` 和 `edgePlanes` 全量重建派生缓存。
      *
      * @note 若调用方在构建缓存后又直接改写 `plane` 或 `edgePlanes`，
-     *       必须手动再次调用该函数同步缓存。
+     *       必须手动再次调用该函数同步顶点和 AABB 缓存。
      */
     void precomputeVertices() const;
 
@@ -139,6 +140,14 @@ struct Polygon256
      * @return 顶点顺序满足 `v_i = (plane, edge_i, edge_{i-1})`。
      */
     const std::vector<PlanePoint3i> &vertices() const;
+
+    /**
+     * @brief 读取覆盖当前多边形全部缓存顶点的整数 AABB。
+     *
+     * 首次访问时会按当前几何定义懒构造顶点和 AABB 缓存，后续访问直接复用缓存。
+     */
+    const AABB3i &aabb() const;
+
     std::size_t edgeCount() const noexcept;
     PolygonEdgeProvenance edgeProvenance(std::size_t edgeIndex) const noexcept;
 
@@ -158,11 +167,12 @@ struct Polygon256
 private:
     void invalidateDerivedCaches() noexcept;
     void invalidateValidityCache() const noexcept;
-    void rebuildVertexCache() const;
+    void rebuildDerivedCaches() const;
     bool computeValidity() const;
 
     mutable std::vector<PlanePoint3i> cachedVertices_;
-    mutable bool vertexCacheValid_ = false;
+    mutable AABB3i cachedAABB_;
+    mutable bool derivedCachesValid_ = false;
     mutable bool validityCacheValid_ = false;
     mutable bool cachedValidity_ = false;
 };

@@ -31,6 +31,9 @@ struct LeafPairRelation
 LeafPairRelation buildLeafPairRelation(const Polygon256 &lhs, const Polygon256 &rhs)
 {
     LeafPairRelation relation;
+    if (!doAABBsOverlap(lhs.aabb(), rhs.aabb()))
+        return relation;
+
     if (detail::computeBidirectionalPolygonIntersectionCarriersTrusted(
                 lhs,
                 rhs,
