@@ -13,28 +13,28 @@
 
 namespace
 {
-    template <typename Fn>
-    bool runNamedTest(const std::string &name, Fn &&fn)
+template <typename Fn>
+bool runNamedTest(const std::string &name, Fn &&fn)
+{
+    const auto start = std::chrono::steady_clock::now();
+    std::cout << "[Test] begin " << name << std::endl;
+    try
     {
-        const auto start = std::chrono::steady_clock::now();
-        std::cout << "[Test] begin " << name << std::endl;
-        try
-        {
-            fn();
-            const auto end = std::chrono::steady_clock::now();
-            const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-            std::cout << "[Test] pass " << name << " elapsed_ms=" << elapsedMs << std::endl;
-            return true;
-        }
-        catch (const std::exception &ex)
-        {
-            const auto end = std::chrono::steady_clock::now();
-            const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-            std::cerr << "[Test] fail " << name << " elapsed_ms=" << elapsedMs
-                      << " error=" << ex.what() << std::endl;
-            return false;
-        }
+        fn();
+        const auto end = std::chrono::steady_clock::now();
+        const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        std::cout << "[Test] pass " << name << " elapsed_ms=" << elapsedMs << std::endl;
+        return true;
     }
+    catch (const std::exception &ex)
+    {
+        const auto end = std::chrono::steady_clock::now();
+        const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        std::cerr << "[Test] fail " << name << " elapsed_ms=" << elapsedMs
+                  << " error=" << ex.what() << std::endl;
+        return false;
+    }
+}
 }
 
 int main()
