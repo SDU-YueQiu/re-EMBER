@@ -68,6 +68,25 @@ build\Debug\re-EMBER.exe --lhs <left.obj> --rhs <right.obj> --op union|intersect
 
 导出默认保持多边形集合形态，直接写 OBJ n 边面。三角化、拓扑缝合和 T 形连接恢复属于调用方后处理。
 
+## visual-test
+
+如果启用了 `REEMBER_BUILD_VISUAL_TEST`，可以单独构建交互式可视化程序：
+
+```powershell
+cmake --build build --config Debug --target visual-test
+build\Debug\visual-test.exe
+```
+
+当前 visual-test 默认读取 `assets\visual_test\workpiece_block.obj` 和 `assets\visual_test\tool_box.obj`。这套 UI 现在按当前两模型的 AABB 自动对齐中心，再把 `dx/dy/dz` 解释为相对偏移，因此像 `classic_fandisk` 这类原始坐标远离原点的模型也能直接拖回到可相交范围。
+
+交互规则也改成了“两阶段”：
+
+- 调整 `dx/dy/dz`、旋转、engine、operation 或 leaf threshold 时，只更新刀具预览，不再自动执行布尔求解。
+- 点击 `Run Boolean` 后，才会基于当前预览位姿执行一次真正的布尔运算。
+- `Center` 和 `X/Y/Z min/max` 预设基于当前两模型的 AABB 生成，适合快速构造“居中重叠”或“边界接触”的初始姿态。
+
+推荐的大模型测试集见 [docs/benchmark-models.md](docs/benchmark-models.md)。
+
 ## 性能测试
 
 ### 可选 Tracy 构建
@@ -117,6 +136,8 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 - `icosphere80_toolbox_difference`
 - `visual_block_toolbox_overlap_intersection`
 - `visual_block_toolbox_visual_test_default_difference`
+
+`tools\profile-re-ember.ps1` 现在会先把当前 `assets\visual_test\tool_box.obj` 按 AABB 中心自动对齐到 `workpiece_block.obj`，再生成 visual 默认位姿与 overlap 位姿的临时 OBJ，因此把 `assets\visual_test` 替换成更大模型后，不需要再手改脚本里的平移常量。
 
 注意：默认 visual intersection 和 visual difference 使用的是不同刀具位姿，不能直接拿它们比较三种布尔运算的快慢。
 
