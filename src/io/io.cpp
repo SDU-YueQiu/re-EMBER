@@ -71,27 +71,52 @@ bool quantizeVertex(const ObjVertex &vertex, std::uint64_t scale, Vec3i &outVert
     return true;
 }
 
-// 输入 AABB 在量化顶点阶段构造，避免布尔核心再从 256 位多边形反推根包围盒。
-void appendQuantizedVertexToAABB(AABB3i &box, const Vec3i &vertex) noexcept
+bool computeScaledCoordinateInterval(
+    double value,
+    std::uint64_t scale,
+    Integer &outLower,
+    Integer &outUpper,
+    std::string &outError)
 {
-    if (!box.valid)
+    if (!std::isfinite(value))
     {
-        box.xMin = vertex.x;
-        box.xMax = vertex.x;
-        box.yMin = vertex.y;
-        box.yMax = vertex.y;
-        box.zMin = vertex.z;
-        box.zMax = vertex.z;
-        box.valid = true;
-        return;
+        outError = "OBJ vertex coordinate is not finite.";
+        return false;
     }
 
-    if (vertex.x < box.xMin) box.xMin = vertex.x;
-    if (vertex.x > box.xMax) box.xMax = vertex.x;
-    if (vertex.y < box.yMin) box.yMin = vertex.y;
-    if (vertex.y > box.yMax) box.yMax = vertex.y;
-    if (vertex.z < box.zMin) box.zMin = vertex.z;
-    if (vertex.z > box.zMax) box.zMax = vertex.z;
+    const long double scaled = static_cast<long double>(value) * static_cast<long double>(scale);
+    const long double lower = std::floor(scaled);
+    const long double upper = std::ceil(scaled);
+    if (lower < static_cast<long double>(std::numeric_limits<int>::lowest()) ||
+            upper > static_cast<long double>(std::numeric_limits<int>::max()))
+    {
+        outError = "Scaled OBJ vertex coordinate exceeds the integer AABB conversion bound.";
+        return false;
+    }
+
+    outLower = Integer(static_cast<int>(lower));
+    outUpper = Integer(static_cast<int>(upper));
+    return true;
+}
+
+void appendScaledVertexIntervalToAABB(
+    AABB3i &box,
+    const Integer &xMin,
+    const Integer &xMax,
+    const Integer &yMin,
+    const Integer &yMax,
+    const Integer &zMin,
+    const Integer &zMax) noexcept
+{
+    AABB3i vertexBox;
+    vertexBox.xMin = xMin;
+    vertexBox.xMax = xMax;
+    vertexBox.yMin = yMin;
+    vertexBox.yMax = yMax;
+    vertexBox.zMin = zMin;
+    vertexBox.zMax = zMax;
+    vertexBox.valid = true;
+    mergeAABB(box, vertexBox);
 }
 
 // 量化后重复顶点会让某些边退化成零长度，先在面级别提前拦截。
@@ -509,6 +534,45 @@ bool chooseSharedScale(
     return true;
 }
 
+bool computeScaledMeshAABB(
+    const ObjMeshData &mesh,
+    std::uint64_t sharedScale,
+    AABB3i &outAABB,
+    std::string &outError)
+{
+    outAABB = AABB3i();
+    outError.clear();
+
+    if (sharedScale == 0)
+        return failIo(outError, "Shared scale must be a positive integer.");
+    if (mesh.vertices.empty())
+        return failIo(outError, "Cannot compute an AABB for an OBJ mesh without vertices.");
+
+    for (std::size_t vertexIndex = 0; vertexIndex < mesh.vertices.size(); ++vertexIndex)
+    {
+        const ObjVertex &vertex = mesh.vertices[vertexIndex];
+        Integer xMin;
+        Integer xMax;
+        Integer yMin;
+        Integer yMax;
+        Integer zMin;
+        Integer zMax;
+        if (!computeScaledCoordinateInterval(vertex.x, sharedScale, xMin, xMax, outError) ||
+                !computeScaledCoordinateInterval(vertex.y, sharedScale, yMin, yMax, outError) ||
+                !computeScaledCoordinateInterval(vertex.z, sharedScale, zMin, zMax, outError))
+        {
+            outError = "Failed to compute scaled AABB for OBJ vertex " +
+                       std::to_string(vertexIndex) + ": " + outError;
+            outAABB = AABB3i();
+            return false;
+        }
+
+        appendScaledVertexIntervalToAABB(outAABB, xMin, xMax, yMin, yMax, zMin, zMax);
+    }
+
+    return isValidAABB(outAABB);
+}
+
 bool buildPolygonSoup(
     const ObjMeshData &mesh,
     std::uint64_t sharedScale,
@@ -521,34 +585,11 @@ bool buildPolygonSoup(
 bool buildPolygonSoup(
     const ObjMeshData &mesh,
     std::uint64_t sharedScale,
-    std::vector<Polygon256> &outPolygons,
-    AABB3i &outAABB,
-    std::string &outError)
-{
-    return buildPolygonSoup(mesh, sharedScale, PolygonSoupBuildOptions(), outPolygons, outAABB, outError);
-}
-
-bool buildPolygonSoup(
-    const ObjMeshData &mesh,
-    std::uint64_t sharedScale,
     const PolygonSoupBuildOptions &options,
     std::vector<Polygon256> &outPolygons,
-    std::string &outError)
-{
-    AABB3i unusedAABB;
-    return buildPolygonSoup(mesh, sharedScale, options, outPolygons, unusedAABB, outError);
-}
-
-bool buildPolygonSoup(
-    const ObjMeshData &mesh,
-    std::uint64_t sharedScale,
-    const PolygonSoupBuildOptions &options,
-    std::vector<Polygon256> &outPolygons,
-    AABB3i &outAABB,
     std::string &outError)
 {
     outPolygons.clear();
-    outAABB = AABB3i();
     outError.clear();
 
     if (sharedScale == 0)
@@ -589,7 +630,6 @@ bool buildPolygonSoup(
             }
 
             faceVertices.push_back(quantizedVertices[vertexIndex]);
-            appendQuantizedVertexToAABB(outAABB, quantizedVertices[vertexIndex]);
         }
 
         Polygon256 polygon;

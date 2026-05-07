@@ -467,12 +467,16 @@ bool prepareEmberInput(SceneData &scene, const UiState &ui, std::string &outErro
 
     std::vector<Polygon256> workpiecePolygons;
     AABB3i workpieceAABB;
+    if (!ember::computeScaledMeshAABB(scene.workpieceMesh, sharedScale, workpieceAABB, outError))
+    {
+        outError = "Failed to compute the EMBER workpiece AABB: " + outError;
+        return false;
+    }
     if (!ember::buildPolygonSoup(
                 scene.workpieceMesh,
                 sharedScale,
                 polygonBuildOptions,
                 workpiecePolygons,
-                workpieceAABB,
                 outError))
     {
         outError = "Failed to build the EMBER workpiece polygon soup: " + outError;
@@ -504,12 +508,16 @@ bool computeEmberResult(SceneData &scene, const UiState &ui, ResultStats &outSta
 
         std::vector<Polygon256> toolPolygons;
         AABB3i toolAABB;
+        if (!ember::computeScaledMeshAABB(scene.toolCurrentMesh, scene.emberSharedScale, toolAABB, outError))
+        {
+            outError = "Failed to compute the EMBER tool AABB: " + outError;
+            return false;
+        }
         if (!ember::buildPolygonSoup(
                     scene.toolCurrentMesh,
                     scene.emberSharedScale,
                     polygonBuildOptions,
                     toolPolygons,
-                    toolAABB,
                     outError))
         {
             outError = "Failed to build the EMBER tool polygon soup: " + outError;
