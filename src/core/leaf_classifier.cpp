@@ -31,7 +31,6 @@ struct LeafClassificationAttemptStats
 enum class LeafClassificationResult
 {
     Success,
-    RetryPathInvalid,
     Failure
 };
 
@@ -44,6 +43,17 @@ struct LeafClassificationContext
     std::vector<ClassifiedFragment> &classifiedFragments;
     std::size_t depth = 0;
 };
+
+[[noreturn]] void throwLeafClassificationFailure(std::size_t fragmentIndex, std::size_t depth)
+{
+    std::ostringstream summary;
+    summary << "BoolProblem failed to classify leaf fragment "
+            << fragmentIndex
+            << " at depth "
+            << depth
+            << ".";
+    throw std::runtime_error(summary.str());
+}
 
 traceStatus traceLeafClassificationCandidate(
     LeafClassificationContext &context,
@@ -281,7 +291,6 @@ LeafClassificationResult classifyLeafFragment(
     LeafClassificationContext &context,
     std::size_t fragmentIndex,
     Polygon256 &fragment,
-    bool allowRetryFallback,
     LeafClassificationAttemptStats &attemptStats)
 {
     REEMBER_PROFILE_ZONE("LeafClassification::classifyLeafFragment");
@@ -329,9 +338,6 @@ LeafClassificationResult classifyLeafFragment(
 
     if (attemptStats.classified)
         return LeafClassificationResult::Success;
-    if (allowRetryFallback && attemptStats.lastStatus == PATH_INVALID)
-        return LeafClassificationResult::RetryPathInvalid;
-
     return LeafClassificationResult::Failure;
 }
 
@@ -389,17 +395,12 @@ bool SubdivisionSolver::tryReuseSingleOperandFragmentClassification(
 // 对每个叶片片段追踪到严格内部点；分类失败属于不可恢复错误。
 void SubdivisionSolver::classifyLeafFragmentsAndCollectResults()
 {
-    (void)classifyLeafFragmentsAndCollectResults(false);
-}
-
-bool SubdivisionSolver::classifyLeafFragmentsAndCollectResults(bool allowRetryFallback)
-{
     REEMBER_PROFILE_ZONE("SubdivisionSolver::classifyLeafFragmentsAndCollectResults");
 
     resultFragments_.clear();
     classifiedFragments_.clear();
     if (discarded_ || leafFragments_.empty())
-        return true;
+        return;
 
     const refPoint localReference(reference_.point, reference_.wnv);
     LeafClassificationContext context{
@@ -409,9 +410,10 @@ bool SubdivisionSolver::classifyLeafFragmentsAndCollectResults(bool allowRetryFa
         solveMetrics_,
         classifiedFragments_,
         depth_};
-    bool hasReusableClassification = false;
     WNV reusableFrontWNV;
     WNV reusableBackWNV;
+    bool hasReusableClassification = false;
+
     for (std::size_t fragmentIndex = 0; fragmentIndex < leafFragments_.size(); ++fragmentIndex)
     {
         Polygon256 &fragment = leafFragments_[fragmentIndex];
@@ -424,23 +426,9 @@ bool SubdivisionSolver::classifyLeafFragmentsAndCollectResults(bool allowRetryFa
 
         LeafClassificationAttemptStats attemptStats;
         const LeafClassificationResult classificationResult =
-            classifyLeafFragment(context, fragmentIndex, fragment, allowRetryFallback, attemptStats);
-        if (classificationResult == LeafClassificationResult::RetryPathInvalid)
-        {
-            resultFragments_.clear();
-            classifiedFragments_.clear();
-            return false;
-        }
+            classifyLeafFragment(context, fragmentIndex, fragment, attemptStats);
         if (classificationResult == LeafClassificationResult::Failure)
-        {
-            std::ostringstream summary;
-            summary << "BoolProblem failed to classify leaf fragment "
-                    << fragmentIndex
-                    << " at depth "
-                    << depth_
-                    << ".";
-            throw std::runtime_error(summary.str());
-        }
+            throwLeafClassificationFailure(fragmentIndex, depth_);
 
         if (singleOperandPolicy_.mayReuseLeafClassification && !hasReusableClassification)
         {
@@ -452,8 +440,6 @@ bool SubdivisionSolver::classifyLeafFragmentsAndCollectResults(bool allowRetryFa
 
         appendResultFragmentFromClassification(classifiedFragments_.back());
     }
-    return true;
-
 }
 
 bool SubdivisionSolver::trySolveSingleOperandAssumptionLeaf()
@@ -462,23 +448,11 @@ bool SubdivisionSolver::trySolveSingleOperandAssumptionLeaf()
     if (!singleOperandPolicy_.mayProbeEarlyLeaf)
         return false;
 
-    const BoolSolveMetrics metricsSnapshot = solveMetrics_;
+    // 一旦命中入口单操作数快路径，就完整执行普通叶节点求解，
+    // 不再因 PATH_INVALID 回滚到递归细分。
     isLeaf_ = true;
     solveLeafArrangement();
-    if (!classifyLeafFragmentsAndCollectResults(true))
-    {
-        solveMetrics_ = metricsSnapshot;
-        ++solveMetrics_.singleOperandAssumptionFallbackCount;
-        isLeaf_ = true;
-        leafFragmentCount_ = 0;
-        classifiedFragmentCount_ = 0;
-        leafFragments_.clear();
-        classifiedFragments_.clear();
-        resultFragments_.clear();
-        leafSummaries_.clear();
-        return false;
-    }
-
+    classifyLeafFragmentsAndCollectResults();
     ++solveMetrics_.singleOperandAssumptionStopCount;
     finalizeLeafNode();
     return true;
