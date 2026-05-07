@@ -29,6 +29,7 @@
 #include <filesystem>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -144,7 +145,7 @@ struct SceneData
     ObjMeshData resultDisplayMesh;
     std::vector<Polygon256> workpiecePolygons;
     std::uint64_t emberSharedScale = 0;
-    NefPolyhedron workpieceNef;
+    std::unique_ptr<NefPolyhedron> workpieceNef;
     Bounds3d workpieceBounds;
     Bounds3d toolOriginalBounds;
     Eigen::Vector3d toolBaseTranslation = Eigen::Vector3d::Zero();
@@ -546,10 +547,13 @@ bool computeCgalResult(SceneData &scene, const UiState &ui, ResultStats &outStat
 
     try
     {
+        if (!scene.workpieceNef)
+            scene.workpieceNef = std::make_unique<NefPolyhedron>(makeNef(scene.workpieceMesh));
+
         const NefPolyhedron toolNef = makeNef(scene.toolCurrentMesh);
 
         const Clock::time_point solveStart = Clock::now();
-        const NefPolyhedron result = applyBoolean(scene.workpieceNef, toolNef, ui.operation);
+        const NefPolyhedron result = applyBoolean(*scene.workpieceNef, toolNef, ui.operation);
         const Clock::time_point solveEnd = Clock::now();
 
         const Clock::time_point convertStart = Clock::now();
@@ -561,7 +565,7 @@ bool computeCgalResult(SceneData &scene, const UiState &ui, ResultStats &outStat
     }
     catch (const std::exception &ex)
     {
-        outError = ex.what();
+        outError = std::string("CGAL solve failed: ") + ex.what();
         return false;
     }
 }
@@ -797,21 +801,11 @@ int main()
         return 1;
     }
     scene.workpieceDisplayMesh = scene.workpieceMesh;
-    try
-    {
-        scene.workpieceNef = makeNef(scene.workpieceMesh);
-    }
-    catch (const std::exception &ex)
-    {
-        std::cerr << "Failed to build the CGAL workpiece Nef polyhedron: " << ex.what() << std::endl;
-        return 1;
-    }
-
     initializeScenePlacement(scene);
 
     UiState ui;
-    if (!recomputeScene(scene, ui))
-        std::cerr << ui.lastError << std::endl;
+    updateToolPreview(scene, ui);
+    ui.resultStale = true;
 
     igl::opengl::glfw::Viewer viewer;
     FixedImGuiPlugin plugin;
