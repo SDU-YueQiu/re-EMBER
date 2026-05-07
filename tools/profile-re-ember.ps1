@@ -942,7 +942,6 @@ function New-TimingRow {
         result_fragment_count = [math]::Round((Get-Metric $metrics "result_fragment_count"), 0)
         constant_discard_count = [math]::Round((Get-Metric $metrics "constant_discard_count"), 0)
         invalid_or_empty_discard_count = [math]::Round((Get-Metric $metrics "invalid_or_empty_discard_count"), 0)
-        child_constant_discard_count = [math]::Round((Get-Metric $metrics "child_constant_discard_count"), 0)
         leaf_threshold_stop_count = [math]::Round((Get-Metric $metrics "leaf_threshold_stop_count"), 0)
         aabb_not_splittable_stop_count = [math]::Round((Get-Metric $metrics "aabb_not_splittable_stop_count"), 0)
         split_failure_stop_count = [math]::Round((Get-Metric $metrics "split_failure_stop_count"), 0)
@@ -1408,8 +1407,7 @@ function Write-Reports {
     if ($InclusiveZoneRows.Count -gt 0) {
         $strategyRows = New-Object System.Collections.Generic.List[object]
         $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "invalid_or_empty_discard" "invalid_or_empty_discard_count" @("SubdivisionSolver::discardInvalidOrEmptyNode")))
-        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "constant_discard" "constant_discard_count" @("SubdivisionSolver::discardConstantIndicatorNode", "SubdivisionSolver::discardChildConstantIndicator")))
-        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "child_constant_discard" "child_constant_discard_count" @("SubdivisionSolver::discardChildConstantIndicator")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "constant_discard" "constant_discard_count" @("SubdivisionSolver::discardChildConstantIndicator")))
         $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_threshold_stop" "leaf_threshold_stop_count" @("SubdivisionSolver::stopByLeafThreshold")))
         $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "aabb_not_splittable_stop" "aabb_not_splittable_stop_count" @("SubdivisionSolver::stopByAabbNotSplittable")))
         $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "split_failure_stop" "split_failure_stop_count" @("SubdivisionSolver::stopBySplitFailure")))

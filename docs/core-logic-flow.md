@@ -117,31 +117,27 @@ flowchart TD
 
 当前 `solveRecursive()` 的决策顺序非常关键，真实实现顺序如下：
 
-1. 空节点 / 非法 AABB 直接丢弃。
-2. 若当前子问题的二元布尔指示函数已经恒定，则直接丢弃。
-3. 尝试 `single operand assumption leaf` 快路径。
-4. 若达到叶子阈值，或 AABB 已不可再切分，则转叶子求解。
-5. 否则选择切分面并创建左右子节点。
-6. 递归求解左右子节点后 move-merge 结果，并立即释放子节点。
+1. 尝试 `single operand assumption leaf` 快路径。
+2. 若达到叶子阈值，或 AABB 已不可再切分，则转叶子求解。
+3. 否则选择切分面并创建左右子节点。
+4. 常量 indicator 剪枝只发生在 child 创建前。
+5. 递归求解左右子节点后 move-merge 结果，并立即释放子节点。
 
 ```mermaid
 flowchart TD
-    A["solveRecursive()"] --> B{"空节点或 AABB 非法?"}
-    B -->|是| C["discarded = true; 返回"]
-    B -->|否| D{"布尔指示函数恒定?"}
-    D -->|是| E["constant discard; 返回"]
-    D -->|否| F{"trySolveSingleOperandAssumptionLeaf() 成功?"}
-    F -->|是| G["当前节点直接作为叶子完成"]
-    F -->|否| H{"达到停止条件?"}
-    H -->|是| I["finishCurrentNodeAsLeaf()"]
-    H -->|否| J["chooseSubdivisionSplit()"]
-    J --> K{"切分成功?"}
-    K -->|否| L["按叶子完成求解"]
-    K -->|是| M["createChildrenFromSplit()"]
-    M --> N["leftChild.solveRecursive()"]
-    M --> O["rightChild.solveRecursive()"]
-    N --> P["mergeSolvedChildren()"]
-    O --> P
+    A["solveRecursive()"] --> B{"trySolveSingleOperandAssumptionLeaf() 成功?"}
+    B -->|是| C["当前节点直接作为叶子完成"]
+    B -->|否| D{"达到停止条件?"}
+    D -->|是| E["finishCurrentNodeAsLeaf()"]
+    D -->|否| F["chooseSubdivisionSplit()"]
+    F --> G{"切分成功?"}
+    G -->|否| H["按叶子完成求解"]
+    G -->|是| I["createChildrenFromSplit()"]
+    I --> J["child 创建前按扫描缓存 + reference 做常量剪枝"]
+    J --> K["leftChild.solveRecursive()"]
+    J --> L["rightChild.solveRecursive()"]
+    K --> M["mergeSolvedChildren()"]
+    L --> M
 ```
 
 ### 5.1 停止条件
@@ -182,22 +178,25 @@ flowchart TD
 切分成功后，`createChildrenFromSplit()` 会做四件事：
 
 1. 用切分平面把当前 `polygons_` 裁成左右两个 child polygon soup。
-2. 为左右子问题建立参考点状态 `SubdivisionRefState`。
-3. 在真正创建子节点前，再做一次 child-level 常量 indicator 剪枝。
-4. 只为仍有意义的子问题构造 `SubdivisionSolver` 子实例。
+2. 分别扫描左右 child polygon soup，缓存 `hasLhs/hasRhs/是否单操作数`。
+3. 对每个非空 child 独立传播参考点状态 `SubdivisionRefState`。
+4. 在真正创建该 child 前，按扫描缓存和 child reference 做常量 indicator 剪枝；只有未被剪掉的 child 才构造 `SubdivisionSolver` 子实例。
 
 ```mermaid
 flowchart TD
     A["createChildrenFromSplit()"] --> B["buildSplitChildPolygonSoups()"]
     B --> C{"左右都为空?"}
     C -->|是| D["返回 false"]
-    C -->|否| E["buildChildReferenceStates()"]
-    E --> F{"left child 可创建?"}
-    F -->|是| G["createChildSolver(left)"]
-    F -->|否| H["跳过 left"]
-    E --> I{"right child 可创建?"}
-    I -->|是| J["createChildSolver(right)"]
-    I -->|否| K["跳过 right"]
+    C -->|否| E["scan left child polygons"]
+    E --> F["makeChildReference(left)"]
+    F --> G{"left child 常量剪枝?"}
+    G -->|否| H["createChildSolver(left)"]
+    G -->|是| I["跳过 left"]
+    E --> J["scan right child polygons"]
+    J --> K["makeChildReference(right)"]
+    K --> L{"right child 常量剪枝?"}
+    L -->|否| M["createChildSolver(right)"]
+    L -->|是| N["跳过 right"]
 ```
 
 ### 6.1 子参考点传播顺序

@@ -179,7 +179,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 - `node_count`、`internal_node_count`、`leaf_node_count`、`max_depth`：递归树规模。
 - `total_polygon_count`：整棵细分树访问到的节点多边形数累计值；比 `input_polygons` 更接近真实 subdivision 工作量。
 - `leaf_fragment_count`、`classified_fragment_count`、`result_fragment_count`：叶子阶段与最终输出规模。
-- `constant_discard_count`：布尔指示函数提前剪枝命中数。
+- `constant_discard_count`：子节点在创建前被常量布尔指示函数剪枝的次数。
 - `leaf_threshold_stop_count`、`aabb_not_splittable_stop_count`：递归停止原因。
 - `wntv_aware_split_count`、`center_range_split_count`、`midpoint_split_count`：切分策略命中分布。
 
