@@ -423,22 +423,33 @@ int main(int argc, char **argv)
                 return 1;
             }
 
-            ember::PolygonSoupBuildOptions buildOptions;
-            buildOptions.triangulateNonCoplanarFaces = true;
-            if (!ember::buildPolygonSoup(lhsMesh, sharedScale, buildOptions, lhsPolygons, lhsAABB, error))
+            if (!ember::computeScaledMeshAABB(lhsMesh, sharedScale, lhsAABB, error))
             {
                 std::cerr << error << std::endl;
                 return 1;
             }
-            if (!ember::buildPolygonSoup(rhsMesh, sharedScale, buildOptions, rhsPolygons, rhsAABB, error))
+            if (!ember::computeScaledMeshAABB(rhsMesh, sharedScale, rhsAABB, error))
+            {
+                std::cerr << error << std::endl;
+                return 1;
+            }
+            ember::mergeAABB(sceneAABB, lhsAABB);
+            ember::mergeAABB(sceneAABB, rhsAABB);
+            ember::expandAABB(sceneAABB, 1);
+
+            ember::PolygonSoupBuildOptions buildOptions;
+            buildOptions.triangulateNonCoplanarFaces = true;
+            if (!ember::buildPolygonSoup(lhsMesh, sharedScale, buildOptions, lhsPolygons, error))
+            {
+                std::cerr << error << std::endl;
+                return 1;
+            }
+            if (!ember::buildPolygonSoup(rhsMesh, sharedScale, buildOptions, rhsPolygons, error))
             {
                 std::cerr << error << std::endl;
                 return 1;
             }
 
-            ember::mergeAABB(sceneAABB, lhsAABB);
-            ember::mergeAABB(sceneAABB, rhsAABB);
-            ember::expandAABB(sceneAABB, 1);
             timings.sharedScale = sharedScale;
             timings.lhsPolygonCount = lhsPolygons.size();
             timings.rhsPolygonCount = rhsPolygons.size();
