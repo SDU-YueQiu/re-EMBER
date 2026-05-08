@@ -113,6 +113,11 @@ const char *traceStatusName(traceStatus status) noexcept
     return "UNKNOWN";
 }
 
+bool isRecoverableClassificationTraceStatus(traceStatus status) noexcept
+{
+    return status == PATH_INVALID || status == INPUT_INVALID;
+}
+
 std::string formatPathForDebug(const std::vector<Segment256> &path)
 {
     std::ostringstream out;
@@ -280,7 +285,7 @@ bool attemptCentroidAxisPathCandidate(
         if (status == SUCCESS)
             return false;
 
-        if (status != PATH_INVALID)
+        if (!isRecoverableClassificationTraceStatus(status))
         {
             allowFallback = false;
             return false;
@@ -352,19 +357,21 @@ bool attemptInsetPlaneReplacementCandidates(
 
             ++attemptStats.planeReplacementPathAttemptCount;
             ++context.solveMetrics.leafClassificationPlaneReplacementPathAttemptCount;
-            attemptStats.debugLog << label << " "
-                                  << formatPathForDebug(candidate.path);
+            if constexpr (kLeafClassificationDebug)
+                attemptStats.debugLog << label << " "
+                                      << formatPathForDebug(candidate.path);
             const traceStatus status = traceLeafClassificationCandidate(
                                            context,
                                            fragmentIndex,
                                            fragment,
                                            attemptStats,
                                            candidate);
-            attemptStats.debugLog << " status=" << traceStatusName(status) << "\n";
+            if constexpr (kLeafClassificationDebug)
+                attemptStats.debugLog << " status=" << traceStatusName(status) << "\n";
             if (status == SUCCESS)
                 return false;
 
-            if (status != PATH_INVALID)
+            if (!isRecoverableClassificationTraceStatus(status))
             {
                 allowFallback = false;
                 return false;
@@ -488,7 +495,7 @@ bool attemptBridgeRescueCandidates(
             if (status == SUCCESS)
                 return false;
 
-            if (status != PATH_INVALID)
+            if (!isRecoverableClassificationTraceStatus(status))
             {
                 allowFallback = false;
                 return false;

@@ -11,6 +11,29 @@
 
 namespace ember
 {
+namespace
+{
+bool isLeafCoveredByPolygon(const Polygon256 &leaf, const Polygon256 &polygon)
+{
+    if (!leaf.isValid())
+        throw std::runtime_error("BSPTree encountered an invalid leaf while disabling overlap leaves.");
+
+    const std::vector<PlanePoint3i> &vertices = leaf.vertices();
+    if (vertices.size() != leaf.edgeCount())
+        throw std::runtime_error("BSPTree encountered an inconsistent leaf while disabling overlap leaves.");
+
+    // 共面重叠时，incoming polygon 的边已经全部插入 BSP。叶片不再跨越 incoming 的边，
+    // 因而只需检查凸叶片的所有顶点是否位于 incoming polygon 内或边界上。
+    for (const PlanePoint3i &vertex : vertices)
+    {
+        if (!polygon.containsOrOnBoundary(vertex))
+            return false;
+    }
+
+    return true;
+}
+}
+
 BSPNode::BSPNode() noexcept
     : isLeaf(true), disabled(false), splitPlane(), leafGeometry(), front(), back()
 {
@@ -189,11 +212,7 @@ void BSPTree::disableOverlapLeavesRecursive(BSPNode *node, const Polygon256 &pol
 
     if (node->isLeaf)
     {
-        PlanePoint3i interiorPoint(node->leafGeometry.plane, node->leafGeometry.plane, node->leafGeometry.plane);
-        if (!node->leafGeometry.findStrictInteriorPoint(interiorPoint))
-            throw std::runtime_error("BSPTree failed to find a strict interior point while disabling overlap leaves.");
-
-        if (polygon.containsOrOnBoundary(interiorPoint))
+        if (isLeafCoveredByPolygon(node->leafGeometry, polygon))
             node->disabled = true;
         return;
     }
