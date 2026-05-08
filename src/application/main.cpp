@@ -180,7 +180,25 @@ bool writeTimingMetrics(const std::string &path, const CliTimings &timings, std:
            << "leaf_classification_inset_point_attempt_count=" << timings.solveMetrics.leafClassificationInsetPointAttemptCount << '\n'
            << "leaf_classification_trace_attempt_count=" << timings.solveMetrics.leafClassificationTraceAttemptCount << '\n'
            << "leaf_classification_axis_path_attempt_count=" << timings.solveMetrics.leafClassificationAxisPathAttemptCount << '\n'
-           << "leaf_classification_plane_replacement_path_attempt_count=" << timings.solveMetrics.leafClassificationPlaneReplacementPathAttemptCount << '\n';
+           << "leaf_classification_plane_replacement_path_attempt_count=" << timings.solveMetrics.leafClassificationPlaneReplacementPathAttemptCount << '\n'
+           << "leaf_classification_candidate_generated_count=" << timings.solveMetrics.leafClassificationCandidateGeneratedCount << '\n'
+           << "leaf_classification_candidate_unique_count=" << timings.solveMetrics.leafClassificationCandidateUniqueCount << '\n'
+           << "leaf_classification_candidate_duplicate_skip_count=" << timings.solveMetrics.leafClassificationCandidateDuplicateSkipCount << '\n'
+           << "leaf_classification_candidate_rejected_count=" << timings.solveMetrics.leafClassificationCandidateRejectedCount << '\n'
+           << "leaf_classification_candidate_repair_attempt_count=" << timings.solveMetrics.leafClassificationCandidateRepairAttemptCount << '\n'
+           << "leaf_classification_candidate_repair_success_count=" << timings.solveMetrics.leafClassificationCandidateRepairSuccessCount << '\n'
+           << "leaf_classification_centroid_axis_success_count=" << timings.solveMetrics.leafClassificationCentroidAxisSuccessCount << '\n'
+           << "leaf_classification_centroid_axis_path_invalid_count=" << timings.solveMetrics.leafClassificationCentroidAxisPathInvalidCount << '\n'
+           << "leaf_classification_centroid_axis_input_invalid_count=" << timings.solveMetrics.leafClassificationCentroidAxisInputInvalidCount << '\n'
+           << "leaf_classification_centroid_axis_fail_count=" << timings.solveMetrics.leafClassificationCentroidAxisFailCount << '\n'
+           << "leaf_classification_inset_replacement_success_count=" << timings.solveMetrics.leafClassificationInsetReplacementSuccessCount << '\n'
+           << "leaf_classification_inset_replacement_path_invalid_count=" << timings.solveMetrics.leafClassificationInsetReplacementPathInvalidCount << '\n'
+           << "leaf_classification_inset_replacement_input_invalid_count=" << timings.solveMetrics.leafClassificationInsetReplacementInputInvalidCount << '\n'
+           << "leaf_classification_inset_replacement_fail_count=" << timings.solveMetrics.leafClassificationInsetReplacementFailCount << '\n'
+           << "leaf_classification_bridge_rescue_success_count=" << timings.solveMetrics.leafClassificationBridgeRescueSuccessCount << '\n'
+           << "leaf_classification_bridge_rescue_path_invalid_count=" << timings.solveMetrics.leafClassificationBridgeRescuePathInvalidCount << '\n'
+           << "leaf_classification_bridge_rescue_input_invalid_count=" << timings.solveMetrics.leafClassificationBridgeRescueInputInvalidCount << '\n'
+           << "leaf_classification_bridge_rescue_fail_count=" << timings.solveMetrics.leafClassificationBridgeRescueFailCount << '\n';
     if (!output)
     {
         outError = "Failed to write timings output file: " + path;

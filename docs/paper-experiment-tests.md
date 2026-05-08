@@ -17,3 +17,5 @@ ctest --test-dir build -C Debug --output-on-failure --timeout 60
 ```
 
 `re-EMBER_tests` 依赖 `re-EMBER`，因此上面的构建命令会同时生成 CLI。测试输出、metrics 和 OBJ 结果写入 `build/paper_experiment_tests/`。修复算法时应让这些测试从失败变为成功，再考虑继续从论文实验集追加更多 pair。
+
+排查叶片分类性能时，优先查看 metrics 中的 `leaf_classification_candidate_generated_count`、`leaf_classification_candidate_unique_count`、`leaf_classification_candidate_duplicate_skip_count`、`leaf_classification_candidate_repair_attempt_count` 和三个阶段的 `leaf_classification_*_input_invalid_count`。这些字段能区分候选枚举放大、重复路径、局部修复和真实 trace 失败。

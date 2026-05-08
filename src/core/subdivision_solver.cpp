@@ -91,6 +91,24 @@ void accumulateSolveMetrics(BoolSolveMetrics &target, const BoolSolveMetrics &so
     target.leafClassificationTraceAttemptCount += source.leafClassificationTraceAttemptCount;
     target.leafClassificationAxisPathAttemptCount += source.leafClassificationAxisPathAttemptCount;
     target.leafClassificationPlaneReplacementPathAttemptCount += source.leafClassificationPlaneReplacementPathAttemptCount;
+    target.leafClassificationCandidateGeneratedCount += source.leafClassificationCandidateGeneratedCount;
+    target.leafClassificationCandidateUniqueCount += source.leafClassificationCandidateUniqueCount;
+    target.leafClassificationCandidateDuplicateSkipCount += source.leafClassificationCandidateDuplicateSkipCount;
+    target.leafClassificationCandidateRejectedCount += source.leafClassificationCandidateRejectedCount;
+    target.leafClassificationCandidateRepairAttemptCount += source.leafClassificationCandidateRepairAttemptCount;
+    target.leafClassificationCandidateRepairSuccessCount += source.leafClassificationCandidateRepairSuccessCount;
+    target.leafClassificationCentroidAxisSuccessCount += source.leafClassificationCentroidAxisSuccessCount;
+    target.leafClassificationCentroidAxisPathInvalidCount += source.leafClassificationCentroidAxisPathInvalidCount;
+    target.leafClassificationCentroidAxisInputInvalidCount += source.leafClassificationCentroidAxisInputInvalidCount;
+    target.leafClassificationCentroidAxisFailCount += source.leafClassificationCentroidAxisFailCount;
+    target.leafClassificationInsetReplacementSuccessCount += source.leafClassificationInsetReplacementSuccessCount;
+    target.leafClassificationInsetReplacementPathInvalidCount += source.leafClassificationInsetReplacementPathInvalidCount;
+    target.leafClassificationInsetReplacementInputInvalidCount += source.leafClassificationInsetReplacementInputInvalidCount;
+    target.leafClassificationInsetReplacementFailCount += source.leafClassificationInsetReplacementFailCount;
+    target.leafClassificationBridgeRescueSuccessCount += source.leafClassificationBridgeRescueSuccessCount;
+    target.leafClassificationBridgeRescuePathInvalidCount += source.leafClassificationBridgeRescuePathInvalidCount;
+    target.leafClassificationBridgeRescueInputInvalidCount += source.leafClassificationBridgeRescueInputInvalidCount;
+    target.leafClassificationBridgeRescueFailCount += source.leafClassificationBridgeRescueFailCount;
 }
 
 bool isPointOnAnyPolygonSupportPlane(
