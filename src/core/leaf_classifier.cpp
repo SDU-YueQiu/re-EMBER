@@ -19,6 +19,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -27,6 +28,59 @@ namespace ember
 namespace
 {
 constexpr bool kLeafClassificationDebug = false;
+
+std::size_t mixHashValue(std::size_t seed, std::size_t value) noexcept
+{
+    return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6u) + (seed >> 2u));
+}
+
+std::size_t hashInteger(const Integer &value)
+{
+    constexpr std::size_t kBitsPerChunk = 64;
+    const Integer mask = (Integer(1) << kBitsPerChunk) - 1;
+    Integer magnitude = value < 0 ? -value : value;
+    std::size_t seed = value < 0 ? 0x517cc1b727220a95ull : 0x243f6a8885a308d3ull;
+    for (std::size_t shift = 0; shift < 256u; shift += kBitsPerChunk)
+    {
+        const Integer chunk = (magnitude >> shift) & mask;
+        seed = mixHashValue(seed, static_cast<std::size_t>(chunk.convert_to<std::uint64_t>()));
+    }
+    return seed;
+}
+
+std::size_t hashPlane(const Plane3i &plane)
+{
+    std::size_t seed = hashInteger(plane.a);
+    seed = mixHashValue(seed, hashInteger(plane.b));
+    seed = mixHashValue(seed, hashInteger(plane.c));
+    seed = mixHashValue(seed, hashInteger(plane.d));
+    return seed;
+}
+
+struct PlaneReplacementBuildSignatureHash
+{
+    std::size_t operator()(const detail::PlaneReplacementBuildSignature &signature) const
+    {
+        std::size_t seed = signature.planeReplacementCount;
+        for (const Plane3i &plane : signature.startPlanes)
+            seed = mixHashValue(seed, hashPlane(plane));
+        for (const Plane3i &plane : signature.targetPlanes)
+            seed = mixHashValue(seed, hashPlane(plane));
+        for (std::size_t i = 0; i < signature.planeReplacementCount; ++i)
+            seed = mixHashValue(seed, static_cast<std::size_t>(signature.planeReplacementOrder[i]));
+        return seed;
+    }
+};
+
+struct PlaneReplacementBuildSignatureEqual
+{
+    bool operator()(
+        const detail::PlaneReplacementBuildSignature &lhs,
+        const detail::PlaneReplacementBuildSignature &rhs) const noexcept
+    {
+        return detail::samePlaneReplacementBuildSignature(lhs, rhs);
+    }
+};
 
 struct LeafClassificationAttemptStats
 {
@@ -40,7 +94,10 @@ struct LeafClassificationAttemptStats
     std::size_t planeReplacementPathAttemptCount = 0;
     std::vector<PlanePoint3i> bridgeRescueTargets;
     std::vector<std::vector<HomPoint4i>> uniquePathSignatures;
-    std::vector<detail::PlaneReplacementBuildSignature> seenPlaneReplacementBuildSignatures;
+    std::unordered_set<
+        detail::PlaneReplacementBuildSignature,
+        PlaneReplacementBuildSignatureHash,
+        PlaneReplacementBuildSignatureEqual> seenPlaneReplacementBuildSignatures;
     std::ostringstream debugLog;
 };
 
@@ -237,15 +294,8 @@ bool shouldSkipRepeatedPlaneReplacementBuild(
     LeafClassificationAttemptStats &attemptStats,
     const detail::PlaneReplacementBuildSignature &signature)
 {
-    for (const detail::PlaneReplacementBuildSignature &existing :
-            attemptStats.seenPlaneReplacementBuildSignatures)
-    {
-        if (detail::samePlaneReplacementBuildSignature(existing, signature))
-            return true;
-    }
-
-    attemptStats.seenPlaneReplacementBuildSignatures.push_back(signature);
-    return false;
+    const auto [_, inserted] = attemptStats.seenPlaneReplacementBuildSignatures.insert(signature);
+    return !inserted;
 }
 
 bool isTraceableSurfaceCandidatePath(
