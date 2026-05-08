@@ -35,6 +35,7 @@ struct CliOptions
     BoolOp operation = BoolOp::Intersection;
     std::optional<std::uint64_t> scale;
     std::size_t leafThreshold = 25;
+    std::size_t threadCount = 0;
     BoolOperandAssumptions lhsAssumptions;
     BoolOperandAssumptions rhsAssumptions;
 };
@@ -60,6 +61,7 @@ void printUsage()
             << "Usage: re-EMBER --lhs <file.obj> --rhs <file.obj> "
             << "--op union|intersection|difference --out <result.obj> "
             << "[--scale <positive_integer>] [--leaf-threshold <positive_integer>] "
+            << "[--threads <positive_integer>] "
             << "[--timings-out <metrics.txt>] "
             << "[--assume-lhs-nsi] [--assume-lhs-nnc] "
             << "[--assume-rhs-nsi] [--assume-rhs-nnc]"
@@ -139,6 +141,7 @@ bool writeTimingMetrics(const std::string &path, const CliTimings &timings, std:
            << "rhs_polygons=" << timings.rhsPolygonCount << '\n'
            << "exported_faces=" << timings.exportedFaces << '\n'
            << "input_polygons=" << timings.solveMetrics.inputPolygonCount << '\n'
+           << "effective_thread_count=" << timings.solveMetrics.effectiveThreadCount << '\n'
            << "node_count=" << timings.solveMetrics.nodeCount << '\n'
            << "internal_node_count=" << timings.solveMetrics.internalNodeCount << '\n'
            << "leaf_node_count=" << timings.solveMetrics.leafNodeCount << '\n'
@@ -156,6 +159,7 @@ bool writeTimingMetrics(const std::string &path, const CliTimings &timings, std:
            << "wntv_aware_split_count=" << timings.solveMetrics.wntvAwareSplitCount << '\n'
            << "center_range_split_count=" << timings.solveMetrics.centerRangeSplitCount << '\n'
            << "midpoint_split_count=" << timings.solveMetrics.midpointSplitCount << '\n'
+           << "parallel_sibling_spawn_count=" << timings.solveMetrics.parallelSiblingSpawnCount << '\n'
            << "child_reference_reuse_count=" << timings.solveMetrics.childReferenceReuseCount << '\n'
            << "child_reference_trace_count=" << timings.solveMetrics.childReferenceTraceCount << '\n'
            << "child_reference_candidate_count=" << timings.solveMetrics.childReferenceCandidateCount << '\n'
@@ -224,7 +228,7 @@ bool parseBoolOp(const std::string &token, BoolOp &outOp)
     return false;
 }
 
-// 解析最小外围 CLI：文件路径、布尔运算、共享量化尺度和叶子阈值。
+// 解析最小外围 CLI：文件路径、布尔运算、共享量化尺度、叶子阈值和线程数。
 bool parseArgs(int argc, char **argv, CliOptions &outOptions)
 {
     outOptions = CliOptions();
@@ -234,7 +238,7 @@ bool parseArgs(int argc, char **argv, CliOptions &outOptions)
     {
         const std::string arg(argv[i]);
         if (arg == "--lhs" || arg == "--rhs" || arg == "--op" || arg == "--out" ||
-                arg == "--scale" || arg == "--leaf-threshold" || arg == "--timings-out")
+                arg == "--scale" || arg == "--leaf-threshold" || arg == "--threads" || arg == "--timings-out")
         {
             if (i + 1 >= argc)
             {
@@ -282,6 +286,17 @@ bool parseArgs(int argc, char **argv, CliOptions &outOptions)
                 }
 
                 outOptions.leafThreshold = static_cast<std::size_t>(thresholdValue);
+            }
+            else if (arg == "--threads")
+            {
+                std::uint64_t threadCountValue = 0;
+                if (!parsePositiveUInt64(value, threadCountValue))
+                {
+                    std::cerr << "Thread count must be a positive integer." << std::endl;
+                    return false;
+                }
+
+                outOptions.threadCount = static_cast<std::size_t>(threadCountValue);
             }
 
             continue;
@@ -456,6 +471,7 @@ int main(int argc, char **argv)
             REEMBER_PROFILE_ZONE("re-EMBER::prepare_problem");
             problem.setOperation(options.operation);
             problem.setOperandAssumptions(options.lhsAssumptions, options.rhsAssumptions);
+            problem.setThreadCount(options.threadCount);
             problem.setOperands(lhsPolygons, rhsPolygons);
         }
 
@@ -500,6 +516,7 @@ int main(int argc, char **argv)
                 << " scale=" << sharedScale
                 << " lhs_polygons=" << lhsPolygons.size()
                 << " rhs_polygons=" << rhsPolygons.size()
+                << " threads=" << timings.solveMetrics.effectiveThreadCount
                 << " node_count=" << timings.solveMetrics.nodeCount
                 << " leaf_nodes=" << timings.solveMetrics.leafNodeCount
                 << " discarded_nodes=" << timings.solveMetrics.discardedNodeCount
@@ -510,6 +527,7 @@ int main(int argc, char **argv)
                 << " wntv_splits=" << timings.solveMetrics.wntvAwareSplitCount
                 << " center_splits=" << timings.solveMetrics.centerRangeSplitCount
                 << " midpoint_splits=" << timings.solveMetrics.midpointSplitCount
+                << " parallel_spawns=" << timings.solveMetrics.parallelSiblingSpawnCount
                 << " child_ref_candidates=" << timings.solveMetrics.childReferenceCandidateCount
                 << " child_ref_tried=" << timings.solveMetrics.childReferenceCandidateTriedCount
                 << " leaf_trace_attempts=" << timings.solveMetrics.leafClassificationTraceAttemptCount

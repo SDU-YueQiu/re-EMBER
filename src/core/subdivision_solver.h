@@ -5,6 +5,7 @@
 #pragma once
 
 #include "core/bool_problem.h"
+#include "core/parallel_solve_context.h"
 
 #include <cstddef>
 #include <memory>
@@ -67,6 +68,7 @@ public:
         std::size_t leafPolygonThreshold,
         std::vector<Polygon256> &polygons,
         const AABB3i &rootAABB,
+        const ParallelSolveContext *parallelContext,
         BoolOperandAssumptions lhsAssumptions,
         BoolOperandAssumptions rhsAssumptions);
 
@@ -122,6 +124,7 @@ private:
         const AABB3i &aabb,
         SubdivisionRefState reference,
         BinaryPolygonScanSummary polygonScan,
+        const ParallelSolveContext *parallelContext,
         BoolOperandAssumptions lhsAssumptions,
         BoolOperandAssumptions rhsAssumptions);
 
@@ -134,6 +137,11 @@ private:
      * @brief 递归细分当前节点并分类叶子节点。
      */
     void solveRecursive();
+
+    /**
+     * @brief 求解当前节点已创建的左右子树，必要时把一个 sibling 交给 TBB。
+     */
+    void solveChildSubtrees();
 
     /**
      * @brief 为当前叶子节点构建局部 BSP 编排，必要时按共享单操作数策略跳过。
@@ -264,6 +272,7 @@ private:
     std::size_t leafPolygonThreshold_ = 25;
     BoolOperandAssumptions lhsAssumptions_;
     BoolOperandAssumptions rhsAssumptions_;
+    const ParallelSolveContext *parallelContext_ = nullptr;
     std::size_t depth_ = 0;
     bool isLeaf_ = true;
     bool discarded_ = false;

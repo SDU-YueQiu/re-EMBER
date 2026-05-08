@@ -22,7 +22,7 @@ OBJ -> 共享 scale + 浮点输入AABB -> 多边形集合 -> BoolProblem(校验/
 - `src/tests/`：仓库自定义断言测试，不依赖第三方测试框架。
 - `tools/profile-re-ember.ps1`：端到端性能测试、Tracy 捕获和报告入口。
 
-`BoolProblem` 现在只暴露应用需要的二元门面接口：`setOperation`、`setOperandAssumptions`、`setOperands`、`solve(sceneAABB)`、`isDiscarded`、`resultFragments`、`leafSummaries` 和 `solveMetrics`。`setOperands()` 会统一覆写输入多边形的 `WNTV`，强制收敛到 `lhs={1,0}`、`rhs={0,1}` 的二元约定，不再暴露“直接注入任意带标签 polygon 集合”的公开入口。根场景 AABB 在共享 `scale` 选定后直接由 OBJ 浮点顶点经 `floor(coord * scale)` / `ceil(coord * scale)` 生成，调用方合并左右输入后加 margin 并传给 `solve(sceneAABB)`；`SubdivisionSolver` 不再从 256 位多边形顶点反推根 AABB。`Polygon256` 顶点缓存改为按需构造，首次调用 `vertex()` / `vertices()` 时生成，后续复用。递归子问题状态属于 `SubdivisionSolver` 内部实现；它会在递归返回路径上一次性向上汇总 `resultFragments / leafSummaries / solveMetrics`，并尽早释放子树中间状态。每个 `BoolProblem` 实例只允许执行一次 `solve()`；无论成功还是抛错，后续都不能再次 `solve()` 或修改配置。
+`BoolProblem` 现在只暴露应用需要的二元门面接口：`setOperation`、`setOperandAssumptions`、`setThreadCount`、`setOperands`、`solve(sceneAABB)`、`isDiscarded`、`resultFragments`、`leafSummaries` 和 `solveMetrics`。`setOperands()` 会统一覆写输入多边形的 `WNTV`，强制收敛到 `lhs={1,0}`、`rhs={0,1}` 的二元约定，不再暴露“直接注入任意带标签 polygon 集合”的公开入口。根场景 AABB 在共享 `scale` 选定后直接由 OBJ 浮点顶点经 `floor(coord * scale)` / `ceil(coord * scale)` 生成，调用方合并左右输入后加 margin 并传给 `solve(sceneAABB)`；`SubdivisionSolver` 不再从 256 位多边形顶点反推根 AABB。`Polygon256` 顶点缓存改为按需构造，首次调用 `vertex()` / `vertices()` 时生成，后续复用。递归子问题状态属于 `SubdivisionSolver` 内部实现；它会在递归返回路径上一次性向上汇总 `resultFragments / leafSummaries / solveMetrics`，并尽早释放子树中间状态。当前并行实现使用 `oneTBB` 的 sibling-task work stealing：每次细分后当前线程继续一个 child，另一个 child 作为 task 提交给共享运行时，最终仍按 `left -> right` 固定顺序 merge。`BoolProblem` 仍然不是外部并发安全对象；一个实例不能被多个线程同时读写或复用。每个 `BoolProblem` 实例只允许执行一次 `solve()`；无论成功还是抛错，后续都不能再次 `solve()` 或修改配置。
 
 ## 构建与测试
 
@@ -33,6 +33,12 @@ cmake -S . -B build
 cmake --build build --config Debug --target re-EMBER_tests
 ctest --test-dir build -C Debug --output-on-failure --timeout 60
 cmake --build build --config Debug --target re-EMBER
+```
+
+当前仓库默认通过 vcpkg toolchain 解析 `oneTBB`。如果当前机器还没有这个依赖，先执行：
+
+```powershell
+vcpkg install tbb:x64-windows
 ```
 
 如果使用 MSVC，现在可以通过 `REEMBER_MSVC_ARCH` 显式控制 `/arch` 档位：
@@ -50,7 +56,7 @@ Tracy 性能插桩是编译期可选项，默认关闭；普通 Debug/Release/Re
 基础 CLI smoke：
 
 ```powershell
-build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\codex_boolean_smoke.obj --leaf-threshold 25
+build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\codex_boolean_smoke.obj --leaf-threshold 25 --threads 4
 ```
 
 I/O 中较慢的回归用环境变量开启：
@@ -63,7 +69,7 @@ build\Debug\re-EMBER_tests.exe
 ## 命令行用法
 
 ```powershell
-build\Debug\re-EMBER.exe --lhs <left.obj> --rhs <right.obj> --op union|intersection|difference --out <result.obj> [--scale <positive_integer>] [--leaf-threshold <positive_integer>] [--timings-out <metrics.txt>] [--assume-lhs-nsi] [--assume-lhs-nnc] [--assume-rhs-nsi] [--assume-rhs-nnc]
+build\Debug\re-EMBER.exe --lhs <left.obj> --rhs <right.obj> --op union|intersection|difference --out <result.obj> [--scale <positive_integer>] [--leaf-threshold <positive_integer>] [--threads <positive_integer>] [--timings-out <metrics.txt>] [--assume-lhs-nsi] [--assume-lhs-nnc] [--assume-rhs-nsi] [--assume-rhs-nnc]
 ```
 
 参数说明：
@@ -73,6 +79,7 @@ build\Debug\re-EMBER.exe --lhs <left.obj> --rhs <right.obj> --op union|intersect
 - `--out`：输出 OBJ 路径。
 - `--scale`：可选的显式十进制量化尺度；不传时会为两输入选择共享尺度。
 - `--leaf-threshold`：可选的叶子停止细分阈值，默认 `25`。
+- `--threads`：可选的总线程数；不传时自动选择并发度，`1` 表示强制串行。
 - `--timings-out`：把本次运行的时间与高层求解统计写到文本文件。
 - `--assume-*-nsi`、`--assume-*-nnc`：声明输入操作数满足 NSI/NNC 假设，只用于性能优化；错误声明会破坏正确性。
 
@@ -112,6 +119,12 @@ vcpkg install tracy[cli-tools]:x64-windows
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo
+```
+
+如果要强制固定求解线程数，直接加 `-Threads`，脚本会透传给 `re-EMBER.exe` 并写进 profiling 产物：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -NoTracy -Threads 4
 ```
 
 如果对应模式的 profiling 构建树已经由脚本准备过，可以加 `-SkipBuild` 只运行 workload：
@@ -200,6 +213,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 - `prepare_ms`：共享尺度选择和多边形集合构建时间。
 - `solve_ms`：真正的布尔求解时间。
 - `export_ms`：结果 OBJ 导出时间。
+- `effective_thread_count`：本次求解实际参与的总线程数。
 
 再看高层工作量：
 
@@ -209,6 +223,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 - `constant_discard_count`：子节点在创建前被常量布尔指示函数剪枝的次数。
 - `leaf_threshold_stop_count`、`aabb_not_splittable_stop_count`：递归停止原因。
 - `wntv_aware_split_count`、`center_range_split_count`、`midpoint_split_count`：切分策略命中分布。
+- `parallel_sibling_spawn_count`：把 sibling 子树交给 `oneTBB` 并行执行的次数。
 
 对子参考点传播和叶片分类，重点看候选放大量：
 

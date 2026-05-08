@@ -41,6 +41,7 @@ struct BoolLeafSummary
 struct BoolSolveMetrics
 {
     std::size_t inputPolygonCount = 0;              ///< 输入多边形总数。
+    std::size_t effectiveThreadCount = 1;           ///< 本次求解实际参与的总线程数，包含调用 `solve()` 的线程。
     std::size_t nodeCount = 0;                      ///< 递归节点总数。
     std::size_t internalNodeCount = 0;              ///< 发生进一步细分的节点数。
     std::size_t leafNodeCount = 0;                  ///< 叶节点数。
@@ -58,6 +59,7 @@ struct BoolSolveMetrics
     std::size_t wntvAwareSplitCount = 0;            ///< 命中 WNTV 感知切分的次数。
     std::size_t centerRangeSplitCount = 0;          ///< 命中中心范围切分的次数。
     std::size_t midpointSplitCount = 0;             ///< 回退到中点切分的次数。
+    std::size_t parallelSiblingSpawnCount = 0;      ///< 递归中把 sibling 子树作为并行任务提交的次数。
     std::size_t childReferenceReuseCount = 0;       ///< 直接复用子参考点的次数。
     std::size_t childReferenceTraceCount = 0;       ///< 通过路径追踪传播子参考点的次数。
     std::size_t childReferenceCandidateCount = 0;   ///< 子参考点传播阶段生成的候选总数。
@@ -123,6 +125,14 @@ public:
     void setOperandAssumptions(
         BoolOperandAssumptions lhsAssumptions,
         BoolOperandAssumptions rhsAssumptions);
+
+    /**
+     * @brief 设置本次布尔求解允许使用的总线程数。
+     *
+     * @param[in] threadCount 总线程数；`0` 表示自动并发度，`1` 表示强制串行。
+     * @note 线程数包含调用 `solve()` 的线程本身，而不是只统计后台 worker。
+     */
+    void setThreadCount(std::size_t threadCount);
 
     /**
      * @brief 设置二元布尔的左右输入，并自动写入基础 WNTV。
@@ -193,6 +203,9 @@ private:
 
     /// 右操作数调用方声明的输入假设。
     BoolOperandAssumptions rhsAssumptions_;
+
+    /// 本次求解允许使用的总线程数；`0` 表示自动并发度。
+    std::size_t threadCount_ = 0;
 
     /// 当前问题是否已被判定为空。
     bool discarded_ = false;

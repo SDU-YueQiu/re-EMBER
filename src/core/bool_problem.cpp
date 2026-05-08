@@ -5,9 +5,15 @@
 #include "bool_problem.h"
 
 #include "core/perf_tracing.h"
+#include "core/parallel_solve_context.h"
 #include "core/solver_shared.h"
 #include "core/subdivision_solver.h"
 
+#include <algorithm>
+#include <limits>
+#include <oneapi/tbb/info.h>
+#include <oneapi/tbb/task_arena.h>
+#include <oneapi/tbb/task_group.h>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -62,6 +68,21 @@ void throwIfSolveAttempted(bool solveAttempted, const char *method)
             << "() cannot be called after solve(); each BoolProblem instance is single-use.";
     throw std::runtime_error(message.str());
 }
+
+std::size_t resolveEffectiveThreadCount(std::size_t requestedThreadCount) noexcept
+{
+    if (requestedThreadCount > 0)
+        return requestedThreadCount;
+
+    const int defaultConcurrency = oneapi::tbb::info::default_concurrency();
+    return static_cast<std::size_t>(std::max(1, defaultConcurrency));
+}
+
+int toTaskArenaConcurrency(std::size_t threadCount) noexcept
+{
+    const std::size_t maxInt = static_cast<std::size_t>(std::numeric_limits<int>::max());
+    return static_cast<int>(std::min(threadCount, maxInt));
+}
 }
 
 BoolProblem::BoolProblem(std::size_t leafPolygonThreshold) noexcept
@@ -82,6 +103,12 @@ void BoolProblem::setOperandAssumptions(
     throwIfSolveAttempted(solveAttempted_, "setOperandAssumptions");
     lhsAssumptions_ = lhsAssumptions;
     rhsAssumptions_ = rhsAssumptions;
+}
+
+void BoolProblem::setThreadCount(std::size_t threadCount)
+{
+    throwIfSolveAttempted(solveAttempted_, "setThreadCount");
+    threadCount_ = threadCount;
 }
 
 void BoolProblem::setOperands(const std::vector<Polygon256> &lhs, const std::vector<Polygon256> &rhs)
@@ -108,6 +135,9 @@ void BoolProblem::solve(const AABB3i &sceneAABB)
     throwIfSolveAttempted(solveAttempted_, "solve");
     solveAttempted_ = true;
 
+    const std::size_t effectiveThreadCount = resolveEffectiveThreadCount(threadCount_);
+    solveMetrics_.effectiveThreadCount = effectiveThreadCount;
+
     if (polygons_.empty())
     {
         discarded_ = true;
@@ -117,7 +147,43 @@ void BoolProblem::solve(const AABB3i &sceneAABB)
     validateSceneAABB(sceneAABB);
     validateSolveInputPolygons(polygons_);
 
-    SubdivisionSolver solver(op_, leafPolygonThreshold_, polygons_, sceneAABB, lhsAssumptions_, rhsAssumptions_);
+    if (effectiveThreadCount > 1)
+    {
+        oneapi::tbb::task_group_context taskGroupContext;
+        ParallelSolveContext parallelContext{
+            true,
+            effectiveThreadCount,
+            &taskGroupContext};
+        SubdivisionSolver solver(
+            op_,
+            leafPolygonThreshold_,
+            polygons_,
+            sceneAABB,
+            &parallelContext,
+            lhsAssumptions_,
+            rhsAssumptions_);
+        oneapi::tbb::task_arena arena(toTaskArenaConcurrency(effectiveThreadCount));
+        arena.execute([&solver]()
+        {
+            solver.solve();
+        });
+        discarded_ = solver.isDiscarded();
+        solver.extractResultFragments(resultFragments_);
+        if (resultFragments_.empty())
+            discarded_ = true;
+        solver.extractLeafSummaries(leafSummaries_);
+        solveMetrics_ = solver.solveMetrics();
+        return;
+    }
+
+    SubdivisionSolver solver(
+        op_,
+        leafPolygonThreshold_,
+        polygons_,
+        sceneAABB,
+        nullptr,
+        lhsAssumptions_,
+        rhsAssumptions_);
     solver.solve();
     discarded_ = solver.isDiscarded();
     solver.extractResultFragments(resultFragments_);
