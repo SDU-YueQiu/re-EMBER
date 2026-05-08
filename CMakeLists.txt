@@ -198,6 +198,7 @@ endif()
 
 find_package(tinyobjloader CONFIG REQUIRED)
 find_package(Boost REQUIRED)
+find_package(TBB CONFIG REQUIRED)
 
 set(REEMBER_THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 
@@ -235,6 +236,7 @@ set(REEMBER_LIBRARY_HEADERS
   "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/path_candidates.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/tracing_geometry.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/core/bool_problem.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/core/parallel_solve_context.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/core/perf_tracing.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/core/solver_shared.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/core/subdivision_solver.h"
@@ -284,6 +286,7 @@ endif()
 target_link_libraries(reember_lib
   PRIVATE
     tinyobjloader::tinyobjloader_double
+    TBB::tbb
 )
 
 if(REEMBER_ENABLE_EIGEN)

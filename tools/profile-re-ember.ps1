@@ -6,6 +6,7 @@ param(
     [string]$Out,
     [ValidateSet("Debug", "Release", "RelWithDebInfo", "MinSizeRel")][string]$Configuration = "RelWithDebInfo",
     [int]$LeafThreshold = 25,
+    [int]$Threads = 0,
     [int]$Iterations = 5,
     [int]$TimeoutSeconds = 300,
     [int]$BuildTimeoutSeconds = 900,
@@ -44,6 +45,7 @@ function Show-Help {
 Usage:
   powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1
   powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Lhs <lhs.obj> -Rhs <rhs.obj> -Op difference
+  powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Lhs <lhs.obj> -Rhs <rhs.obj> -Op difference -Threads 4
 
 Outputs:
   build\perf\run_<timestamp>\profile.log
@@ -70,6 +72,7 @@ Notes:
   - Use -NoTracy only for timing-only runs without zone capture; that mode uses build\profile_notracy\ automatically.
   - OBJ workloads are assumed to satisfy NSI/NNC input assumptions by default.
   - Use -NoInputAssumptions only when profiling intentionally invalid or adversarial OBJ inputs.
+  - Use -Threads <N> to force re-EMBER.exe to use N total solve threads; omit it or pass 0 to keep the solver on auto-thread mode.
   - -WorkloadPriority only applies to the timed re-EMBER.exe workload process, not cmake or report/export helpers.
   - Use -UsePCores to auto-pin the workload to the highest EfficiencyClass logical processors exposed by Windows.
   - Use -WorkloadAffinityMask <hex-or-decimal> for an explicit processor mask, for example 0xFFF.
@@ -83,6 +86,10 @@ if ($Help) {
 
 if ($EnableMathTracy -and $NoTracy) {
     throw "-EnableMathTracy requires Tracy capture. Remove -NoTracy or omit -EnableMathTracy."
+}
+
+if ($Threads -lt 0) {
+    throw "-Threads must be 0 or a positive integer."
 }
 
 if ($UsePCores -and $WorkloadAffinityMask) {
@@ -1059,6 +1066,10 @@ function Get-ReEmberArguments {
         "--timings-out", $MetricsPath
     )
 
+    if ($Threads -gt 0) {
+        $arguments += @("--threads", [string]$Threads)
+    }
+
     if (-not $NoInputAssumptions) {
         $arguments += @(
             "--assume-lhs-nsi",
@@ -1253,6 +1264,7 @@ function New-TimingRow {
         rhs_polygons = [math]::Round((Get-Metric $metrics "rhs_polygons"), 0)
         exported_faces = [math]::Round((Get-Metric $metrics "exported_faces"), 0)
         input_polygons = [math]::Round((Get-Metric $metrics "input_polygons"), 0)
+        effective_thread_count = [math]::Round((Get-Metric $metrics "effective_thread_count"), 0)
         node_count = [math]::Round((Get-Metric $metrics "node_count"), 0)
         internal_node_count = [math]::Round((Get-Metric $metrics "internal_node_count"), 0)
         leaf_node_count = [math]::Round((Get-Metric $metrics "leaf_node_count"), 0)
@@ -1270,6 +1282,7 @@ function New-TimingRow {
         wntv_aware_split_count = [math]::Round((Get-Metric $metrics "wntv_aware_split_count"), 0)
         center_range_split_count = [math]::Round((Get-Metric $metrics "center_range_split_count"), 0)
         midpoint_split_count = [math]::Round((Get-Metric $metrics "midpoint_split_count"), 0)
+        parallel_sibling_spawn_count = [math]::Round((Get-Metric $metrics "parallel_sibling_spawn_count"), 0)
         child_reference_reuse_count = [math]::Round((Get-Metric $metrics "child_reference_reuse_count"), 0)
         child_reference_trace_count = [math]::Round((Get-Metric $metrics "child_reference_trace_count"), 0)
         child_reference_candidate_count = [math]::Round((Get-Metric $metrics "child_reference_candidate_count"), 0)
@@ -1909,6 +1922,7 @@ try {
         configuration = $Configuration
         executable = $script:ExePath
         leafThreshold = $LeafThreshold
+        requestedThreads = $(if ($Threads -gt 0) { $Threads } else { "auto" })
         iterations = $Iterations
         timeoutSeconds = $TimeoutSeconds
         tracyEnabled = (-not $NoTracy)

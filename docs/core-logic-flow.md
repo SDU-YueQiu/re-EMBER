@@ -48,31 +48,33 @@ flowchart TD
 
 `src/application/main.cpp` 的外层顺序比较固定：
 
-1. 解析 `--lhs --rhs --op --out --scale --leaf-threshold`。
+1. 解析 `--lhs --rhs --op --out --scale --leaf-threshold --threads`。
 2. 读取左右 OBJ。
 3. 选择共享 `scale`，把左右输入放进同一个整数坐标系。
 4. 用 `computeScaledMeshAABB()` 对 OBJ 浮点顶点执行 `floor(coord * scale)` / `ceil(coord * scale)`，得到左右输入 AABB。
 5. 合并左右输入 AABB，并扩展一圈 margin 作为根场景 AABB。
 6. 调用 `buildPolygonSoup()` 把 OBJ 面片转换为 `Polygon256` 集合。
-7. 构造 `BoolProblem`，设置布尔运算、输入假设和左右操作数。
+7. 构造 `BoolProblem`，设置布尔运算、输入假设、总线程数和左右操作数。
 8. 调用 `problem.solve(sceneAABB)`。
 9. 把 `problem.resultFragments()` 直接写回 OBJ。
 
 这里有几个实现细节值得单独记住：
 
 - `setOperands()` 会给左操作数写入基础 `WNTV={1,0}`，给右操作数写入 `WNTV={0,1}`。
+- `setThreadCount(0)` 表示自动并发度；`setThreadCount(1)` 表示强制串行；`N>1` 表示总参与线程数为 `N`。
 - `BoolProblem` 不再暴露直接注入任意 `WNTV` polygon 集合的公开入口，公开输入边界固定为二元操作数。
 - 根场景 AABB 来自共享 `scale` 后的 OBJ 浮点顶点上/下取整，不再由 `SubdivisionSolver` 从 256 位多边形顶点反推。
 - 应用层构建 polygon soup 时启用了 `triangulateNonCoplanarFaces=true`，但最终结果导出仍保持 polygon soup / n-gon 语义。
 
 ## 3. BoolProblem 门面流程
 
-`BoolProblem::solve(sceneAABB)` 本身很薄。主流程是四件事：
+`BoolProblem::solve(sceneAABB)` 本身很薄。主流程是五件事：
 
 1. 若当前实例已经执行过一次 `solve()`，直接报错。
 2. 非空输入要求调用方提供合法 `sceneAABB`。
 3. 校验输入多边形集合合法性，并确认所有输入都符合二元 `lhs/rhs` 标签约定。
-4. 构造内部 `SubdivisionSolver`，消费输入 polygon soup，并把聚合结果提取回公开门面。
+4. 根据 `threadCount` 决定自动/串行/固定并发度，并在需要时进入 `oneTBB task_arena`。
+5. 构造内部 `SubdivisionSolver`，消费输入 polygon soup，并把聚合结果提取回公开门面。
 
 ```mermaid
 flowchart TD
@@ -82,11 +84,12 @@ flowchart TD
     C -->|是| D["discarded_=true; 返回"]
     C -->|否| E["validateSceneAABB(sceneAABB)"]
     E --> F["validateSolveInputPolygons(polygons_)"]
-    F --> G["构造 SubdivisionSolver(op, threshold, polygons, sceneAABB, assumptions)"]
-    G --> H["solver.solve()"]
-    H --> I["提取 solver.isDiscarded()"]
-    I --> J["extractResultFragments() / extractLeafSummaries()"]
-    J --> K["读取 solveMetrics()"]
+    F --> G["解析有效线程数 / 准备 oneTBB arena"]
+    G --> H["构造 SubdivisionSolver(op, threshold, polygons, sceneAABB, parallelContext, assumptions)"]
+    H --> I["solver.solve()"]
+    I --> J["提取 solver.isDiscarded()"]
+    J --> K["extractResultFragments() / extractLeafSummaries()"]
+    K --> L["读取 solveMetrics()"]
 ```
 
 ## 4. SubdivisionSolver 总流程
@@ -98,6 +101,7 @@ flowchart TD
 3. 在根 AABB 最小角点初始化参考点，初始 `WNV` 全零。
 4. 进入 `solveRecursive()`。
 5. 每个子树在递归返回时就完成 `resultFragments / leafSummaries / solveMetrics` 的向上聚合，并尽早释放子树中间状态。
+6. 当前版本只把并行边界放在 child 子树级别；叶内 BSP 和 WNV 分类仍保持单任务内串行。
 
 ```mermaid
 flowchart TD
@@ -121,7 +125,8 @@ flowchart TD
 2. 若达到叶子阈值，或 AABB 已不可再切分，则转叶子求解。
 3. 否则选择切分面并创建左右子节点。
 4. 常量 indicator 剪枝只发生在 child 创建前。
-5. 递归求解左右子节点后 move-merge 结果，并立即释放子节点。
+5. 若两个 child 都存在且有效线程数大于 1，则把 polygon soup 更大的 sibling 作为 `oneTBB` task 提交，当前线程继续另一个 child。
+6. 两个 child 都完成后，仍按 `left -> right` 固定顺序 move-merge 结果，并立即释放子节点。
 
 ```mermaid
 flowchart TD
@@ -134,10 +139,13 @@ flowchart TD
     G -->|否| H["按叶子完成求解"]
     G -->|是| I["createChildrenFromSplit()"]
     I --> J["child 创建前按扫描缓存 + reference 做常量剪枝"]
-    J --> K["leftChild.solveRecursive()"]
-    J --> L["rightChild.solveRecursive()"]
-    K --> M["mergeSolvedChildren()"]
-    L --> M
+    J --> K{"可并行 sibling?"}
+    K -->|否| L["按 left 再 right 串行递归"]
+    K -->|是| M["spawn 较大 sibling task"]
+    M --> N["当前线程继续另一个 child"]
+    N --> O["wait sibling task"]
+    L --> P["mergeSolvedChildren()"]
+    O --> P["mergeSolvedChildren()"]
 ```
 
 ### 5.1 停止条件
@@ -361,8 +369,9 @@ flowchart TD
 
 其中 `solveMetrics()` 最值得关注的字段通常是：
 
-- 规模类：`nodeCount`、`leafNodeCount`、`maxDepth`、`totalPolygonCount`
+- 规模类：`effectiveThreadCount`、`nodeCount`、`leafNodeCount`、`maxDepth`、`totalPolygonCount`
 - 细分类：`wntvAwareSplitCount`、`centerRangeSplitCount`、`midpointSplitCount`
+- 并行类：`parallelSiblingSpawnCount`
 - 子参考传播类：`childReferenceReuseCount`、`childReferenceTraceCount`、`childReferenceCandidateCount`
 - 叶片分类类：`leafFragmentCount`、`classifiedFragmentCount`、`leafClassificationTraceAttemptCount`
 - 早停/剪枝类：`constantDiscardCount`、`singleOperandAssumptionStopCount`、`singleOperandAssumptionFallbackCount`

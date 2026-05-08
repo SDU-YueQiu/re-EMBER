@@ -950,6 +950,12 @@ void runBoolProblemTests()
         },
         "single-use"));
         assert(throwsRuntimeError(
+                   [&problem]()
+        {
+            problem.setThreadCount(4);
+        },
+        "single-use"));
+        assert(throwsRuntimeError(
                    [&problem, &lhs, &rhs]()
         {
             problem.setOperands(lhs, rhs);
@@ -1084,6 +1090,54 @@ void runBoolProblemTests()
 
             assert(!problem.isDiscarded());
             assert(problem.resultFragments().size() == 6u);
+        }
+
+        {
+            ember::BoolProblem serialProblem(6);
+            serialProblem.setOperation(BoolOp::Union);
+            serialProblem.setThreadCount(1);
+            serialProblem.setOperands(tallLhs, tallRhs);
+            serialProblem.solve(tallSceneAABB);
+
+            ember::BoolProblem parallelProblem(6);
+            parallelProblem.setOperation(BoolOp::Union);
+            parallelProblem.setThreadCount(4);
+            parallelProblem.setOperands(tallLhs, tallRhs);
+            parallelProblem.solve(tallSceneAABB);
+
+            assert(!serialProblem.isDiscarded());
+            assert(!parallelProblem.isDiscarded());
+            assert(serialProblem.resultFragments().size() == 12u);
+            assert(parallelProblem.resultFragments().size() == serialProblem.resultFragments().size());
+            for (const Polygon256 &fragment : serialProblem.resultFragments())
+                assertResultFragmentIsGeometryOnly(fragment);
+            for (const Polygon256 &fragment : parallelProblem.resultFragments())
+                assertResultFragmentIsGeometryOnly(fragment);
+
+            const std::vector<ember::BoolLeafSummary> &serialLeaves = serialProblem.leafSummaries();
+            const std::vector<ember::BoolLeafSummary> &parallelLeaves = parallelProblem.leafSummaries();
+            assert(serialLeaves.size() == parallelLeaves.size());
+            for (std::size_t leafIndex = 0; leafIndex < serialLeaves.size(); ++leafIndex)
+            {
+                assert(serialLeaves[leafIndex].depth == parallelLeaves[leafIndex].depth);
+                assert(serialLeaves[leafIndex].polygonCount == parallelLeaves[leafIndex].polygonCount);
+                assert(serialLeaves[leafIndex].discarded == parallelLeaves[leafIndex].discarded);
+                assert(serialLeaves[leafIndex].aabb.valid == parallelLeaves[leafIndex].aabb.valid);
+                assert(serialLeaves[leafIndex].aabb.xMin == parallelLeaves[leafIndex].aabb.xMin);
+                assert(serialLeaves[leafIndex].aabb.xMax == parallelLeaves[leafIndex].aabb.xMax);
+                assert(serialLeaves[leafIndex].aabb.yMin == parallelLeaves[leafIndex].aabb.yMin);
+                assert(serialLeaves[leafIndex].aabb.yMax == parallelLeaves[leafIndex].aabb.yMax);
+                assert(serialLeaves[leafIndex].aabb.zMin == parallelLeaves[leafIndex].aabb.zMin);
+                assert(serialLeaves[leafIndex].aabb.zMax == parallelLeaves[leafIndex].aabb.zMax);
+            }
+
+            const ember::BoolSolveMetrics &serialMetrics = serialProblem.solveMetrics();
+            const ember::BoolSolveMetrics &parallelMetrics = parallelProblem.solveMetrics();
+            assert(serialMetrics.resultFragmentCount == parallelMetrics.resultFragmentCount);
+            assert(serialMetrics.effectiveThreadCount == 1u);
+            assert(serialMetrics.parallelSiblingSpawnCount == 0u);
+            assert(parallelMetrics.effectiveThreadCount == 4u);
+            assert(parallelMetrics.parallelSiblingSpawnCount > 0u);
         }
     }
 

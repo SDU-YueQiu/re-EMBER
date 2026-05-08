@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <oneapi/tbb/task_group.h>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -53,6 +54,7 @@ void appendMovedVector(std::vector<T> &destination, std::vector<T> &source)
 
 void accumulateSolveMetrics(BoolSolveMetrics &target, const BoolSolveMetrics &source) noexcept
 {
+    target.effectiveThreadCount = std::max(target.effectiveThreadCount, source.effectiveThreadCount);
     target.nodeCount += source.nodeCount;
     target.internalNodeCount += source.internalNodeCount;
     target.leafNodeCount += source.leafNodeCount;
@@ -70,6 +72,7 @@ void accumulateSolveMetrics(BoolSolveMetrics &target, const BoolSolveMetrics &so
     target.wntvAwareSplitCount += source.wntvAwareSplitCount;
     target.centerRangeSplitCount += source.centerRangeSplitCount;
     target.midpointSplitCount += source.midpointSplitCount;
+    target.parallelSiblingSpawnCount += source.parallelSiblingSpawnCount;
     target.childReferenceReuseCount += source.childReferenceReuseCount;
     target.childReferenceTraceCount += source.childReferenceTraceCount;
     target.childReferenceCandidateCount += source.childReferenceCandidateCount;
@@ -806,17 +809,20 @@ SubdivisionSolver::SubdivisionSolver(
     std::size_t leafPolygonThreshold,
     std::vector<Polygon256> &polygons,
     const AABB3i &rootAABB,
+    const ParallelSolveContext *parallelContext,
     BoolOperandAssumptions lhsAssumptions,
     BoolOperandAssumptions rhsAssumptions)
     : op_(op),
       leafPolygonThreshold_(leafPolygonThreshold == 0 ? 1 : leafPolygonThreshold),
       lhsAssumptions_(lhsAssumptions),
       rhsAssumptions_(rhsAssumptions),
+      parallelContext_(parallelContext),
       aabb_(rootAABB),
       polygons_()
 {
     polygons_.swap(polygons);
     polygonCount_ = polygons_.size();
+    solveMetrics_.effectiveThreadCount = parallelContext_ ? parallelContext_->effectiveThreadCount : 1u;
     polygonScan_ = scanBinaryPolygonSummary(polygons_);
     singleOperandPolicy_ = buildSingleOperandAssumptionPolicy(
         polygonScan_,
@@ -834,12 +840,14 @@ SubdivisionSolver::SubdivisionSolver(
     const AABB3i &aabb,
     SubdivisionRefState reference,
     BinaryPolygonScanSummary polygonScan,
+    const ParallelSolveContext *parallelContext,
     BoolOperandAssumptions lhsAssumptions,
     BoolOperandAssumptions rhsAssumptions)
     : op_(op),
       leafPolygonThreshold_(leafPolygonThreshold == 0 ? 1 : leafPolygonThreshold),
       lhsAssumptions_(lhsAssumptions),
       rhsAssumptions_(rhsAssumptions),
+      parallelContext_(parallelContext),
       depth_(depth),
       aabb_(aabb),
       reference_(std::move(reference)),
@@ -847,6 +855,7 @@ SubdivisionSolver::SubdivisionSolver(
       polygons_(std::move(polygons))
 {
     polygonCount_ = polygons_.size();
+    solveMetrics_.effectiveThreadCount = parallelContext_ ? parallelContext_->effectiveThreadCount : 1u;
     singleOperandPolicy_ = buildSingleOperandAssumptionPolicy(
         polygonScan_,
         lhsAssumptions_,
@@ -862,7 +871,7 @@ void SubdivisionSolver::solve()
     const AABB3i rootAABB = aabb_;
     aabb_ = rootAABB;
     solveMetrics_.inputPolygonCount = polygonCount_;
-    
+
     initializeRootReference();
     solveRecursive();
 }
@@ -991,6 +1000,70 @@ void SubdivisionSolver::mergeSolvedChildren()
     finalizeInternalNode();
 }
 
+void SubdivisionSolver::solveChildSubtrees()
+{
+    if (leftChild_ == nullptr)
+    {
+        if (rightChild_ != nullptr)
+            rightChild_->solveRecursive();
+        return;
+    }
+
+    if (rightChild_ == nullptr)
+    {
+        leftChild_->solveRecursive();
+        return;
+    }
+
+    if (parallelContext_ == nullptr || !parallelContext_->canSpawnSiblingTasks())
+    {
+        leftChild_->solveRecursive();
+        rightChild_->solveRecursive();
+        return;
+    }
+
+    REEMBER_PROFILE_ZONE("SubdivisionSolver::solveChildSubtreesParallel");
+
+    SubdivisionSolver *spawnedChild = nullptr;
+    SubdivisionSolver *localChild = nullptr;
+    if (leftChild_->polygonCount_ >= rightChild_->polygonCount_)
+    {
+        spawnedChild = leftChild_.get();
+        localChild = rightChild_.get();
+    }
+    else
+    {
+        spawnedChild = rightChild_.get();
+        localChild = leftChild_.get();
+    }
+
+    ++solveMetrics_.parallelSiblingSpawnCount;
+    oneapi::tbb::task_group siblingTasks(*parallelContext_->taskGroupContext);
+    siblingTasks.run([spawnedChild]()
+    {
+        spawnedChild->solveRecursive();
+    });
+
+    try
+    {
+        localChild->solveRecursive();
+    }
+    catch (...)
+    {
+        parallelContext_->taskGroupContext->cancel_group_execution();
+        try
+        {
+            siblingTasks.wait();
+        }
+        catch (...)
+        {
+        }
+        throw;
+    }
+
+    siblingTasks.wait();
+}
+
 // 递归推进 subdivision；到达叶子后立即执行局部 BSP 和 WNV 分类。
 void SubdivisionSolver::solveRecursive()
 {
@@ -1025,11 +1098,7 @@ void SubdivisionSolver::solveRecursive()
     }
 
     isLeaf_ = false;
-
-    if (leftChild_)
-        leftChild_->solveRecursive();
-    if (rightChild_)
-        rightChild_->solveRecursive();
+    solveChildSubtrees();
 
     mergeSolvedChildren();
 }
@@ -1163,6 +1232,7 @@ void SubdivisionSolver::createChildSolver(
                     childBox,
                     std::move(childReference),
                     childPolygonScan,
+                    parallelContext_,
                     lhsAssumptions_,
                     rhsAssumptions_));
 }
