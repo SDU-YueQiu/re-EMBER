@@ -20,6 +20,7 @@ param(
     [switch]$ForceBuild,
     [switch]$NoTracy,
     [switch]$NoInputAssumptions,
+    [switch]$PaperSlowOnly,
     [ValidateSet("Normal", "AboveNormal", "High")][string]$WorkloadPriority = "Normal",
     [string]$WorkloadAffinityMask,
     [switch]$UsePCores,
@@ -29,6 +30,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $TracyPortWasExplicit = $PSBoundParameters.ContainsKey("TracyPort")
+$ThreadsWasExplicit = $PSBoundParameters.ContainsKey("Threads")
 $UnwrapZoneFilter = @(
     foreach ($value in $UnwrapZoneFilter) {
         foreach ($token in ([string]$value -split '[,;]')) {
@@ -45,7 +47,7 @@ function Show-Help {
 Usage:
   powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1
   powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Lhs <lhs.obj> -Rhs <rhs.obj> -Op difference
-  powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Lhs <lhs.obj> -Rhs <rhs.obj> -Op difference -Threads 4
+  powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Lhs <lhs.obj> -Rhs <rhs.obj> -Op difference -Threads `$env:NUMBER_OF_PROCESSORS
 
 Outputs:
   build\perf\run_<timestamp>\profile.log
@@ -72,7 +74,8 @@ Notes:
   - Use -NoTracy only for timing-only runs without zone capture; that mode uses build\profile_notracy\ automatically.
   - OBJ workloads are assumed to satisfy NSI/NNC input assumptions by default.
   - Use -NoInputAssumptions only when profiling intentionally invalid or adversarial OBJ inputs.
-  - Use -Threads <N> to force re-EMBER.exe to use N total solve threads; omit it or pass 0 to keep the solver on auto-thread mode.
+  - Use -PaperSlowOnly to profile the three slowest paper 10% regression samples copied under tests\paper_experiments.
+  - The script uses all logical processors by default. Use -Threads <N> to force a different total solve thread count; pass 0 only when intentionally testing the solver auto-thread mode.
   - -WorkloadPriority only applies to the timed re-EMBER.exe workload process, not cmake or report/export helpers.
   - Use -UsePCores to auto-pin the workload to the highest EfficiencyClass logical processors exposed by Windows.
   - Use -WorkloadAffinityMask <hex-or-decimal> for an explicit processor mask, for example 0xFFF.
@@ -90,6 +93,10 @@ if ($EnableMathTracy -and $NoTracy) {
 
 if ($Threads -lt 0) {
     throw "-Threads must be 0 or a positive integer."
+}
+
+if (-not $ThreadsWasExplicit -and $Threads -eq 0) {
+    $Threads = [math]::Max(1, [Environment]::ProcessorCount)
 }
 
 if ($UsePCores -and $WorkloadAffinityMask) {
@@ -998,6 +1005,45 @@ function Get-Workloads {
         return $items
     }
 
+    if ($PaperSlowOnly) {
+        $paperDefaults = @(
+            [pscustomobject]@{
+                Name = "paper_small_001_1291011_minus_153368"
+                Lhs = "tests\paper_experiments\inputs\small\small_001_1291011_minus_153368\lhs.obj"
+                Rhs = "tests\paper_experiments\inputs\small\small_001_1291011_minus_153368\rhs.obj"
+                Op = "difference"
+            },
+            [pscustomobject]@{
+                Name = "paper_small_009_48418_minus_269121"
+                Lhs = "tests\paper_experiments\inputs\small\small_009_48418_minus_269121\lhs.obj"
+                Rhs = "tests\paper_experiments\inputs\small\small_009_48418_minus_269121\rhs.obj"
+                Op = "difference"
+            },
+            [pscustomobject]@{
+                Name = "paper_small_007_702398_minus_118675"
+                Lhs = "tests\paper_experiments\inputs\small\small_007_702398_minus_118675\lhs.obj"
+                Rhs = "tests\paper_experiments\inputs\small\small_007_702398_minus_118675\rhs.obj"
+                Op = "difference"
+            }
+        )
+
+        foreach ($item in $paperDefaults) {
+            if ((Test-Path -LiteralPath $item.Lhs) -and (Test-Path -LiteralPath $item.Rhs)) {
+                $outPath = Join-Path $PerfRoot ("result_{0}.obj" -f $item.Name)
+                $items.Add((New-Workload $item.Name $item.Lhs $item.Rhs $item.Op $outPath))
+            }
+            else {
+                $missingDefaults.Add($item.Name)
+            }
+        }
+
+        if ($missingDefaults.Count -gt 0) {
+            throw ("Paper slow workloads are incomplete. Missing inputs for: {0}." -f ($missingDefaults -join ", "))
+        }
+
+        return $items
+    }
+
     $visualWorkpieceSource = "assets\visual_test\workpiece_block.obj"
     $visualToolSource = "assets\visual_test\tool_box.obj"
     $visualToolOverlapPosePath = Join-Path $PerfRoot "visual_test_overlap_pose_tool.obj"
@@ -1329,6 +1375,30 @@ function Convert-ToSafePathToken {
     return $safe
 }
 
+function Convert-TracyDouble {
+    param([string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return 0.0
+    }
+
+    $trimmed = $Value.Trim()
+    $parsed = 0.0
+    if (-not [double]::TryParse(
+            $trimmed,
+            [System.Globalization.NumberStyles]::Float,
+            [System.Globalization.CultureInfo]::InvariantCulture,
+            [ref]$parsed)) {
+        return 0.0
+    }
+
+    if ([double]::IsNaN($parsed) -or [double]::IsInfinity($parsed)) {
+        return 0.0
+    }
+
+    return $parsed
+}
+
 function Export-TracyZoneTable {
     param(
         [string]$CsvExportPath,
@@ -1358,13 +1428,13 @@ function Export-TracyZoneTable {
                 name = $row.name
                 src_file = $row.src_file
                 src_line = $row.src_line
-                total_ns = [double]$row.total_ns
-                total_perc = [double]$row.total_perc
-                counts = [double]$row.counts
-                mean_ns = [double]$row.mean_ns
-                min_ns = [double]$row.min_ns
-                max_ns = [double]$row.max_ns
-                std_ns = [double]$row.std_ns
+                total_ns = Convert-TracyDouble $row.total_ns
+                total_perc = Convert-TracyDouble $row.total_perc
+                counts = Convert-TracyDouble $row.counts
+                mean_ns = Convert-TracyDouble $row.mean_ns
+                min_ns = Convert-TracyDouble $row.min_ns
+                max_ns = Convert-TracyDouble $row.max_ns
+                std_ns = Convert-TracyDouble $row.std_ns
             })
         }
     }

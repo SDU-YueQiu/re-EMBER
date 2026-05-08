@@ -4,9 +4,9 @@
 
 ## 默认样本和参数
 
-默认纳入 `small_001` 到 `small_010` 共 10 个 small pair。CTest 会固定使用 `difference`、`leaf-threshold=25`、`threads=1`，并启用论文实验使用的四个假设：`--assume-lhs-nsi --assume-lhs-nnc --assume-rhs-nsi --assume-rhs-nnc`。
+默认纳入 `small_001` 到 `small_010` 共 10 个 small pair。CTest 会固定使用 `difference`、`leaf-threshold=25`，线程数默认取当前构建机的逻辑处理器数 `REEMBER_CTEST_THREADS`，并启用论文实验使用的四个假设：`--assume-lhs-nsi --assume-lhs-nnc --assume-rhs-nsi --assume-rhs-nnc`。只有在专门排查串行分支时才应把 `REEMBER_CTEST_THREADS` 显式设为 `1`。
 
-当前 10% 实验结果是 `re-EMBER` 30 次运行中 3 次成功，成功率 10%。按唯一 pair 看，`small_003_702407_minus_81309` 成功，其余 9 个样本都会触发 `BSPTree failed to find a strict interior point while disabling overlap leaves.`，对应局部 BSP 共面重叠叶片去重的严格内点构造缺口。CGAL Nef、libigl/CGAL 和 QuickCSG 在同一 10 个 pair 上均为 30/30 成功；Cork 当前未配置。
+这些样本是当前代码的端到端回归集合，不在本文档固化某次历史通过率；修复算法时以最新 `ctest` 和对应 `build/paper_experiment_tests/*.metrics.txt` 为准。
 
 ## 运行方式
 

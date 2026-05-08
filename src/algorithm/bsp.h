@@ -93,7 +93,7 @@ private:
     void insertCoplanarPolygonEdges(const Polygon256& polygon);
     void disableOverlapLeaves(const Polygon256& polygon);
 
-    // 递归检测每片叶子多边形的内部点是否在指定多边形中；若在其中则禁用该叶片。
+    // 递归检测每片叶子多边形是否完全落在指定共面多边形中；若在其中则禁用该叶片。
     static void disableOverlapLeavesRecursive(BSPNode* node, const Polygon256& polygon);
     static bool containsRecursive(const BSPNode* node, const PlanePoint3i& point) noexcept;
     static void collectLeafGeometriesRecursive(const BSPNode* node, std::vector<Polygon256>& outLeafGeometries);
