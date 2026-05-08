@@ -81,6 +81,8 @@ using Clock = std::chrono::steady_clock;
 inline std::size_t kLeafThreshold = 25;
 inline double kRotationMinDegrees = -180.0;
 inline double kRotationMaxDegrees = 180.0;
+inline double kToolScaleMin = 0.01;
+inline double kToolScaleMax = 100.0;
 inline double kDefaultTx = 0.0;
 inline double kDefaultTy = 0.0;
 inline double kDefaultTz = 0.0;
@@ -113,6 +115,7 @@ struct ToolPose
     double tx = kDefaultTx;
     double ty = kDefaultTy;
     double tz = kDefaultTz;
+    double scale = 1.0;
     double rx = 0.0;
     double ry = 0.0;
     double rz = 0.0;
@@ -128,6 +131,7 @@ struct UiState
     std::size_t leafThreshold = kLeafThreshold;
     bool previewDirty = false;
     bool solveRequested = false;
+    bool continuousSolve = false;
     bool resultStale = false;
     std::string lastError;
     ResultStats stats;
@@ -150,8 +154,6 @@ struct SceneData
     Bounds3d workpieceBounds;
     Bounds3d toolOriginalBounds;
     Eigen::Vector3d toolBaseTranslation = Eigen::Vector3d::Zero();
-    Eigen::Vector3d touchOffsets = Eigen::Vector3d::Ones();
-    double translationRange = 1.0;
 };
 
 struct MeshLayerStyle
@@ -255,15 +257,6 @@ void initializeScenePlacement(SceneData &scene)
     scene.workpieceBounds = computeBounds(scene.workpieceMesh);
     scene.toolOriginalBounds = computeBounds(scene.toolOriginalMesh);
     scene.toolBaseTranslation = boundsCenter(scene.workpieceBounds) - boundsCenter(scene.toolOriginalBounds);
-
-    const Eigen::Vector3d workpieceExtent = boundsExtent(scene.workpieceBounds);
-    const Eigen::Vector3d toolExtent = boundsExtent(scene.toolOriginalBounds);
-    scene.touchOffsets = 0.5 * (workpieceExtent + toolExtent);
-
-    const double dominantExtent = std::max(
-        {workpieceExtent.x(), workpieceExtent.y(), workpieceExtent.z(),
-         toolExtent.x(), toolExtent.y(), toolExtent.z(), 1.0});
-    scene.translationRange = 2.0 * dominantExtent;
 }
 
 Eigen::Vector3d toolWorldTranslation(const SceneData &scene, const UiState &ui)
@@ -271,11 +264,33 @@ Eigen::Vector3d toolWorldTranslation(const SceneData &scene, const UiState &ui)
     return scene.toolBaseTranslation + Eigen::Vector3d(ui.pose.tx, ui.pose.ty, ui.pose.tz);
 }
 
+Eigen::Vector3d scaledToolExtent(const SceneData &scene, const UiState &ui)
+{
+    return boundsExtent(scene.toolOriginalBounds) * std::clamp(ui.pose.scale, kToolScaleMin, kToolScaleMax);
+}
+
+Eigen::Vector3d currentTouchOffsets(const SceneData &scene, const UiState &ui)
+{
+    return 0.5 * (boundsExtent(scene.workpieceBounds) + scaledToolExtent(scene, ui));
+}
+
+double currentTranslationRange(const SceneData &scene, const UiState &ui)
+{
+    const Eigen::Vector3d workpieceExtent = boundsExtent(scene.workpieceBounds);
+    const Eigen::Vector3d toolExtent = scaledToolExtent(scene, ui);
+    const double dominantExtent = std::max(
+        {workpieceExtent.x(), workpieceExtent.y(), workpieceExtent.z(),
+         toolExtent.x(), toolExtent.y(), toolExtent.z(), 1.0});
+    return 2.0 * dominantExtent;
+}
+
 void clampPose(UiState &ui, const SceneData &scene)
 {
-    ui.pose.tx = std::clamp(ui.pose.tx, -scene.translationRange, scene.translationRange);
-    ui.pose.ty = std::clamp(ui.pose.ty, -scene.translationRange, scene.translationRange);
-    ui.pose.tz = std::clamp(ui.pose.tz, -scene.translationRange, scene.translationRange);
+    const double translationRange = currentTranslationRange(scene, ui);
+    ui.pose.tx = std::clamp(ui.pose.tx, -translationRange, translationRange);
+    ui.pose.ty = std::clamp(ui.pose.ty, -translationRange, translationRange);
+    ui.pose.tz = std::clamp(ui.pose.tz, -translationRange, translationRange);
+    ui.pose.scale = std::clamp(ui.pose.scale, kToolScaleMin, kToolScaleMax);
     ui.pose.rx = std::clamp(ui.pose.rx, kRotationMinDegrees, kRotationMaxDegrees);
     ui.pose.ry = std::clamp(ui.pose.ry, kRotationMinDegrees, kRotationMaxDegrees);
     ui.pose.rz = std::clamp(ui.pose.rz, kRotationMinDegrees, kRotationMaxDegrees);
@@ -288,16 +303,19 @@ ObjMeshData transformToolMesh(const ObjMeshData &mesh, const SceneData &scene, c
     const double rx = ui.pose.rx * 3.14159265358979323846 / 180.0;
     const double ry = ui.pose.ry * 3.14159265358979323846 / 180.0;
     const double rz = ui.pose.rz * 3.14159265358979323846 / 180.0;
+    const double uniformScale = std::clamp(ui.pose.scale, kToolScaleMin, kToolScaleMax);
     const Eigen::Matrix3d rotation =
         Eigen::AngleAxisd(rz, Eigen::Vector3d::UnitZ()).toRotationMatrix() *
         Eigen::AngleAxisd(ry, Eigen::Vector3d::UnitY()).toRotationMatrix() *
         Eigen::AngleAxisd(rx, Eigen::Vector3d::UnitX()).toRotationMatrix();
     const Eigen::Vector3d translation = toolWorldTranslation(scene, ui);
+    const Eigen::Vector3d pivot = boundsCenter(scene.toolOriginalBounds);
 
     for (ObjVertex &vertex : transformed.vertices)
     {
         const Eigen::Vector3d point(vertex.x, vertex.y, vertex.z);
-        const Eigen::Vector3d transformedPoint = rotation * point + translation;
+        const Eigen::Vector3d transformedPoint =
+            rotation * (uniformScale * (point - pivot)) + pivot + translation;
         vertex.x = transformedPoint.x();
         vertex.y = transformedPoint.y();
         vertex.z = transformedPoint.z();
@@ -621,6 +639,7 @@ ToolPose makeToolPose(
     double tx,
     double ty,
     double tz,
+    double scale = 1.0,
     double rx = 0.0,
     double ry = 0.0,
     double rz = 0.0) noexcept
@@ -629,6 +648,7 @@ ToolPose makeToolPose(
     pose.tx = tx;
     pose.ty = ty;
     pose.tz = tz;
+    pose.scale = scale;
     pose.rx = rx;
     pose.ry = ry;
     pose.rz = rz;
@@ -660,7 +680,9 @@ bool drawDoubleSliderInput(
     double &value,
     double minValue,
     double maxValue,
-    double inputStep)
+    double inputStep,
+    const char *format = "%.6f",
+    ImGuiSliderFlags sliderFlags = ImGuiSliderFlags_AlwaysClamp)
 {
     bool changed = false;
 
@@ -676,8 +698,8 @@ bool drawDoubleSliderInput(
                 &sliderValue,
                 &minValue,
                 &maxValue,
-                "%.6f",
-                ImGuiSliderFlags_AlwaysClamp))
+                format,
+                sliderFlags))
     {
         value = sliderValue;
         changed = true;
@@ -686,7 +708,7 @@ bool drawDoubleSliderInput(
     ImGui::SameLine();
     ImGui::SetNextItemWidth(110.0f);
     double inputValue = value;
-    if (ImGui::InputDouble("##input", &inputValue, inputStep, inputStep * 10.0, "%.6f"))
+    if (ImGui::InputDouble("##input", &inputValue, inputStep, inputStep * 10.0, format))
     {
         value = inputValue;
         changed = true;
@@ -863,6 +885,9 @@ int main()
     {
         UiState proposed = ui;
         bool changed = false;
+        bool solveModeChanged = false;
+        const double translationRange = currentTranslationRange(scene, proposed);
+        const Eigen::Vector3d touchOffsets = currentTouchOffsets(scene, proposed);
         const Eigen::Vector3d worldTranslation = toolWorldTranslation(scene, proposed);
 
         ImGui::Text("visual-test");
@@ -901,7 +926,7 @@ int main()
         }
 
         ImGui::Separator();
-        ImGui::Text("offset range = +/- %.6f", scene.translationRange);
+        ImGui::Text("offset range = +/- %.6f", translationRange);
         ImGui::Text(
             "auto-align world t = (%.6f, %.6f, %.6f)",
             scene.toolBaseTranslation.x(),
@@ -924,6 +949,8 @@ int main()
                 changed = true;
             }
         }
+        if (ImGui::Checkbox("continuous solve", &proposed.continuousSolve))
+            solveModeChanged = true;
 
         int proposedLeafThreshold = static_cast<int>(proposed.leafThreshold);
         if (ImGui::InputInt("leaf threshold", &proposedLeafThreshold))
@@ -932,9 +959,17 @@ int main()
             changed = true;
         }
 
-        changed = drawDoubleSliderInput("dx", proposed.pose.tx, -scene.translationRange, scene.translationRange, 0.001) || changed;
-        changed = drawDoubleSliderInput("dy", proposed.pose.ty, -scene.translationRange, scene.translationRange, 0.001) || changed;
-        changed = drawDoubleSliderInput("dz", proposed.pose.tz, -scene.translationRange, scene.translationRange, 0.001) || changed;
+        changed = drawDoubleSliderInput(
+                      "tool scale",
+                      proposed.pose.scale,
+                      kToolScaleMin,
+                      kToolScaleMax,
+                      0.01,
+                      "%.4f",
+                      ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic) || changed;
+        changed = drawDoubleSliderInput("dx", proposed.pose.tx, -translationRange, translationRange, 0.001) || changed;
+        changed = drawDoubleSliderInput("dy", proposed.pose.ty, -translationRange, translationRange, 0.001) || changed;
+        changed = drawDoubleSliderInput("dz", proposed.pose.tz, -translationRange, translationRange, 0.001) || changed;
         changed = drawDoubleSliderInput("rx", proposed.pose.rx, kRotationMinDegrees, kRotationMaxDegrees, 0.01) || changed;
         changed = drawDoubleSliderInput("ry", proposed.pose.ry, kRotationMinDegrees, kRotationMaxDegrees, 0.01) || changed;
         changed = drawDoubleSliderInput("rz", proposed.pose.rz, kRotationMinDegrees, kRotationMaxDegrees, 0.01) || changed;
@@ -948,24 +983,31 @@ int main()
         changed = drawOffsetPresetButton("Center", proposed.pose, Eigen::Vector3d::Zero()) || changed;
 
         ImGui::Text("AABB touch presets");
-        changed = drawOffsetPresetButton("X min", proposed.pose, Eigen::Vector3d(-scene.touchOffsets.x(), 0.0, 0.0)) || changed;
+        changed = drawOffsetPresetButton("X min", proposed.pose, Eigen::Vector3d(-touchOffsets.x(), 0.0, 0.0)) || changed;
         ImGui::SameLine();
-        changed = drawOffsetPresetButton("X max", proposed.pose, Eigen::Vector3d(scene.touchOffsets.x(), 0.0, 0.0)) || changed;
+        changed = drawOffsetPresetButton("X max", proposed.pose, Eigen::Vector3d(touchOffsets.x(), 0.0, 0.0)) || changed;
         ImGui::SameLine();
-        changed = drawOffsetPresetButton("Y min", proposed.pose, Eigen::Vector3d(0.0, -scene.touchOffsets.y(), 0.0)) || changed;
+        changed = drawOffsetPresetButton("Y min", proposed.pose, Eigen::Vector3d(0.0, -touchOffsets.y(), 0.0)) || changed;
         ImGui::SameLine();
-        changed = drawOffsetPresetButton("Y max", proposed.pose, Eigen::Vector3d(0.0, scene.touchOffsets.y(), 0.0)) || changed;
-        changed = drawOffsetPresetButton("Z min", proposed.pose, Eigen::Vector3d(0.0, 0.0, -scene.touchOffsets.z())) || changed;
+        changed = drawOffsetPresetButton("Y max", proposed.pose, Eigen::Vector3d(0.0, touchOffsets.y(), 0.0)) || changed;
+        changed = drawOffsetPresetButton("Z min", proposed.pose, Eigen::Vector3d(0.0, 0.0, -touchOffsets.z())) || changed;
         ImGui::SameLine();
-        changed = drawOffsetPresetButton("Z max", proposed.pose, Eigen::Vector3d(0.0, 0.0, scene.touchOffsets.z())) || changed;
+        changed = drawOffsetPresetButton("Z max", proposed.pose, Eigen::Vector3d(0.0, 0.0, touchOffsets.z())) || changed;
 
         if (changed)
         {
             ui = proposed;
             ui.previewDirty = true;
             ui.resultStale = true;
+            ui.solveRequested = ui.continuousSolve;
             ui.lastError.clear();
             ui.stats = ResultStats();
+        }
+        else if (solveModeChanged)
+        {
+            ui.continuousSolve = proposed.continuousSolve;
+            if (ui.continuousSolve && ui.resultStale)
+                ui.solveRequested = true;
         }
 
         if (ImGui::Button("Run Boolean"))
@@ -973,11 +1015,17 @@ int main()
             ui.solveRequested = true;
         }
         ImGui::SameLine();
-        ImGui::TextUnformatted(ui.resultStale ? "result stale" : "result current");
+        ImGui::Text(
+            "%s | %s",
+            ui.resultStale ? "result stale" : "result current",
+            ui.continuousSolve ? "continuous" : "manual");
 
-        if (ui.engine == EngineKind::Ember && ui.resultStale)
+        if (ui.resultStale)
         {
-            ImGui::TextWrapped("移动和参数修改只更新刀具预览；点击 Run Boolean 后再执行求解。");
+            ImGui::TextWrapped(
+                ui.continuousSolve
+                    ? "移动和参数修改会自动重新求解。"
+                    : "移动和参数修改只更新刀具预览；点击 Run Boolean 后再执行求解。");
         }
 
         ImGui::Separator();
