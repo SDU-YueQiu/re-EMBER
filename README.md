@@ -35,6 +35,16 @@ ctest --test-dir build -C Debug --output-on-failure --timeout 60
 cmake --build build --config Debug --target re-EMBER
 ```
 
+如果使用 MSVC，现在可以通过 `REEMBER_MSVC_ARCH` 显式控制 `/arch` 档位：
+
+```powershell
+cmake -S . -B build -DREEMBER_MSVC_ARCH=AUTO
+cmake -S . -B build -DREEMBER_MSVC_ARCH=AVX2
+cmake -S . -B build -DREEMBER_MSVC_ARCH=OFF
+```
+
+可选值为 `AUTO`、`OFF`、`SSE2`、`SSE4.2`、`AVX`、`AVX2`、`AVX512`、`AVX10.1`、`AVX10.2`。`AUTO` 会在当前构建机上同时检测“编译器是否接受该 `/arch` 开关”和“当前 CPU/OS 运行时是否支持该 ISA”，然后自动选择最高可用档位；在不支持请求 ISA 的机器上，显式指定更高档位会直接配置失败。
+
 Tracy 性能插桩是编译期可选项，默认关闭；普通 Debug/Release/RelWithDebInfo 构建不会包含 Tracy 头、链接库或 profiler 线程。性能脚本会按输入参数自动选择专用 profiling 构建树：`build\profile_tracy\` 打开 `REEMBER_ENABLE_TRACY=ON`，`build\profile_tracy_math\` 额外打开 `REEMBER_ENABLE_TRACY_MATH=ON`，`build\profile_notracy\` 则保持两者都关闭，因此不会污染普通 `build\` 构建。
 
 基础 CLI smoke：
