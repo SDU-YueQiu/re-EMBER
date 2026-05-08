@@ -1283,14 +1283,11 @@ function New-TimingRow {
         single_operand_leaf_bsp_skip_count = [math]::Round((Get-Metric $metrics "single_operand_leaf_bsp_skip_count"), 0)
         single_operand_classification_reuse_count = [math]::Round((Get-Metric $metrics "single_operand_classification_reuse_count"), 0)
         leaf_bsp_build_count = [math]::Round((Get-Metric $metrics "leaf_bsp_build_count"), 0)
-        leaf_classification_point_candidate_count = [math]::Round((Get-Metric $metrics "leaf_classification_point_candidate_count"), 0)
-        leaf_classification_primary_point_candidate_count = [math]::Round((Get-Metric $metrics "leaf_classification_primary_point_candidate_count"), 0)
-        leaf_classification_expanded_point_candidate_count = [math]::Round((Get-Metric $metrics "leaf_classification_expanded_point_candidate_count"), 0)
+        leaf_classification_centroid_point_count = [math]::Round((Get-Metric $metrics "leaf_classification_centroid_point_count"), 0)
+        leaf_classification_inset_point_attempt_count = [math]::Round((Get-Metric $metrics "leaf_classification_inset_point_attempt_count"), 0)
         leaf_classification_trace_attempt_count = [math]::Round((Get-Metric $metrics "leaf_classification_trace_attempt_count"), 0)
-        leaf_classification_fast_candidate_count = [math]::Round((Get-Metric $metrics "leaf_classification_fast_candidate_count"), 0)
-        leaf_classification_fallback_candidate_count = [math]::Round((Get-Metric $metrics "leaf_classification_fallback_candidate_count"), 0)
-        leaf_classification_normal_candidate_count = [math]::Round((Get-Metric $metrics "leaf_classification_normal_candidate_count"), 0)
-        leaf_classification_interior_bridge_candidate_count = [math]::Round((Get-Metric $metrics "leaf_classification_interior_bridge_candidate_count"), 0)
+        leaf_classification_axis_path_attempt_count = [math]::Round((Get-Metric $metrics "leaf_classification_axis_path_attempt_count"), 0)
+        leaf_classification_plane_replacement_path_attempt_count = [math]::Round((Get-Metric $metrics "leaf_classification_plane_replacement_path_attempt_count"), 0)
         exit_code = $Result.ExitCode
         lhs_faces = $Workload.LhsFaces
         rhs_faces = $Workload.RhsFaces
@@ -1670,7 +1667,8 @@ function Write-Reports {
             avg_export_ms = Measure-AverageProperty $rows "export_ms"
             avg_nodes = Measure-AverageProperty $rows "node_count"
             avg_leaves = Measure-AverageProperty $rows "leaf_node_count"
-            avg_leaf_points = Measure-AverageProperty $rows "leaf_classification_point_candidate_count"
+            avg_centroid_points = Measure-AverageProperty $rows "leaf_classification_centroid_point_count"
+            avg_inset_point_attempts = Measure-AverageProperty $rows "leaf_classification_inset_point_attempt_count"
             avg_leaf_traces = Measure-AverageProperty $rows "leaf_classification_trace_attempt_count"
             avg_child_ref_candidates = Measure-AverageProperty $rows "child_reference_candidate_count"
             avg_results = Measure-AverageProperty $rows "result_fragment_count"
@@ -1687,7 +1685,8 @@ function Write-Reports {
         "avg_export_ms",
         "avg_nodes",
         "avg_leaves",
-        "avg_leaf_points",
+        "avg_centroid_points",
+        "avg_inset_point_attempts",
         "avg_leaf_traces",
         "avg_child_ref_candidates",
         "avg_results"
@@ -1751,14 +1750,11 @@ function Write-Reports {
         $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "child_reference_fast_candidate_tried" "child_reference_fast_candidate_tried_count" @("SubdivisionSolver::childReferenceFastCandidateTrace")))
         $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "child_reference_exhaustive_candidate_tried" "child_reference_exhaustive_candidate_tried_count" @("SubdivisionSolver::childReferenceExhaustiveCandidateTrace")))
         $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "child_reference_trace_success" "child_reference_trace_count" @("SubdivisionSolver::childReferenceTraceSuccess")))
-        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_point_candidate" "leaf_classification_point_candidate_count" @("LeafClassification::primaryPointCandidate", "LeafClassification::expandedPointCandidate")))
-        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_primary_point_candidate" "leaf_classification_primary_point_candidate_count" @("LeafClassification::primaryPointCandidate")))
-        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_expanded_point_candidate" "leaf_classification_expanded_point_candidate_count" @("LeafClassification::expandedPointCandidate")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_centroid_point" "leaf_classification_centroid_point_count" @("LeafClassification::centroidPoint")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_inset_point_attempt" "leaf_classification_inset_point_attempt_count" @("LeafClassification::insetPointAttempt")))
         $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_trace_attempt" "leaf_classification_trace_attempt_count" @("LeafClassification::traceCandidate")))
-        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_fast_candidate" "leaf_classification_fast_candidate_count" @("LeafClassification::fastCandidate")))
-        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_fallback_candidate" "leaf_classification_fallback_candidate_count" @("LeafClassification::fallbackCandidate")))
-        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_normal_candidate" "leaf_classification_normal_candidate_count" @("LeafClassification::normalCandidate")))
-        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_interior_bridge_candidate" "leaf_classification_interior_bridge_candidate_count" @("LeafClassification::interiorBridgeCandidate")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_axis_path_attempt" "leaf_classification_axis_path_attempt_count" @("LeafClassification::axisPathCandidate")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_plane_replacement_path_attempt" "leaf_classification_plane_replacement_path_attempt_count" @("LeafClassification::planeReplacementPathCandidate")))
 
         Add-MarkdownTable -Lines $reportLines -Headers @("item", "metric_count", "zone_count", "status", "inclusive_ms", "self_ms", "zone_name") -Rows ($strategyRows.ToArray())
 
@@ -1835,7 +1831,8 @@ function Write-Reports {
         $summaryLines.Add(("  avg_solve_ms={0}" -f $row.avg_solve_ms))
         $summaryLines.Add(("  avg_export_ms={0}" -f $row.avg_export_ms))
         $summaryLines.Add(("  avg_nodes={0}" -f $row.avg_nodes))
-        $summaryLines.Add(("  avg_leaf_points={0}" -f $row.avg_leaf_points))
+        $summaryLines.Add(("  avg_centroid_points={0}" -f $row.avg_centroid_points))
+        $summaryLines.Add(("  avg_inset_point_attempts={0}" -f $row.avg_inset_point_attempts))
         $summaryLines.Add(("  avg_leaf_traces={0}" -f $row.avg_leaf_traces))
     }
     foreach ($unwrapExport in ($UnwrapExports | Sort-Object workload, iteration, zone_filter)) {
