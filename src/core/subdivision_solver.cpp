@@ -922,8 +922,6 @@ void SubdivisionSolver::finalizeNodeMetrics(bool isLeafNode) noexcept
 
 void SubdivisionSolver::finalizeLeafNode()
 {
-    leafFragmentCount_ = leafFragments_.size();
-    classifiedFragmentCount_ = classifiedFragments_.size();
     leafSummaries_.clear();
     if (!discarded_)
         leafSummaries_.push_back(BoolLeafSummary{depth_, polygonCount_, aabb_, false});
