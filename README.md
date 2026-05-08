@@ -100,7 +100,7 @@ cmake --build build --config Debug --target visual-test
 build\Debug\visual-test.exe
 ```
 
-当前 visual-test 默认读取 `assets\visual_test\workpiece_block.obj` 和 `assets\visual_test\tool_box.obj`。这套 UI 现在按当前两模型的 AABB 自动对齐中心，再把 `dx/dy/dz` 解释为相对偏移，因此像 `classic_fandisk` 这类原始坐标远离原点的模型也能直接拖回到可相交范围。`tool scale` 会围绕刀具自身 AABB 中心做统一缩放，适合在不同尺寸模型之间快速调到更容易观察和比较的比例。
+当前 visual-test 默认按 stem 查找 `assets\visual_test\workpiece_block` 和 `assets\visual_test\tool_box`，后缀接受 `.obj` 或 `.stl`，并优先命中 `.obj`。这套 UI 现在按当前两模型的 AABB 自动对齐中心，再把 `dx/dy/dz` 解释为相对偏移，因此像 `classic_fandisk` 这类原始坐标远离原点的模型也能直接拖回到可相交范围。`tool scale` 会围绕刀具自身 AABB 中心做统一缩放，适合在不同尺寸模型之间快速调到更容易观察和比较的比例。
 
 交互规则也改成了“两阶段”，并保留可切换的连续求解：
 
