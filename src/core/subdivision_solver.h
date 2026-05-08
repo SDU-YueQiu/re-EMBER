@@ -144,6 +144,11 @@ private:
     void solveChildSubtrees();
 
     /**
+     * @brief 判断当前两个 child 是否值得进入并行 sibling 路径。
+     */
+    bool shouldSpawnParallelSiblingTask() const noexcept;
+
+    /**
      * @brief 为当前叶子节点构建局部 BSP 编排，必要时按共享单操作数策略跳过。
      */
     void solveLeafArrangement();
