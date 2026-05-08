@@ -314,17 +314,20 @@ flowchart TD
 ```mermaid
 flowchart TD
     A["classifyLeafFragment()"] --> B["重心启发式生成 0/1 个目标点"]
-    B --> C["固定 X->Y->Z 坐标轴路径尝试"]
+    B --> C["坐标轴路径候选校验/去重/局部修复"]
     C --> D{"已成功?"}
     D -->|是| E["返回 Success"]
     D -->|否| F["固定 seed=42 的随机 inset 构点"]
-    F --> G["换平面路径排列尝试"]
+    F --> G["换平面路径候选校验/去重/局部修复"]
     G --> H{"已成功?"}
     H -->|是| E
-    H -->|否| J["返回 Failure"]
+    H -->|否| I["AABB 内桥接 rescue"]
+    I --> K{"已成功?"}
+    K -->|是| E
+    K -->|否| J["返回 Failure"]
 ```
 
-当前实现不会因为 `PATH_INVALID` 回退到递归细分；无论是普通叶节点还是入口单操作数快路径，一旦叶分类穷尽候选仍失败，就按叶节点失败处理。
+当前实现不会因为 `PATH_INVALID` 回退到递归细分；无论是普通叶节点还是入口单操作数快路径，一旦叶分类穷尽候选仍失败，就按叶节点失败处理。候选进入 trace 前会先验证路径非空、从局部参考点连续连接、终点落在待分类片段支撑平面上；不满足这些结构条件时只在当前候选上尝试局部重建，不把 `INPUT_INVALID` 当成普通 `PATH_INVALID` 推动全局穷举。
 
 ### 8.2 目标点与路径候选来源
 
@@ -337,6 +340,8 @@ flowchart TD
 
 - `axis-aligned path`：对 centroid heuristic 命中的目标点按固定 `X -> Y -> Z` 次序构造 1 到 3 段坐标轴路径。
 - `plane-replacement path`：对 inset fallback 命中的目标点枚举定义平面与替换顺序，构造论文式 1 到 3 段换平面路径。
+- `bridge rescue`：当直接路径候选都不可用时，先桥接到 AABB 内部参考点，再对同一批目标点尝试 axis / plane-replacement 路径。
+- 候选诊断字段包括 `leafClassificationCandidateGeneratedCount`、`leafClassificationCandidateUniqueCount`、`leafClassificationCandidateDuplicateSkipCount`、`leafClassificationCandidateRejectedCount`、`leafClassificationCandidateRepairAttemptCount` 和 `leafClassificationCandidateRepairSuccessCount`；trace 状态按 `CentroidAxis`、`InsetReplacement`、`BridgeRescue` 三个阶段分别统计。
 
 ## 9. 结果筛选与朝向
 
@@ -374,6 +379,7 @@ flowchart TD
 - 细分类：`wntvAwareSplitCount`、`centerRangeSplitCount`、`midpointSplitCount`
 - 并行类：`parallelSiblingSpawnCount`
 - 子参考传播类：`childReferenceReuseCount`、`childReferenceTraceCount`、`childReferenceCandidateCount`
-- 叶片分类类：`leafFragmentCount`、`classifiedFragmentCount`、`leafClassificationTraceAttemptCount`
+- 叶片分类类：`leafFragmentCount`、`classifiedFragmentCount`、`leafClassificationTraceAttemptCount`、`leafClassificationCandidateGeneratedCount`、`leafClassificationCandidateUniqueCount`
+- 叶片分类状态类：`leafClassificationCentroidAxis*Count`、`leafClassificationInsetReplacement*Count`、`leafClassificationBridgeRescue*Count`
 - 早停/剪枝类：`constantDiscardCount`、`singleOperandAssumptionStopCount`、`singleOperandAssumptionFallbackCount`
   其中 `singleOperandAssumptionFallbackCount` 为兼容保留字段，当前实现应保持为 `0`。
