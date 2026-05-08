@@ -1,3 +1,11 @@
-pair_id,stratum,operation,lhs_path,rhs_path,lhs_obj_vertices,lhs_obj_faces,rhs_obj_vertices,rhs_obj_faces,oracle_status,oracle_result_faces,current_failure_category
-small_001_1291011_minus_153368,small,difference,inputs/small/small_001_1291011_minus_153368/lhs.obj,inputs/small/small_001_1291011_minus_153368/rhs.obj,548,1100,676,1352,success,2402,bsp_or_overlap_interior_point
-small_026_996810_minus_1582439,small,difference,inputs/small/small_026_996810_minus_1582439/lhs.obj,inputs/small/small_026_996810_minus_1582439/rhs.obj,2311,4622,730,1488,success,4734,leaf_classification
+pair_id,stratum,operation,lhs_path,rhs_path,lhs_obj_vertices,lhs_obj_faces,rhs_obj_vertices,rhs_obj_faces,oracle_status,oracle_result_faces,current_status,current_failure_category
+small_001_1291011_minus_153368,small,difference,inputs/small/small_001_1291011_minus_153368/lhs.obj,inputs/small/small_001_1291011_minus_153368/rhs.obj,548,1100,676,1352,success,2402,failure,bsp_or_overlap_interior_point
+small_002_567033_minus_77949,small,difference,inputs/small/small_002_567033_minus_77949/lhs.obj,inputs/small/small_002_567033_minus_77949/rhs.obj,512,1032,718,1432,success,1546,failure,bsp_or_overlap_interior_point
+small_003_702407_minus_81309,small,difference,inputs/small/small_003_702407_minus_81309/lhs.obj,inputs/small/small_003_702407_minus_81309/rhs.obj,874,1752,1970,3944,success,1752,success,success
+small_004_76206_minus_62571,small,difference,inputs/small/small_004_76206_minus_62571/lhs.obj,inputs/small/small_004_76206_minus_62571/rhs.obj,616,1252,847,1690,success,1926,failure,bsp_or_overlap_interior_point
+small_005_702390_minus_472032,small,difference,inputs/small/small_005_702390_minus_472032/lhs.obj,inputs/small/small_005_702390_minus_472032/rhs.obj,1710,3424,1458,2924,success,4444,failure,bsp_or_overlap_interior_point
+small_006_98765_minus_1514496,small,difference,inputs/small/small_006_98765_minus_1514496/lhs.obj,inputs/small/small_006_98765_minus_1514496/rhs.obj,2031,4058,1684,3508,success,4502,failure,bsp_or_overlap_interior_point
+small_007_702398_minus_118675,small,difference,inputs/small/small_007_702398_minus_118675/lhs.obj,inputs/small/small_007_702398_minus_118675/rhs.obj,2069,4186,672,1360,success,4990,failure,bsp_or_overlap_interior_point
+small_008_45512_minus_84023,small,difference,inputs/small/small_008_45512_minus_84023/lhs.obj,inputs/small/small_008_45512_minus_84023/rhs.obj,1958,3916,1312,2664,success,5660,failure,bsp_or_overlap_interior_point
+small_009_48418_minus_269121,small,difference,inputs/small/small_009_48418_minus_269121/lhs.obj,inputs/small/small_009_48418_minus_269121/rhs.obj,1156,2332,608,1224,success,3516,failure,bsp_or_overlap_interior_point
+small_010_1614064_minus_129914,small,difference,inputs/small/small_010_1614064_minus_129914/lhs.obj,inputs/small/small_010_1614064_minus_129914/rhs.obj,1459,2922,1763,3522,success,3914,failure,bsp_or_overlap_interior_point
