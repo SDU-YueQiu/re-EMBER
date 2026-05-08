@@ -9,7 +9,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <iterator>
+#include <random>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -304,7 +307,7 @@ inline bool canScalePlaneWithinInsetHeadroom(const Plane3i &plane, const Integer
     if (scale <= 0)
         return false;
 
-    const Integer coefficientLimit = Integer(1) << 70;
+    const Integer coefficientLimit = Integer(1) << 80;
     return absInteger(plane.a) <= coefficientLimit / scale &&
            absInteger(plane.b) <= coefficientLimit / scale &&
            absInteger(plane.c) <= coefficientLimit / scale &&
@@ -336,8 +339,99 @@ inline PlanePoint3i makePointFromHomogeneousCoordinates(const HomPoint4i &point)
                primitivePlane(Plane3i(0, 0, point.w, -point.z)));
 }
 
+struct Vec3d
+{
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+};
+
+inline Vec3d operator-(const Vec3d &lhs, const Vec3d &rhs) noexcept
+{
+    return Vec3d{lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z};
+}
+
+inline Vec3d operator+(const Vec3d &lhs, const Vec3d &rhs) noexcept
+{
+    return Vec3d{lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z};
+}
+
+inline Vec3d operator*(const Vec3d &value, double scale) noexcept
+{
+    return Vec3d{value.x * scale, value.y * scale, value.z * scale};
+}
+
+inline Vec3d &operator+=(Vec3d &lhs, const Vec3d &rhs) noexcept
+{
+    lhs.x += rhs.x;
+    lhs.y += rhs.y;
+    lhs.z += rhs.z;
+    return lhs;
+}
+
+inline Vec3d cross(const Vec3d &lhs, const Vec3d &rhs) noexcept
+{
+    return Vec3d{
+        lhs.y * rhs.z - lhs.z * rhs.y,
+        lhs.z * rhs.x - lhs.x * rhs.z,
+        lhs.x * rhs.y - lhs.y * rhs.x};
+}
+
+inline double magnitude(const Vec3d &value) noexcept
+{
+    return std::sqrt(
+               value.x * value.x +
+               value.y * value.y +
+               value.z * value.z);
+}
+
+inline bool tryConvertPlanePointToEuclideanCoordinates(
+    const PlanePoint3i &point,
+    Vec3d &outPoint) noexcept
+{
+    if (!point.hasUniqueIntersection() || isZero(point.x.w))
+        return false;
+
+    outPoint.x = point.x.x.convert_to<double>() / point.x.w.convert_to<double>();
+    outPoint.y = point.x.y.convert_to<double>() / point.x.w.convert_to<double>();
+    outPoint.z = point.x.z.convert_to<double>() / point.x.w.convert_to<double>();
+    return std::isfinite(outPoint.x) &&
+           std::isfinite(outPoint.y) &&
+           std::isfinite(outPoint.z);
+}
+
+inline Integer roundNearestFloatingCoordinate(double value) noexcept
+{
+    return Integer(std::nearbyint(value));
+}
+
+inline std::string formatPlaneForDebug(const Plane3i &plane)
+{
+    return "(" +
+           integerToString(plane.a) + "," +
+           integerToString(plane.b) + "," +
+           integerToString(plane.c) + "," +
+           integerToString(plane.d) + ")";
+}
+
+inline std::string formatPlanePointForDebug(const PlanePoint3i &point)
+{
+    if (!point.hasUniqueIntersection())
+        return "invalid-point";
+
+    return "hom=(" +
+           integerToString(point.x.x) + "," +
+           integerToString(point.x.y) + "," +
+           integerToString(point.x.z) + "," +
+           integerToString(point.x.w) + ")" +
+           " planes=[" +
+           formatPlaneForDebug(point.p) + "," +
+           formatPlaneForDebug(point.q) + "," +
+           formatPlaneForDebug(point.r) + "]";
+}
+
 /**
- * @brief 以顶点坐标均值的整数舍入值近似论文中的浮点重心猜测。
+ * @brief 用普通浮点三角扇面积重心近似论文中的目标点猜测。
  */
 inline bool buildRoundedCentroidPoint(const Polygon256 &polygon, PlanePoint3i &outPoint)
 {
@@ -346,76 +440,91 @@ inline bool buildRoundedCentroidPoint(const Polygon256 &polygon, PlanePoint3i &o
     if (n < 3)
         return false;
 
-    Integer xSum = 0;
-    Integer ySum = 0;
-    Integer zSum = 0;
+    std::vector<Vec3d> euclideanVertices;
+    euclideanVertices.reserve(n);
     for (const PlanePoint3i &vertex : cachedVertices)
     {
-        if (!vertex.hasUniqueIntersection() || isZero(vertex.x.w))
+        Vec3d euclideanVertex;
+        if (!tryConvertPlanePointToEuclideanCoordinates(vertex, euclideanVertex))
             return false;
 
-        xSum += roundDivNearest(vertex.x.x, vertex.x.w);
-        ySum += roundDivNearest(vertex.x.y, vertex.x.w);
-        zSum += roundDivNearest(vertex.x.z, vertex.x.w);
+        euclideanVertices.push_back(euclideanVertex);
     }
 
-    const Integer count = Integer(static_cast<int>(n));
+    const Vec3d &base = euclideanVertices.front();
+    Vec3d weightedCentroid;
+    double totalWeight = 0.0;
+    for (std::size_t i = 1; i + 1 < euclideanVertices.size(); ++i)
+    {
+        const Vec3d edgeA = euclideanVertices[i] - base;
+        const Vec3d edgeB = euclideanVertices[i + 1] - base;
+        const double areaWeight = magnitude(cross(edgeA, edgeB));
+        if (!(areaWeight > 0.0) || !std::isfinite(areaWeight))
+            continue;
+
+        const Vec3d triangleCentroid{
+            (base.x + euclideanVertices[i].x + euclideanVertices[i + 1].x) / 3.0,
+            (base.y + euclideanVertices[i].y + euclideanVertices[i + 1].y) / 3.0,
+            (base.z + euclideanVertices[i].z + euclideanVertices[i + 1].z) / 3.0};
+        weightedCentroid += triangleCentroid * areaWeight;
+        totalWeight += areaWeight;
+    }
+
+    if (!(totalWeight > 0.0) || !std::isfinite(totalWeight))
+        return false;
+
+    const Vec3d centroid{
+        weightedCentroid.x / totalWeight,
+        weightedCentroid.y / totalWeight,
+        weightedCentroid.z / totalWeight};
+    if (!std::isfinite(centroid.x) ||
+            !std::isfinite(centroid.y) ||
+            !std::isfinite(centroid.z))
+        return false;
+
     outPoint = makeIntegerPoint(
-                   roundDivNearest(xSum, count),
-                   roundDivNearest(ySum, count),
-                   roundDivNearest(zSum, count));
+                   roundNearestFloatingCoordinate(centroid.x),
+                   roundNearestFloatingCoordinate(centroid.y),
+                   roundNearestFloatingCoordinate(centroid.z));
     return outPoint.hasUniqueIntersection();
 }
 
 /**
- * @brief 按论文第一启发式追加“重心舍入点 + 最不平行轴探测线”的内部点。
+ * @brief 按论文 4.4 的第一启发式生成一个严格内部分类点。
  */
-inline void appendCentroidProbeCandidates(const Polygon256 &polygon, std::vector<PlanePoint3i> &candidates)
+inline bool buildLeafClassificationCentroidTargetPoint(const Polygon256 &polygon, PlanePoint3i &outPoint)
 {
     PlanePoint3i centroid;
     if (!buildRoundedCentroidPoint(polygon, centroid))
-        return;
+        return false;
 
     const Plane3i centroidXPlane = makeCoordinatePlaneFromPoint(centroid, SplitAxis3i::X);
     const Plane3i centroidYPlane = makeCoordinatePlaneFromPoint(centroid, SplitAxis3i::Y);
     const Plane3i centroidZPlane = makeCoordinatePlaneFromPoint(centroid, SplitAxis3i::Z);
 
-    const Integer absNx = polygon.plane.a < 0 ? -polygon.plane.a : polygon.plane.a;
-    const Integer absNy = polygon.plane.b < 0 ? -polygon.plane.b : polygon.plane.b;
-    const Integer absNz = polygon.plane.c < 0 ? -polygon.plane.c : polygon.plane.c;
-
-    std::vector<std::pair<Integer, SplitAxis3i>> axisPriority = {
-        {absNx, SplitAxis3i::X},
-        {absNy, SplitAxis3i::Y},
-        {absNz, SplitAxis3i::Z}
-    };
-    std::stable_sort(
-        axisPriority.begin(),
-        axisPriority.end(),
-        [](const auto &lhs, const auto &rhs)
+    SplitAxis3i axis = SplitAxis3i::X;
+    Integer bestAxisMagnitude = absInteger(polygon.plane.a);
+    const Integer absNy = absInteger(polygon.plane.b);
+    const Integer absNz = absInteger(polygon.plane.c);
+    if (absNy > bestAxisMagnitude)
     {
-        return lhs.first > rhs.first;
-    });
-
-    for (const auto &[_, axis] : axisPriority)
-    {
-        PlanePoint3i candidate;
-        switch (axis)
-        {
-        case SplitAxis3i::X:
-            if (buildAxisProbeInteriorPoint(polygon, axis, centroidYPlane, centroidZPlane, candidate))
-                appendUniqueStrictInteriorPoint(candidates, polygon, candidate);
-            break;
-        case SplitAxis3i::Y:
-            if (buildAxisProbeInteriorPoint(polygon, axis, centroidXPlane, centroidZPlane, candidate))
-                appendUniqueStrictInteriorPoint(candidates, polygon, candidate);
-            break;
-        case SplitAxis3i::Z:
-            if (buildAxisProbeInteriorPoint(polygon, axis, centroidXPlane, centroidYPlane, candidate))
-                appendUniqueStrictInteriorPoint(candidates, polygon, candidate);
-            break;
-        }
+        axis = SplitAxis3i::Y;
+        bestAxisMagnitude = absNy;
     }
+    if (absNz > bestAxisMagnitude)
+        axis = SplitAxis3i::Z;
+
+    switch (axis)
+    {
+    case SplitAxis3i::X:
+        return buildAxisProbeInteriorPoint(polygon, axis, centroidYPlane, centroidZPlane, outPoint);
+    case SplitAxis3i::Y:
+        return buildAxisProbeInteriorPoint(polygon, axis, centroidXPlane, centroidZPlane, outPoint);
+    case SplitAxis3i::Z:
+        return buildAxisProbeInteriorPoint(polygon, axis, centroidXPlane, centroidYPlane, outPoint);
+    }
+
+    return false;
 }
 
 /**
@@ -532,45 +641,177 @@ inline void appendInsetCandidatesForEdge(
     }
 }
 
-inline void appendInsetInteriorPointCandidates(const Polygon256 &polygon, std::vector<PlanePoint3i> &candidates)
+inline bool tryBuildInsetPointCandidateAtVertex(
+    const Polygon256 &polygon,
+    const std::vector<PlanePoint3i> &vertices,
+    std::size_t vertexIndex,
+    const Integer &offsetA,
+    const Integer &offsetB,
+    PlanePoint3i &outPoint,
+    std::string *debugReason = nullptr)
 {
-    std::size_t maxTotalCandidates = 32;
-    const std::size_t n = polygon.edgePlanes.size();
-    if (n < 3)
-        return;
+    const std::size_t edgeCount = polygon.edgePlanes.size();
+    if (edgeCount < 3 || vertexIndex >= edgeCount)
+    {
+        if (debugReason != nullptr)
+            *debugReason = "invalid vertex index or edge count";
+        return false;
+    }
+
+    const std::size_t prevEdgeIndex = (vertexIndex == 0) ? (edgeCount - 1) : (vertexIndex - 1);
+    const std::size_t refIdxA = findInsetReferenceVertex(vertexIndex, edgeCount);
+    const std::size_t refIdxB = findInsetReferenceVertex(prevEdgeIndex, edgeCount);
+    if (refIdxA == edgeCount || refIdxB == edgeCount)
+    {
+        if (debugReason != nullptr)
+            *debugReason = "missing inset reference vertex";
+        return false;
+    }
+
+    constexpr int kInteriorSide = -1;
+    Integer scale = 1;
+    for (int scaleIter = 0; scaleIter < 40; ++scaleIter)
+    {
+        Plane3i scaledA;
+        Plane3i scaledB;
+        if (!buildScaledInsetEdgePlanes(polygon, vertexIndex, prevEdgeIndex, scale, scaledA, scaledB))
+        {
+            if (debugReason != nullptr)
+                *debugReason = "scale headroom exhausted at scale=" + integerToString(scale);
+            break;
+        }
+
+        Plane3i insetA = scaledA;
+        insetA.d -= Integer(kInteriorSide) * offsetA;
+        const int refASide = vertices[refIdxA].classify(insetA);
+        const int boundaryASide = vertices[vertexIndex].classify(insetA);
+        if (vertices[refIdxA].classify(insetA) != kInteriorSide ||
+                vertices[vertexIndex].classify(insetA) != 1)
+        {
+            if (debugReason != nullptr)
+            {
+                *debugReason = "scale=" + integerToString(scale) +
+                               " insetA rejected ref_side=" + std::to_string(refASide) +
+                               " boundary_side=" + std::to_string(boundaryASide);
+            }
+            scale += scale;
+            continue;
+        }
+
+        Plane3i insetB = scaledB;
+        insetB.d -= Integer(kInteriorSide) * offsetB;
+        const int refBSide = vertices[refIdxB].classify(insetB);
+        const int boundaryBSide = vertices[vertexIndex].classify(insetB);
+        const bool uniqueIntersection = hasUniqueIntersection(polygon.plane, insetA, insetB);
+        if (refBSide != kInteriorSide ||
+                boundaryBSide != 1 ||
+                !uniqueIntersection)
+        {
+            if (debugReason != nullptr)
+            {
+                *debugReason = "scale=" + integerToString(scale) +
+                               " insetB rejected ref_side=" + std::to_string(refBSide) +
+                               " boundary_side=" + std::to_string(boundaryBSide) +
+                               " unique_intersection=" + std::to_string(uniqueIntersection ? 1 : 0);
+            }
+            scale += scale;
+            continue;
+        }
+
+        const PlanePoint3i candidate(polygon.plane, insetA, insetB);
+        if (polygon.containsStrictly(candidate))
+        {
+            if (debugReason != nullptr)
+                *debugReason = "success scale=" + integerToString(scale) + " candidate=" + formatPlanePointForDebug(candidate);
+            outPoint = candidate;
+            return true;
+        }
+
+        if (debugReason != nullptr)
+            *debugReason = "scale=" + integerToString(scale) + " candidate not strict: " + formatPlanePointForDebug(candidate);
+
+        scale += scale;
+    }
+
+    return false;
+}
+
+struct LeafClassificationInsetPointSequence
+{
+    std::vector<PlanePoint3i> candidates;
+    std::size_t attemptCount = 0;
+    std::vector<std::string> debugLines;
+};
+
+/**
+ * @brief 按论文 4.4 的随机 inset 兜底顺序生成严格内部点。
+ */
+inline LeafClassificationInsetPointSequence enumerateLeafClassificationInsetPointCandidates(
+    const Polygon256 &polygon,
+    std::mt19937 &rng,
+    bool captureDebug = false)
+{
+    LeafClassificationInsetPointSequence result;
+    const std::size_t edgeCount = polygon.edgePlanes.size();
+    if (edgeCount < 3)
+        return result;
 
     std::vector<PlanePoint3i> vertices;
     if (!collectFinitePolygonVertices(polygon, vertices))
-        return;
+        return result;
 
-    const std::array<Integer, 4> offsets = {
-        Integer(1),
-        Integer(2),
-        Integer(4),
-        Integer(8)
-    };
+    result.candidates.reserve(edgeCount);
+    if (captureDebug)
+        result.debugLines.reserve(edgeCount * 3u);
+    std::vector<std::size_t> vertexOrder(edgeCount);
+    for (std::size_t i = 0; i < edgeCount; ++i)
+        vertexOrder[i] = i;
+    std::shuffle(vertexOrder.begin(), vertexOrder.end(), rng);
 
-    Integer scale = 1;
-    for (int scaleIter = 0; scaleIter < 40 && candidates.size() < maxTotalCandidates; ++scaleIter)
+    auto tryAppendCandidate =
+        [&](std::size_t vertexIndex, const Integer &offsetA, const Integer &offsetB)
     {
-        bool anyEdgeWithinHeadroom = false;
-        for (std::size_t i = 0; i < n; ++i)
+        REEMBER_PROFILE_ZONE("LeafClassification::insetPointAttempt");
+        ++result.attemptCount;
+
+        PlanePoint3i candidate;
+        std::string reason;
+        std::string *reasonSink = captureDebug ? &reason : nullptr;
+        if (tryBuildInsetPointCandidateAtVertex(
+                    polygon,
+                    vertices,
+                    vertexIndex,
+                    offsetA,
+                    offsetB,
+                    candidate,
+                    reasonSink))
         {
-            appendInsetCandidatesForEdge(
-                polygon,
-                vertices,
-                i,
-                scale,
-                offsets,
-                candidates,
-                maxTotalCandidates,
-                anyEdgeWithinHeadroom);
+            appendUniqueStrictInteriorPoint(result.candidates, polygon, candidate);
         }
 
-        if (!anyEdgeWithinHeadroom)
-            break;
-        scale += scale;
+        if (captureDebug)
+        {
+            result.debugLines.push_back(
+                "vertex=" + std::to_string(vertexIndex) +
+                " offsets=(" + integerToString(offsetA) + "," + integerToString(offsetB) + ")" +
+                " -> " + reason);
+        }
+    };
+
+    for (const std::size_t vertexIndex : vertexOrder)
+        tryAppendCandidate(vertexIndex, Integer(1), Integer(1));
+
+    std::uniform_int_distribution<std::size_t> vertexDist(0u, edgeCount - 1u);
+    std::uniform_int_distribution<int> offsetDist(1, 8);
+    for (std::size_t retry = 0; retry < edgeCount * 2u; ++retry)
+    {
+        tryAppendCandidate(
+            vertexDist(rng),
+            Integer(offsetDist(rng)),
+            Integer(offsetDist(rng)));
     }
+
+    return result;
 }
 
 /**
@@ -1513,40 +1754,6 @@ inline bool buildPlaneReplacementPath(
                planeReplacementCount,
                outPath);
 }
-
-/**
- * @brief 生成优先尝试的低成本叶子分类点候选。
- *
- * @pre `polygon` 已由阶段入口完成 `isValid()` 校验。
- */
-inline std::vector<PlanePoint3i> enumerateLeafClassificationPrimaryPointCandidatesUnchecked(const Polygon256 &polygon)
-{
-    std::vector<PlanePoint3i> candidates;
-    appendCentroidProbeCandidates(polygon, candidates);
-
-    PlanePoint3i fallbackPoint;
-    if (polygon.findStrictInteriorPoint(fallbackPoint))
-        appendUniqueStrictInteriorPoint(candidates, polygon, fallbackPoint);
-
-    return candidates;
-}
-
-/**
- * @brief 在已验证多边形上生成严格内部分类点候选。
- *
- * @pre `polygon` 已由阶段入口完成 `isValid()` 校验。
- */
-inline std::vector<PlanePoint3i> enumerateLeafClassificationPointCandidatesUnchecked(const Polygon256 &polygon)
-{
-    std::vector<PlanePoint3i> candidates = enumerateLeafClassificationPrimaryPointCandidatesUnchecked(polygon);
-    appendInsetInteriorPointCandidates(polygon, candidates);
-    if (candidates.empty())
-        appendHomogeneousVertexAverageInteriorPointCandidate(polygon, candidates);
-    if (candidates.empty())
-        appendEqualizedEdgeInteriorPointCandidates(polygon, candidates);
-
-    return candidates;
-}
 
 }
 }

@@ -502,230 +502,155 @@ inline std::size_t visitExhaustiveAABBPathCandidateSeeds(
 }
 
 /**
- * @brief 枚举以目标片段支撑平面法向作为最后一段的分类路径候选。
+ * @brief 枚举论文 4.4 第一阶段的 axis-aligned 分类路径。
  *
  * @tparam CandidateVisitor 接收 `LeafClassificationPathCandidate` 的回调；返回 `false` 表示停止枚举。
- * @param[in] referencePoint 当前叶子子问题的局部参考点。
- * @param[in] targetPoints 已生成的叶子多边形严格内部点。
- * @param[in] surfacePlane 待分类片段的支撑平面。
- * @param[in] box 当前叶子子问题的 AABB。
- * @param[in,out] visitor 候选路径访问器。
- * @return 实际枚举出的候选路径数量。
  */
 template <typename CandidateVisitor>
-inline std::size_t enumerateLeafClassificationNormalApproachCandidatesFromPoints(
+inline std::size_t enumerateLeafClassificationAxisPathCandidatesFromPoints(
     const PlanePoint3i &referencePoint,
     const std::vector<PlanePoint3i> &targetPoints,
-    const Plane3i &surfacePlane,
     const AABB3i &box,
     CandidateVisitor &&visitor)
 {
-    REEMBER_PROFILE_ZONE("enumerateLeafClassificationNormalApproachCandidatesFromPoints");
+    REEMBER_PROFILE_ZONE("enumerateLeafClassificationAxisPathCandidatesFromPoints");
 
     std::size_t emitted = 0;
     if (!referencePoint.hasUniqueIntersection() || !isValidAABB(box))
         return emitted;
 
-    std::array<int, 10> offsets = {1, -1, 2, -2, 4, -4, 8, -8, 16, -16};
-    const std::vector<PlanePoint3i> bridgePoints =
-        detail::enumerateAABBInteriorBridgePoints(referencePoint, box);
     for (const PlanePoint3i &targetPoint : targetPoints)
     {
-        for (const int offset : offsets)
-        {
-            std::vector<Segment256> path;
-            if (!detail::buildNormalApproachPath(
-                        referencePoint,
-                        targetPoint,
-                        surfacePlane,
-                        box,
-                        Integer(offset),
-                        path))
-                continue;
+        std::vector<SplitAxis3i> axisOrder;
+        axisOrder.reserve(3);
+        const Plane3i referenceXPlane = detail::makeCoordinatePlaneFromPoint(referencePoint, SplitAxis3i::X);
+        const Plane3i referenceYPlane = detail::makeCoordinatePlaneFromPoint(referencePoint, SplitAxis3i::Y);
+        const Plane3i referenceZPlane = detail::makeCoordinatePlaneFromPoint(referencePoint, SplitAxis3i::Z);
+        const Plane3i targetXPlane = detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::X);
+        const Plane3i targetYPlane = detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Y);
+        const Plane3i targetZPlane = detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Z);
+        if (!detail::areSamePlaneEquation(referenceXPlane, targetXPlane))
+            axisOrder.push_back(SplitAxis3i::X);
+        if (!detail::areSamePlaneEquation(referenceYPlane, targetYPlane))
+            axisOrder.push_back(SplitAxis3i::Y);
+        if (!detail::areSamePlaneEquation(referenceZPlane, targetZPlane))
+            axisOrder.push_back(SplitAxis3i::Z);
+        if (axisOrder.empty())
+            continue;
 
-            ++emitted;
-            if (!visitor(LeafClassificationPathCandidate{targetPoint, std::move(path)}))
-            {
-                return emitted;
-            }
+        std::vector<Segment256> path;
+        if (!detail::buildAxisAlignedCoordinatePath(referencePoint, targetPoint, box, axisOrder, path))
+            continue;
 
-            for (const PlanePoint3i &bridgePoint : bridgePoints)
-            {
-                std::vector<Segment256> detourPath;
-                if (!detail::buildNormalApproachPathViaBridgePoint(
-                            referencePoint,
-                            bridgePoint,
-                            targetPoint,
-                            surfacePlane,
-                            box,
-                            Integer(offset),
-                            detourPath))
-                    continue;
-
-                ++emitted;
-                if (!visitor(LeafClassificationPathCandidate{targetPoint, std::move(detourPath)}))
-                {
-                    return emitted;
-                }
-            }
-        }
+        ++emitted;
+        if (!visitor(LeafClassificationPathCandidate{targetPoint, std::move(path)}))
+            return emitted;
     }
 
     return emitted;
 }
 
 /**
- * @brief 枚举快速分类路径候选，并逐个交给调用方处理。
+ * @brief 枚举论文 4.4 第二阶段的换平面分类路径。
  *
  * @tparam CandidateVisitor 接收 `LeafClassificationPathCandidate` 的回调；返回 `false` 表示停止枚举。
- * @param[in] referencePoint 当前叶子子问题的局部参考点。
- * @param[in] targetPoints 已生成的叶子多边形严格内部点。
- * @param[in] box 当前叶子子问题的 AABB。
- * @param[in,out] visitor 候选路径访问器。
- * @return 实际枚举出的候选路径数量。
- *
- * @pre `targetPoints` 已由叶子分类点生成阶段保证为严格内部点。
  */
 template <typename CandidateVisitor>
-inline std::size_t enumerateLeafClassificationFastPathCandidatesFromPoints(
+inline std::size_t enumerateLeafClassificationPlaneReplacementPathCandidatesFromPoints(
     const PlanePoint3i &referencePoint,
     const std::vector<PlanePoint3i> &targetPoints,
     const AABB3i &box,
     CandidateVisitor &&visitor)
 {
-    REEMBER_PROFILE_ZONE("enumerateLeafClassificationFastPathCandidatesFromPoints");
+    REEMBER_PROFILE_ZONE("enumerateLeafClassificationPlaneReplacementPathCandidatesFromPoints");
 
     std::size_t emitted = 0;
     if (!referencePoint.hasUniqueIntersection() || !isValidAABB(box))
         return emitted;
 
-    Integer referenceX = 0;
-    Integer referenceY = 0;
-    Integer referenceZ = 0;
-    const bool hasExactReferencePoint =
-        detail::tryExtractExactIntegerPoint(referencePoint, referenceX, referenceY, referenceZ);
     for (const PlanePoint3i &targetPoint : targetPoints)
     {
-        REEMBER_PROFILE_ZONE("enumerateLeafClassificationFastPathCandidatesFromPoints::targetPoint");
-
-        auto emitCandidate =
-            [&](std::vector<Segment256> path) -> bool
-        {
-            ++emitted;
-            return visitor(LeafClassificationPathCandidate{targetPoint, std::move(path)});
-        };
-
-        Integer targetX, targetY, targetZ;
-        if (hasExactReferencePoint &&
-                detail::tryExtractExactIntegerPoint(targetPoint, targetX, targetY, targetZ))
-        {
-            REEMBER_PROFILE_ZONE("enumerateLeafClassificationFastPathCandidatesFromPoints::axisAligned");
-            std::array<SplitAxis3i, 3> changedAxes = {};
-            std::size_t axisCount = 0;
-            if (referenceX != targetX)
-                changedAxes[axisCount++] = SplitAxis3i::X;
-            if (referenceY != targetY)
-                changedAxes[axisCount++] = SplitAxis3i::Y;
-            if (referenceZ != targetZ)
-                changedAxes[axisCount++] = SplitAxis3i::Z;
-
-            std::sort(
-                changedAxes.begin(),
-                changedAxes.begin() + static_cast<std::ptrdiff_t>(axisCount),
-                [](SplitAxis3i lhs, SplitAxis3i rhs)
-            {
-                return detail::axisOrderKey(lhs) < detail::axisOrderKey(rhs);
-            });
-
-            if (axisCount == 0)
-            {
-                if (!emitCandidate({}))
-                {
-                    return emitted;
-                }
-            }
-            else
-            {
-                std::array<SplitAxis3i, 3> axisOrder = changedAxes;
-                do
-                {
-                    std::vector<Segment256> path;
-                    if (detail::buildAxisAlignedCornerPath(referencePoint, targetPoint, box, axisOrder, axisCount, path))
-                    {
-                        if (!emitCandidate(std::move(path)))
-                            return emitted;
-                    }
-                } while (std::next_permutation(
-                             axisOrder.begin(),
-                             axisOrder.begin() + static_cast<std::ptrdiff_t>(axisCount),
-                             [](SplitAxis3i lhs, SplitAxis3i rhs)
-            {
-                return detail::axisOrderKey(lhs) < detail::axisOrderKey(rhs);
-                }));
-            }
-        }
-
-        std::array<int, 3> changedPlaneIndices = {};
-        std::size_t changedPlaneCount = 0;
+        std::vector<int> changedPlaneIndices;
         if (!detail::areSamePlaneEquation(referencePoint.p, targetPoint.p))
-            changedPlaneIndices[changedPlaneCount++] = 0;
+            changedPlaneIndices.push_back(0);
         if (!detail::areSamePlaneEquation(referencePoint.q, targetPoint.q))
-            changedPlaneIndices[changedPlaneCount++] = 1;
+            changedPlaneIndices.push_back(1);
         if (!detail::areSamePlaneEquation(referencePoint.r, targetPoint.r))
-            changedPlaneIndices[changedPlaneCount++] = 2;
-
-        if (changedPlaneCount == 0)
+            changedPlaneIndices.push_back(2);
+        if (changedPlaneIndices.empty())
             continue;
 
+        std::sort(changedPlaneIndices.begin(), changedPlaneIndices.end());
+        do
         {
-            REEMBER_PROFILE_ZONE("enumerateLeafClassificationFastPathCandidatesFromPoints::planeReplacement");
-            std::sort(
-                changedPlaneIndices.begin(),
-                changedPlaneIndices.begin() + static_cast<std::ptrdiff_t>(changedPlaneCount));
-            std::array<int, 3> planeReplacementOrder = changedPlaneIndices;
-            do
-            {
-                std::vector<Segment256> path;
-                if (detail::buildPlaneReplacementPath(
-                            referencePoint,
-                            targetPoint,
-                            box,
-                            planeReplacementOrder,
-                            changedPlaneCount,
-                            path))
-                {
-                    if (!emitCandidate(std::move(path)))
-                        return emitted;
-                }
-            } while (std::next_permutation(
-                         planeReplacementOrder.begin(),
-                         planeReplacementOrder.begin() + static_cast<std::ptrdiff_t>(changedPlaneCount)));
-        }
+            std::vector<Segment256> path;
+            if (!detail::buildPlaneReplacementPath(
+                        referencePoint,
+                        targetPoint,
+                        box,
+                        changedPlaneIndices,
+                        path))
+                continue;
+
+            ++emitted;
+            if (!visitor(LeafClassificationPathCandidate{targetPoint, std::move(path)}))
+                return emitted;
+        } while (std::next_permutation(changedPlaneIndices.begin(), changedPlaneIndices.end()));
     }
 
     return emitted;
 }
 
 /**
- * @brief 枚举兜底分类路径候选，并逐个交给调用方处理。
- *
- * @tparam CandidateVisitor 接收 `LeafClassificationPathCandidate` 的回调；返回 `false` 表示停止枚举。
- * @param[in] referencePoint 当前叶子子问题的局部参考点。
- * @param[in] targetPoints 已生成的叶子多边形严格内部点。
- * @param[in] box 当前叶子子问题的 AABB。
- * @param[in,out] visitor 候选路径访问器。
- * @return 实际枚举出的候选路径数量。
- *
- * @pre 快速候选已全部失败或没有产生候选。
+ * @brief 从已生成的内部点收集快速分类路径候选。
  */
+inline std::vector<LeafClassificationPathCandidate> enumerateLeafClassificationAxisPathCandidatesFromPoints(
+    const PlanePoint3i &referencePoint,
+    const std::vector<PlanePoint3i> &targetPoints,
+    const AABB3i &box)
+{
+    std::vector<LeafClassificationPathCandidate> candidates;
+    enumerateLeafClassificationAxisPathCandidatesFromPoints(
+        referencePoint,
+        targetPoints,
+        box,
+        [&candidates](LeafClassificationPathCandidate candidate)
+    {
+        candidates.push_back(std::move(candidate));
+        return true;
+    });
+    return candidates;
+}
+
+/**
+ * @brief 从已生成的内部点收集兜底分类路径候选。
+ */
+inline std::vector<LeafClassificationPathCandidate> enumerateLeafClassificationPlaneReplacementPathCandidatesFromPoints(
+    const PlanePoint3i &referencePoint,
+    const std::vector<PlanePoint3i> &targetPoints,
+    const AABB3i &box)
+{
+    std::vector<LeafClassificationPathCandidate> candidates;
+    enumerateLeafClassificationPlaneReplacementPathCandidatesFromPoints(
+        referencePoint,
+        targetPoints,
+        box,
+        [&candidates](LeafClassificationPathCandidate candidate)
+    {
+        candidates.push_back(std::move(candidate));
+        return true;
+    });
+    return candidates;
+}
+
 template <typename CandidateVisitor>
-inline std::size_t enumerateLeafClassificationFallbackPathCandidatesFromPoints(
+inline std::size_t enumerateLeafClassificationExhaustivePlaneReplacementPathCandidatesFromPoints(
     const PlanePoint3i &referencePoint,
     const std::vector<PlanePoint3i> &targetPoints,
     const AABB3i &box,
     CandidateVisitor &&visitor)
 {
-    REEMBER_PROFILE_ZONE("enumerateLeafClassificationFallbackPathCandidatesFromPoints");
+    REEMBER_PROFILE_ZONE("enumerateLeafClassificationExhaustivePlaneReplacementPathCandidatesFromPoints");
 
     std::size_t emitted = 0;
     if (!referencePoint.hasUniqueIntersection() || !isValidAABB(box))
@@ -737,9 +662,6 @@ inline std::size_t enumerateLeafClassificationFallbackPathCandidatesFromPoints(
         std::array<int, 3> targetPlaneOrder = {0, 1, 2};
         do
         {
-            if (targetPlaneOrder[0] == 0 && targetPlaneOrder[1] == 1 && targetPlaneOrder[2] == 2)
-                continue;
-
             const PlanePoint3i permutedTargetPoint = detail::makePointFromPlanes({
                 targetPlanes[targetPlaneOrder[0]],
                 targetPlanes[targetPlaneOrder[1]],
@@ -762,14 +684,17 @@ inline std::size_t enumerateLeafClassificationFallbackPathCandidatesFromPoints(
             do
             {
                 std::vector<Segment256> path;
-                if (detail::buildPlaneReplacementPath(referencePoint, permutedTargetPoint, box, changedPlaneIndices, path))
-                {
-                    ++emitted;
-                    if (!visitor(LeafClassificationPathCandidate{targetPoint, std::move(path)}))
-                    {
-                        return emitted;
-                    }
-                }
+                if (!detail::buildPlaneReplacementPath(
+                            referencePoint,
+                            permutedTargetPoint,
+                            box,
+                            changedPlaneIndices,
+                            path))
+                    continue;
+
+                ++emitted;
+                if (!visitor(LeafClassificationPathCandidate{targetPoint, std::move(path)}))
+                    return emitted;
             } while (std::next_permutation(changedPlaneIndices.begin(), changedPlaneIndices.end()));
         } while (std::next_permutation(targetPlaneOrder.begin(), targetPlaneOrder.end()));
     }
@@ -777,177 +702,4 @@ inline std::size_t enumerateLeafClassificationFallbackPathCandidatesFromPoints(
     return emitted;
 }
 
-/**
- * @brief 先桥接到 AABB 严格内部点，再枚举叶子分类路径候选。
- *
- * 这些候选保留原有干净穿越判定，只在常规轴对齐路径贴着网格或切分边界失效后提供
- * 少量确定性绕行路径。
- *
- * @tparam CandidateVisitor 接收 `LeafClassificationPathCandidate` 的回调；返回 `false` 表示停止枚举。
- * @param[in] referencePoint 当前叶子子问题的局部参考点。
- * @param[in] targetPoints 已生成的叶子多边形严格内部点。
- * @param[in] box 当前叶子子问题的 AABB。
- * @param[in,out] visitor 候选路径访问器。
- * @return 实际枚举出的候选路径数量。
- */
-template <typename CandidateVisitor>
-inline std::size_t enumerateLeafClassificationInteriorBridgeCandidatesFromPoints(
-    const PlanePoint3i &referencePoint,
-    const std::vector<PlanePoint3i> &targetPoints,
-    const AABB3i &box,
-    CandidateVisitor &&visitor)
-{
-    REEMBER_PROFILE_ZONE("enumerateLeafClassificationInteriorBridgeCandidatesFromPoints");
-
-    std::size_t emitted = 0;
-    if (!referencePoint.hasUniqueIntersection() || !isValidAABB(box))
-        return emitted;
-
-    const std::vector<PlanePoint3i> bridgePoints =
-        detail::enumerateAABBInteriorBridgePoints(referencePoint, box);
-    for (const PlanePoint3i &bridgePoint : bridgePoints)
-    {
-        std::vector<LeafClassificationPathCandidate> prefixCandidates;
-        enumerateLeafClassificationFastPathCandidatesFromPoints(
-            referencePoint,
-            std::vector<PlanePoint3i> {bridgePoint},
-            box,
-            [&prefixCandidates](LeafClassificationPathCandidate candidate)
-        {
-            prefixCandidates.push_back(std::move(candidate));
-            return true;
-        });
-        enumerateLeafClassificationFallbackPathCandidatesFromPoints(
-            referencePoint,
-            std::vector<PlanePoint3i> {bridgePoint},
-            box,
-            [&prefixCandidates](LeafClassificationPathCandidate candidate)
-        {
-            prefixCandidates.push_back(std::move(candidate));
-            return true;
-        });
-
-        if (prefixCandidates.empty())
-            continue;
-
-        bool keepGoing = true;
-        for (const LeafClassificationPathCandidate &prefixCandidate : prefixCandidates)
-        {
-            const auto emitWithPrefix =
-                [&](LeafClassificationPathCandidate candidate) -> bool
-            {
-                std::vector<Segment256> path;
-                path.reserve(prefixCandidate.path.size() + candidate.path.size());
-                path.insert(path.end(), prefixCandidate.path.begin(), prefixCandidate.path.end());
-                path.insert(
-                    path.end(),
-                    std::make_move_iterator(candidate.path.begin()),
-                    std::make_move_iterator(candidate.path.end()));
-
-                ++emitted;
-                return visitor(LeafClassificationPathCandidate{candidate.targetPoint, std::move(path)});
-            };
-
-            enumerateLeafClassificationFastPathCandidatesFromPoints(
-                bridgePoint,
-                targetPoints,
-                box,
-                [&](LeafClassificationPathCandidate candidate)
-            {
-                keepGoing = emitWithPrefix(std::move(candidate));
-                return keepGoing;
-            });
-
-            if (!keepGoing)
-                return emitted;
-
-            enumerateLeafClassificationFallbackPathCandidatesFromPoints(
-                bridgePoint,
-                targetPoints,
-                box,
-                [&](LeafClassificationPathCandidate candidate)
-            {
-                keepGoing = emitWithPrefix(std::move(candidate));
-                return keepGoing;
-            });
-
-            if (!keepGoing)
-                return emitted;
-        }
-    }
-
-    return emitted;
-}
-
-/**
- * @brief 从已生成的内部点收集快速分类路径候选。
- */
-inline std::vector<LeafClassificationPathCandidate> enumerateLeafClassificationFastPathCandidatesFromPoints(
-    const PlanePoint3i &referencePoint,
-    const std::vector<PlanePoint3i> &targetPoints,
-    const AABB3i &box)
-{
-    std::vector<LeafClassificationPathCandidate> candidates;
-    enumerateLeafClassificationFastPathCandidatesFromPoints(
-        referencePoint,
-        targetPoints,
-        box,
-        [&candidates](LeafClassificationPathCandidate candidate)
-    {
-        candidates.push_back(std::move(candidate));
-        return true;
-    });
-    return candidates;
-}
-
-/**
- * @brief 从已生成的内部点收集兜底分类路径候选。
- */
-inline std::vector<LeafClassificationPathCandidate> enumerateLeafClassificationFallbackPathCandidatesFromPoints(
-    const PlanePoint3i &referencePoint,
-    const std::vector<PlanePoint3i> &targetPoints,
-    const AABB3i &box)
-{
-    std::vector<LeafClassificationPathCandidate> candidates;
-    enumerateLeafClassificationFallbackPathCandidatesFromPoints(
-        referencePoint,
-        targetPoints,
-        box,
-        [&candidates](LeafClassificationPathCandidate candidate)
-    {
-        candidates.push_back(std::move(candidate));
-        return true;
-    });
-    return candidates;
-}
-
-/**
- * @brief 枚举从局部参考点到叶子多边形内部点的全部分类路径候选。
- *
- * @param[in] referencePoint 当前叶子子问题的局部参考点。
- * @param[in] polygon 待分类的叶子多边形。
- * @param[in] box 当前叶子子问题的 AABB。
- * @return 快速候选在前，兜底候选在后。
- *
- * @note 热路径应直接使用基于已生成点的快速/兜底接口，避免成功路径预先构造全量兜底候选。
- */
-inline std::vector<LeafClassificationPathCandidate> enumerateLeafClassificationPathCandidates(
-    const PlanePoint3i &referencePoint,
-    const Polygon256 &polygon,
-    const AABB3i &box)
-{
-    std::vector<LeafClassificationPathCandidate> candidates;
-    if (!referencePoint.hasUniqueIntersection() || !polygon.isValid() || !isValidAABB(box))
-        return candidates;
-
-    const std::vector<PlanePoint3i> targetPoints = detail::enumerateLeafClassificationPointCandidatesUnchecked(polygon);
-    candidates = enumerateLeafClassificationFastPathCandidatesFromPoints(referencePoint, targetPoints, box);
-    std::vector<LeafClassificationPathCandidate> fallbackCandidates =
-        enumerateLeafClassificationFallbackPathCandidatesFromPoints(referencePoint, targetPoints, box);
-    candidates.insert(
-        candidates.end(),
-        std::make_move_iterator(fallbackCandidates.begin()),
-        std::make_move_iterator(fallbackCandidates.end()));
-    return candidates;
-}
 }

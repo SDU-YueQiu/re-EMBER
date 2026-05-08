@@ -13,6 +13,7 @@
 #include <cassert>
 #include <functional>
 #include <initializer_list>
+#include <random>
 #include <stdexcept>
 #include <string>
 
@@ -329,24 +330,25 @@ void runBoolProblemTests()
 
     {
         const Polygon256 square = makeFaceXY(0, 0, 2, 0, 2, 1);
-        const std::vector<PlanePoint3i> candidates =
-            ember::detail::enumerateLeafClassificationPointCandidatesUnchecked(square);
-        assert(!candidates.empty());
-        assert(square.containsStrictly(candidates.front()));
-        assert(ember::areSamePlanePoint(candidates.front(), ember::makeIntegerPoint(1, 1, 0)));
+        PlanePoint3i centroidPoint;
+        assert(ember::detail::buildLeafClassificationCentroidTargetPoint(square, centroidPoint));
+        assert(square.containsStrictly(centroidPoint));
+        assert(ember::areSamePlanePoint(centroidPoint, ember::makeIntegerPoint(1, 1, 0)));
     }
 
     {
         const Polygon256 thinTriangle = makeThinTriangleXY();
         assert(thinTriangle.isValid());
 
-        const PlanePoint3i roundedCentroid = ember::makeIntegerPoint(33, 0, 0);
-        assert(!thinTriangle.containsStrictly(roundedCentroid));
+        PlanePoint3i centroidPoint;
+        assert(!ember::detail::buildLeafClassificationCentroidTargetPoint(thinTriangle, centroidPoint));
 
-        const std::vector<PlanePoint3i> candidates =
-            ember::detail::enumerateLeafClassificationPointCandidatesUnchecked(thinTriangle);
-        assert(!candidates.empty());
-        for (const PlanePoint3i &candidate : candidates)
+        std::mt19937 rng(42u);
+        const ember::detail::LeafClassificationInsetPointSequence insetPoints =
+            ember::detail::enumerateLeafClassificationInsetPointCandidates(thinTriangle, rng);
+        assert(insetPoints.attemptCount == 9u);
+        assert(!insetPoints.candidates.empty());
+        for (const PlanePoint3i &candidate : insetPoints.candidates)
             assert(thinTriangle.containsStrictly(candidate));
     }
 
@@ -358,15 +360,25 @@ void runBoolProblemTests()
         const PlanePoint3i roundedCentroid = ember::makeIntegerPoint(base, 0, 0);
         assert(!shiftedThinTriangle.containsStrictly(roundedCentroid));
 
-        const std::vector<PlanePoint3i> primaryCandidates =
-            ember::detail::enumerateLeafClassificationPrimaryPointCandidatesUnchecked(shiftedThinTriangle);
-        assert(primaryCandidates.empty());
+        PlanePoint3i centroidPoint;
+        assert(!ember::detail::buildLeafClassificationCentroidTargetPoint(shiftedThinTriangle, centroidPoint));
 
-        const std::vector<PlanePoint3i> candidates =
-            ember::detail::enumerateLeafClassificationPointCandidatesUnchecked(shiftedThinTriangle);
-        assert(!candidates.empty());
-        for (const PlanePoint3i &candidate : candidates)
-            assert(shiftedThinTriangle.containsStrictly(candidate));
+        std::mt19937 rngA(42u);
+        std::mt19937 rngB(42u);
+        const ember::detail::LeafClassificationInsetPointSequence insetPointsA =
+            ember::detail::enumerateLeafClassificationInsetPointCandidates(shiftedThinTriangle, rngA);
+        const ember::detail::LeafClassificationInsetPointSequence insetPointsB =
+            ember::detail::enumerateLeafClassificationInsetPointCandidates(shiftedThinTriangle, rngB);
+        assert(insetPointsA.attemptCount == 9u);
+        assert(insetPointsA.attemptCount == insetPointsB.attemptCount);
+        assert(!insetPointsA.candidates.empty());
+        assert(insetPointsA.candidates.size() == insetPointsB.candidates.size());
+        for (std::size_t i = 0; i < insetPointsA.candidates.size(); ++i)
+        {
+            assert(shiftedThinTriangle.containsStrictly(insetPointsA.candidates[i]));
+            assert(shiftedThinTriangle.containsStrictly(insetPointsB.candidates[i]));
+            assert(ember::areSamePlanePoint(insetPointsA.candidates[i], insetPointsB.candidates[i]));
+        }
     }
 
     {
@@ -415,10 +427,10 @@ void runBoolProblemTests()
         const PlanePoint3i target = ember::makeIntegerPoint(9, 9, 9);
         const std::vector<PlanePoint3i> targetPoints{target};
 
-        const std::vector<ember::LeafClassificationPathCandidate> fastCandidates =
-            ember::enumerateLeafClassificationFastPathCandidatesFromPoints(reference, targetPoints, box);
-        assert(fastCandidates.size() == 12u);
-        for (const ember::LeafClassificationPathCandidate &candidate : fastCandidates)
+        const std::vector<ember::LeafClassificationPathCandidate> axisCandidates =
+            ember::enumerateLeafClassificationAxisPathCandidatesFromPoints(reference, targetPoints, box);
+        assert(axisCandidates.size() == 1u);
+        for (const ember::LeafClassificationPathCandidate &candidate : axisCandidates)
         {
             assert(!candidate.path.empty());
             assert(ember::areSamePlanePoint(candidate.path.front().getStartPointRef(), reference));
@@ -431,6 +443,16 @@ void runBoolProblemTests()
                 if (i != 0)
                     assert(ember::areSamePlanePoint(candidate.path[i - 1].getEndPointRef(), candidate.path[i].getStartPointRef()));
             }
+        }
+
+        const std::vector<ember::LeafClassificationPathCandidate> planeReplacementCandidates =
+            ember::enumerateLeafClassificationPlaneReplacementPathCandidatesFromPoints(reference, targetPoints, box);
+        assert(planeReplacementCandidates.size() == 6u);
+        for (const ember::LeafClassificationPathCandidate &candidate : planeReplacementCandidates)
+        {
+            assert(!candidate.path.empty());
+            assert(ember::areSamePlanePoint(candidate.path.front().getStartPointRef(), reference));
+            assert(ember::areSamePlanePoint(candidate.path.back().getEndPointRef(), target));
         }
     }
 
@@ -451,27 +473,33 @@ void runBoolProblemTests()
             Plane3i(2, 0, 0, -9));
         const std::vector<PlanePoint3i> targetPoints{target};
 
-        const std::vector<ember::LeafClassificationPathCandidate> fastCandidates =
-            ember::enumerateLeafClassificationFastPathCandidatesFromPoints(reference, targetPoints, box);
-        assert(fastCandidates.empty());
+        const std::vector<ember::LeafClassificationPathCandidate> axisCandidates =
+            ember::enumerateLeafClassificationAxisPathCandidatesFromPoints(reference, targetPoints, box);
+        assert(axisCandidates.size() == 1u);
+        assert(!axisCandidates.front().path.empty());
+        assert(ember::areSamePlanePoint(axisCandidates.front().path.front().getStartPointRef(), reference));
+        assert(ember::areSamePlanePoint(axisCandidates.front().path.back().getEndPointRef(), target));
 
-        std::size_t visitedFallbackCandidates = 0;
-        const std::size_t emittedFallbackCandidates =
-            ember::enumerateLeafClassificationFallbackPathCandidatesFromPoints(
+        const std::vector<ember::LeafClassificationPathCandidate> planeReplacementCandidates =
+            ember::enumerateLeafClassificationPlaneReplacementPathCandidatesFromPoints(reference, targetPoints, box);
+        assert(planeReplacementCandidates.empty());
+
+        std::size_t visitedExhaustiveCandidates = 0;
+        const std::size_t emittedExhaustiveCandidates =
+            ember::enumerateLeafClassificationExhaustivePlaneReplacementPathCandidatesFromPoints(
                 reference,
                 targetPoints,
                 box,
                 [&](ember::LeafClassificationPathCandidate candidate)
         {
-            ++visitedFallbackCandidates;
+            ++visitedExhaustiveCandidates;
             assert(!candidate.path.empty());
             assert(ember::areSamePlanePoint(candidate.path.front().getStartPointRef(), reference));
             assert(ember::areSamePlanePoint(candidate.path.back().getEndPointRef(), target));
-            return false;
+            return true;
         });
-
-        assert(emittedFallbackCandidates == 1u);
-        assert(visitedFallbackCandidates == 1u);
+        assert(emittedExhaustiveCandidates == visitedExhaustiveCandidates);
+        assert(emittedExhaustiveCandidates > 0u);
     }
 
     {

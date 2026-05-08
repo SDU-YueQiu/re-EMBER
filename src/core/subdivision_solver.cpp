@@ -83,14 +83,11 @@ void accumulateSolveMetrics(BoolSolveMetrics &target, const BoolSolveMetrics &so
     target.singleOperandLeafBspSkipCount += source.singleOperandLeafBspSkipCount;
     target.singleOperandClassificationReuseCount += source.singleOperandClassificationReuseCount;
     target.leafBspBuildCount += source.leafBspBuildCount;
-    target.leafClassificationPointCandidateCount += source.leafClassificationPointCandidateCount;
-    target.leafClassificationPrimaryPointCandidateCount += source.leafClassificationPrimaryPointCandidateCount;
-    target.leafClassificationExpandedPointCandidateCount += source.leafClassificationExpandedPointCandidateCount;
+    target.leafClassificationCentroidPointCount += source.leafClassificationCentroidPointCount;
+    target.leafClassificationInsetPointAttemptCount += source.leafClassificationInsetPointAttemptCount;
     target.leafClassificationTraceAttemptCount += source.leafClassificationTraceAttemptCount;
-    target.leafClassificationFastCandidateCount += source.leafClassificationFastCandidateCount;
-    target.leafClassificationFallbackCandidateCount += source.leafClassificationFallbackCandidateCount;
-    target.leafClassificationNormalCandidateCount += source.leafClassificationNormalCandidateCount;
-    target.leafClassificationInteriorBridgeCandidateCount += source.leafClassificationInteriorBridgeCandidateCount;
+    target.leafClassificationAxisPathAttemptCount += source.leafClassificationAxisPathAttemptCount;
+    target.leafClassificationPlaneReplacementPathAttemptCount += source.leafClassificationPlaneReplacementPathAttemptCount;
 }
 
 bool isPointOnAnyPolygonSupportPlane(

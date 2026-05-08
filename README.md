@@ -216,10 +216,10 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 - `child_reference_candidate_tried_count`：真正进入 trace 的子参考点候选数。
 - `child_reference_fast_candidate_tried_count`、`child_reference_exhaustive_candidate_tried_count`：快速/穷举子参考点实际 trace 数。
 - `child_reference_trace_count`：成功传播的子参考点数。
-- `leaf_classification_point_candidate_count`：叶片分类阶段的目标点总数。
-- `leaf_classification_primary_point_candidate_count`、`leaf_classification_expanded_point_candidate_count`：primary / expanded 内部点候选分布。
+- `leaf_classification_centroid_point_count`：叶片分类阶段命中的重心启发式目标点数。
+- `leaf_classification_inset_point_attempt_count`：叶片分类阶段按论文 inset 规则尝试构点的总次数。
 - `leaf_classification_trace_attempt_count`：叶片分类实际尝试的 path trace 总数。
-- `leaf_classification_fast_candidate_count`、`leaf_classification_fallback_candidate_count`、`leaf_classification_normal_candidate_count`、`leaf_classification_interior_bridge_candidate_count`：各层路径候选贡献。
+- `leaf_classification_axis_path_attempt_count`、`leaf_classification_plane_replacement_path_attempt_count`：论文两阶段路径尝试分布。
 
 这些字段比单看 `node_count` 更能解释“为什么只有几十个节点却仍然很慢”。
 

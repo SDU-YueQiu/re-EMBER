@@ -297,23 +297,19 @@ flowchart TD
 1. `primary` 严格内部点
 2. 如果还没成功，再试 `expanded` 严格内部点
 
-第二层在每一批目标点内部按路径层级尝试：
+第二层已收缩为论文 4.4 的两阶段流程：
 
-1. `fast`
-2. `fallback`
-3. `normal-approach`
-4. `interior-bridge`
-
-只有前一层全部失败且最后状态仍允许继续时，才进入下一层。
+1. `centroid heuristic`
+2. `randomized inset fallback`
 
 ```mermaid
 flowchart TD
-    A["classifyLeafFragment()"] --> B["生成 primary point candidates"]
-    B --> C["按 fast -> fallback -> normal -> interior-bridge 尝试"]
+    A["classifyLeafFragment()"] --> B["重心启发式生成 0/1 个目标点"]
+    B --> C["固定 X->Y->Z 坐标轴路径尝试"]
     C --> D{"已成功?"}
     D -->|是| E["返回 Success"]
-    D -->|否| F["生成 expanded point candidates"]
-    F --> G["再次按 fast -> fallback -> normal -> interior-bridge 尝试"]
+    D -->|否| F["固定 seed=42 的随机 inset 构点"]
+    F --> G["换平面路径排列尝试"]
     G --> H{"已成功?"}
     H -->|是| E
     H -->|否| J["返回 Failure"]
@@ -325,15 +321,13 @@ flowchart TD
 
 当前实现中的目标点生成来自 `path_candidate_details.h`：
 
-- `primary`：优先尝试重心探测命中点，再补一个 `findStrictInteriorPoint()`。
-- `expanded`：在 primary 基础上继续加入 inset interior、齐次顶点平均、equalized edge 等兜底内部点。
+- `centroid heuristic`：用普通浮点重心求整数 `c`，沿最不平行轴的探测线求一个严格内部点。
+- `randomized inset fallback`：按论文 4.4 随机选择顶点和正偏移，逐步细化 inset，直到得到严格内部点或耗尽预算。
 
 当前实现中的路径层级来自 `path_candidates.h`：
 
-- `fast`：优先尝试轴对齐 corner path 和 plane replacement path。
-- `fallback`：放宽到 target plane 排列和 plane replacement 的更多组合。
-- `normal-approach`：把目标片段支撑平面法向作为最后一段接近方式。
-- `interior-bridge`：先桥接到 AABB 严格内部点，再继续枚举 fast/fallback 路径。
+- `axis-aligned path`：对 centroid heuristic 命中的目标点按固定 `X -> Y -> Z` 次序构造 1 到 3 段坐标轴路径。
+- `plane-replacement path`：对 inset fallback 命中的目标点枚举定义平面与替换顺序，构造论文式 1 到 3 段换平面路径。
 
 ## 9. 结果筛选与朝向
 

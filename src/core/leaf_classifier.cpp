@@ -12,6 +12,8 @@
 
 #include "geometry/polygon_ops.h"
 
+#include <iostream>
+#include <random>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -21,11 +23,20 @@ namespace ember
 {
 namespace
 {
+constexpr bool kLeafClassificationDebug = false;
+
 struct LeafClassificationAttemptStats
 {
     bool classified = false;
     traceStatus lastStatus = FAIL;
-
+    bool centroidPointFound = false;
+    PlanePoint3i centroidTargetPoint;
+    std::size_t insetPointAttemptCount = 0;
+    std::size_t insetPointCandidateCount = 0;
+    std::size_t axisPathAttemptCount = 0;
+    std::size_t planeReplacementPathAttemptCount = 0;
+    std::vector<PlanePoint3i> bridgeRescueTargets;
+    std::ostringstream debugLog;
 };
 
 enum class LeafClassificationResult
@@ -39,20 +50,151 @@ struct LeafClassificationContext
     const refPoint &localReference;
     const std::vector<Polygon256> &polygons;
     const AABB3i &aabb;
+    std::mt19937 &leafRng;
     BoolSolveMetrics &solveMetrics;
     std::vector<ClassifiedFragment> &classifiedFragments;
     std::size_t depth = 0;
 };
 
-[[noreturn]] void throwLeafClassificationFailure(std::size_t fragmentIndex, std::size_t depth)
+[[noreturn]] void throwLeafClassificationFailure(
+    std::size_t fragmentIndex,
+    std::size_t depth,
+    const Polygon256 &fragment,
+    const LeafClassificationAttemptStats &attemptStats)
 {
     std::ostringstream summary;
     summary << "BoolProblem failed to classify leaf fragment "
             << fragmentIndex
             << " at depth "
             << depth
+            << ". edge_count=" << fragment.edgeCount()
+            << " centroid_point_found=" << (attemptStats.centroidPointFound ? 1 : 0)
+            << " inset_point_attempt_count=" << attemptStats.insetPointAttemptCount
+            << " inset_point_candidate_count=" << attemptStats.insetPointCandidateCount
+            << " axis_path_attempt_count=" << attemptStats.axisPathAttemptCount
+            << " plane_replacement_path_attempt_count=" << attemptStats.planeReplacementPathAttemptCount
+            << " last_status=" << static_cast<int>(attemptStats.lastStatus)
             << ".";
+    if constexpr (kLeafClassificationDebug)
+    {
+        if (!attemptStats.debugLog.str().empty())
+        {
+            std::cerr << "[leaf-classification-debug] fragment_index=" << fragmentIndex
+                      << " depth=" << depth << "\n"
+                      << "support_plane=" << detail::formatPlaneForDebug(fragment.plane) << "\n";
+            for (std::size_t edgeIndex = 0; edgeIndex < fragment.edgePlanes.size(); ++edgeIndex)
+            {
+                std::cerr << "edge[" << edgeIndex << "]="
+                          << detail::formatPlaneForDebug(fragment.edgePlanes[edgeIndex])
+                          << " provenance=" << static_cast<int>(fragment.edgeProvenance(edgeIndex))
+                          << "\n";
+            }
+            std::cerr
+                << attemptStats.debugLog.str();
+        }
+    }
     throw std::runtime_error(summary.str());
+}
+
+const char *traceStatusName(traceStatus status) noexcept
+{
+    switch (status)
+    {
+    case SUCCESS:
+        return "SUCCESS";
+    case PATH_INVALID:
+        return "PATH_INVALID";
+    case INPUT_INVALID:
+        return "INPUT_INVALID";
+    case FAIL:
+        return "FAIL";
+    }
+
+    return "UNKNOWN";
+}
+
+std::string formatPathForDebug(const std::vector<Segment256> &path)
+{
+    std::ostringstream out;
+    out << "segments=" << path.size();
+    for (std::size_t i = 0; i < path.size(); ++i)
+    {
+        out << " ["
+            << i
+            << "] "
+            << detail::formatPlanePointForDebug(path[i].getStartPointRef())
+            << " -> "
+            << detail::formatPlanePointForDebug(path[i].getEndPointRef());
+    }
+    return out.str();
+}
+
+void appendPlaneReplacementFailureDebug(
+    std::ostringstream &debugLog,
+    const PlanePoint3i &referencePoint,
+    const PlanePoint3i &targetPoint,
+    const AABB3i &box)
+{
+    const std::array<Plane3i, 3> targetPlanes = {targetPoint.p, targetPoint.q, targetPoint.r};
+    std::array<int, 3> targetPlaneOrder = {0, 1, 2};
+    do
+    {
+        debugLog << "  plane_replacement target_plane_order=("
+                 << targetPlaneOrder[0] << ","
+                 << targetPlaneOrder[1] << ","
+                 << targetPlaneOrder[2] << ")";
+
+        const PlanePoint3i permutedTargetPoint = detail::makePointFromPlanes({
+            targetPlanes[targetPlaneOrder[0]],
+            targetPlanes[targetPlaneOrder[1]],
+            targetPlanes[targetPlaneOrder[2]]});
+        if (!permutedTargetPoint.hasUniqueIntersection())
+        {
+            debugLog << " invalid_permuted_target\n";
+            continue;
+        }
+        if (!areSamePlanePoint(permutedTargetPoint, targetPoint))
+        {
+            debugLog << " permuted_target_not_same\n";
+            continue;
+        }
+
+        std::vector<int> changedPlaneIndices;
+        if (!detail::areSamePlaneEquation(referencePoint.p, permutedTargetPoint.p))
+            changedPlaneIndices.push_back(0);
+        if (!detail::areSamePlaneEquation(referencePoint.q, permutedTargetPoint.q))
+            changedPlaneIndices.push_back(1);
+        if (!detail::areSamePlaneEquation(referencePoint.r, permutedTargetPoint.r))
+            changedPlaneIndices.push_back(2);
+        if (changedPlaneIndices.empty())
+        {
+            debugLog << " no_changed_planes\n";
+            continue;
+        }
+
+        std::sort(changedPlaneIndices.begin(), changedPlaneIndices.end());
+        do
+        {
+            std::vector<Segment256> path;
+            const bool ok = detail::buildPlaneReplacementPath(
+                referencePoint,
+                permutedTargetPoint,
+                box,
+                changedPlaneIndices,
+                path);
+            debugLog << " changed_planes=(";
+            for (std::size_t i = 0; i < changedPlaneIndices.size(); ++i)
+            {
+                if (i != 0)
+                    debugLog << ",";
+                debugLog << changedPlaneIndices[i];
+            }
+            debugLog << ") build_ok=" << (ok ? 1 : 0);
+            if (ok)
+                debugLog << " " << formatPathForDebug(path);
+            debugLog << "\n";
+        } while (std::next_permutation(changedPlaneIndices.begin(), changedPlaneIndices.end()));
+    } while (std::next_permutation(targetPlaneOrder.begin(), targetPlaneOrder.end()));
 }
 
 traceStatus traceLeafClassificationCandidate(
@@ -86,29 +228,55 @@ traceStatus traceLeafClassificationCandidate(
     return status;
 }
 
-bool attemptFastPointCandidates(
+bool attemptCentroidAxisPathCandidate(
     LeafClassificationContext &context,
     std::size_t fragmentIndex,
     Polygon256 &fragment,
-    LeafClassificationAttemptStats &attemptStats,
-    const std::vector<PlanePoint3i> &pointCandidates)
+    LeafClassificationAttemptStats &attemptStats)
 {
+    REEMBER_PROFILE_ZONE("LeafClassification::attemptCentroidAxisPath");
+
+    PlanePoint3i targetPoint;
+    if (!detail::buildLeafClassificationCentroidTargetPoint(fragment, targetPoint))
+    {
+        if constexpr (kLeafClassificationDebug)
+            attemptStats.debugLog << "centroid_target=none\n";
+        return true;
+    }
+
+    attemptStats.centroidPointFound = true;
+    attemptStats.centroidTargetPoint = targetPoint;
+    if constexpr (kLeafClassificationDebug)
+        attemptStats.debugLog << "centroid_target=" << detail::formatPlanePointForDebug(targetPoint) << "\n";
+    ++context.solveMetrics.leafClassificationCentroidPointCount;
+    {
+        REEMBER_PROFILE_ZONE("LeafClassification::centroidPoint");
+    }
+
     bool allowFallback = true;
-    enumerateLeafClassificationFastPathCandidatesFromPoints(
+    enumerateLeafClassificationAxisPathCandidatesFromPoints(
         context.localReference.point,
-        pointCandidates,
+        std::vector<PlanePoint3i>{targetPoint},
         context.aabb,
         [&](LeafClassificationPathCandidate candidate)
     {
-        REEMBER_PROFILE_ZONE("LeafClassification::fastCandidate");
+        REEMBER_PROFILE_ZONE("LeafClassification::axisPathCandidate");
 
-        ++context.solveMetrics.leafClassificationFastCandidateCount;
+        ++attemptStats.axisPathAttemptCount;
+        ++context.solveMetrics.leafClassificationAxisPathAttemptCount;
+        if constexpr (kLeafClassificationDebug)
+        {
+            attemptStats.debugLog << "axis_path_candidate "
+                                  << formatPathForDebug(candidate.path);
+        }
         const traceStatus status = traceLeafClassificationCandidate(
                                        context,
                                        fragmentIndex,
                                        fragment,
                                        attemptStats,
                                        candidate);
+        if constexpr (kLeafClassificationDebug)
+            attemptStats.debugLog << " status=" << traceStatusName(status) << "\n";
         if (status == SUCCESS)
             return false;
 
@@ -124,167 +292,247 @@ bool attemptFastPointCandidates(
     return allowFallback;
 }
 
-bool attemptFallbackPointCandidates(
+bool attemptInsetPlaneReplacementCandidates(
     LeafClassificationContext &context,
     std::size_t fragmentIndex,
     Polygon256 &fragment,
-    LeafClassificationAttemptStats &attemptStats,
-    const std::vector<PlanePoint3i> &pointCandidates)
+    LeafClassificationAttemptStats &attemptStats)
 {
-    bool allowFallback = true;
-    enumerateLeafClassificationFallbackPathCandidatesFromPoints(
-        context.localReference.point,
-        pointCandidates,
-        context.aabb,
-        [&](LeafClassificationPathCandidate candidate)
+    REEMBER_PROFILE_ZONE("LeafClassification::attemptInsetPlaneReplacementCandidates");
+
+    const detail::LeafClassificationInsetPointSequence insetPoints =
+        detail::enumerateLeafClassificationInsetPointCandidates(fragment, context.leafRng, kLeafClassificationDebug);
+    attemptStats.insetPointAttemptCount += insetPoints.attemptCount;
+    attemptStats.insetPointCandidateCount += insetPoints.candidates.size();
+    if constexpr (kLeafClassificationDebug)
     {
-        REEMBER_PROFILE_ZONE("LeafClassification::fallbackCandidate");
-
-        ++context.solveMetrics.leafClassificationFallbackCandidateCount;
-        const traceStatus status = traceLeafClassificationCandidate(
-                                       context,
-                                       fragmentIndex,
-                                       fragment,
-                                       attemptStats,
-                                       candidate);
-        if (status == SUCCESS)
-            return false;
-
-        if (status != PATH_INVALID)
+        attemptStats.debugLog << "inset_attempts=" << insetPoints.attemptCount
+                              << " inset_candidates=" << insetPoints.candidates.size() << "\n";
+        for (const std::string &line : insetPoints.debugLines)
+            attemptStats.debugLog << "  inset " << line << "\n";
+    }
+    context.solveMetrics.leafClassificationInsetPointAttemptCount += insetPoints.attemptCount;
+    std::vector<PlanePoint3i> planeReplacementTargets = insetPoints.candidates;
+    if (planeReplacementTargets.empty())
+    {
+        if constexpr (kLeafClassificationDebug)
+            attemptStats.debugLog << "exact_fallback_point_generation=1\n";
+        detail::appendHomogeneousVertexAverageInteriorPointCandidate(fragment, planeReplacementTargets);
+        if (planeReplacementTargets.empty())
+            detail::appendEqualizedEdgeInteriorPointCandidates(fragment, planeReplacementTargets);
+        if (planeReplacementTargets.empty())
         {
-            allowFallback = false;
-            return false;
-        }
+            if (!attemptStats.centroidPointFound)
+                return true;
 
-        return true;
-    });
+            if constexpr (kLeafClassificationDebug)
+                attemptStats.debugLog << "reusing_centroid_target_for_plane_replacement=1\n";
+            planeReplacementTargets.push_back(attemptStats.centroidTargetPoint);
+        }
+    }
+
+    if constexpr (kLeafClassificationDebug)
+    {
+        for (const PlanePoint3i &candidatePoint : planeReplacementTargets)
+            attemptStats.debugLog << "  inset_candidate_point=" << detail::formatPlanePointForDebug(candidatePoint) << "\n";
+    }
+    attemptStats.bridgeRescueTargets = planeReplacementTargets;
+
+    bool allowFallback = true;
+    const auto tryPlaneReplacementTargets =
+        [&](const std::vector<PlanePoint3i> &targets, const char *label)
+    {
+        enumerateLeafClassificationExhaustivePlaneReplacementPathCandidatesFromPoints(
+            context.localReference.point,
+            targets,
+            context.aabb,
+            [&](LeafClassificationPathCandidate candidate)
+        {
+            REEMBER_PROFILE_ZONE("LeafClassification::planeReplacementPathCandidate");
+
+            ++attemptStats.planeReplacementPathAttemptCount;
+            ++context.solveMetrics.leafClassificationPlaneReplacementPathAttemptCount;
+            attemptStats.debugLog << label << " "
+                                  << formatPathForDebug(candidate.path);
+            const traceStatus status = traceLeafClassificationCandidate(
+                                           context,
+                                           fragmentIndex,
+                                           fragment,
+                                           attemptStats,
+                                           candidate);
+            attemptStats.debugLog << " status=" << traceStatusName(status) << "\n";
+            if (status == SUCCESS)
+                return false;
+
+            if (status != PATH_INVALID)
+            {
+                allowFallback = false;
+                return false;
+            }
+
+            return true;
+        });
+    };
+
+    constexpr std::size_t kMaxDirectInsetTargets = 3;
+    if (planeReplacementTargets.size() > kMaxDirectInsetTargets)
+    {
+        if constexpr (kLeafClassificationDebug)
+            attemptStats.debugLog << "direct_inset_target_cap=" << kMaxDirectInsetTargets << "\n";
+        std::vector<PlanePoint3i> directTargets(
+            planeReplacementTargets.begin(),
+            planeReplacementTargets.begin() + static_cast<std::ptrdiff_t>(kMaxDirectInsetTargets));
+        tryPlaneReplacementTargets(directTargets, "plane_replacement_candidate");
+        if (!attemptStats.classified && allowFallback)
+        {
+            std::vector<PlanePoint3i> remainingTargets(
+                planeReplacementTargets.begin() + static_cast<std::ptrdiff_t>(kMaxDirectInsetTargets),
+                planeReplacementTargets.end());
+            if (!remainingTargets.empty())
+            {
+                if constexpr (kLeafClassificationDebug)
+                    attemptStats.debugLog << "expanding_inset_target_set=" << remainingTargets.size() << "\n";
+                tryPlaneReplacementTargets(remainingTargets, "plane_replacement_candidate_expanded");
+            }
+        }
+    }
+    else
+    {
+        tryPlaneReplacementTargets(planeReplacementTargets, "plane_replacement_candidate");
+    }
+
+    if (attemptStats.planeReplacementPathAttemptCount == 0)
+    {
+        if constexpr (kLeafClassificationDebug)
+        {
+            attemptStats.debugLog << "plane_replacement_candidates=0\n";
+            for (const PlanePoint3i &candidatePoint : planeReplacementTargets)
+                appendPlaneReplacementFailureDebug(
+                    attemptStats.debugLog,
+                    context.localReference.point,
+                    candidatePoint,
+                    context.aabb);
+        }
+    }
     return allowFallback;
 }
 
-bool attemptNormalApproachCandidates(
+bool attemptBridgeRescueCandidates(
     LeafClassificationContext &context,
     std::size_t fragmentIndex,
     Polygon256 &fragment,
-    LeafClassificationAttemptStats &attemptStats,
-    const std::vector<PlanePoint3i> &pointCandidates)
+    LeafClassificationAttemptStats &attemptStats)
 {
-    bool allowFallback = true;
-    enumerateLeafClassificationNormalApproachCandidatesFromPoints(
-        context.localReference.point,
-        pointCandidates,
-        fragment.plane,
-        context.aabb,
-        [&](LeafClassificationPathCandidate candidate)
+    REEMBER_PROFILE_ZONE("LeafClassification::attemptBridgeRescueCandidates");
+
+    if (attemptStats.bridgeRescueTargets.empty())
+        return true;
+
+    const std::vector<PlanePoint3i> bridgePoints =
+        detail::enumerateAABBInteriorBridgePoints(context.localReference.point, context.aabb);
+    if constexpr (kLeafClassificationDebug)
     {
-        REEMBER_PROFILE_ZONE("LeafClassification::normalCandidate");
+        attemptStats.debugLog << "bridge_point_count=" << bridgePoints.size()
+                              << " aabb=["
+                              << integerToString(context.aabb.xMin) << ","
+                              << integerToString(context.aabb.xMax) << "]x["
+                              << integerToString(context.aabb.yMin) << ","
+                              << integerToString(context.aabb.yMax) << "]x["
+                              << integerToString(context.aabb.zMin) << ","
+                              << integerToString(context.aabb.zMax) << "]\n";
+    }
+    if (bridgePoints.empty())
+        return true;
 
-        ++context.solveMetrics.leafClassificationNormalCandidateCount;
-        const traceStatus status = traceLeafClassificationCandidate(
-                                       context,
-                                       fragmentIndex,
-                                       fragment,
-                                       attemptStats,
-                                       candidate);
-        if (status == SUCCESS)
-            return false;
+    bool allowFallback = true;
+    for (const PlanePoint3i &bridgePoint : bridgePoints)
+    {
+        std::vector<Segment256> prefix;
+        if (!detail::appendBridgePath(prefix, context.localReference.point, bridgePoint, context.aabb))
+            continue;
 
-        if (status != PATH_INVALID)
+        if constexpr (kLeafClassificationDebug)
         {
-            allowFallback = false;
-            return false;
+            attemptStats.debugLog << "bridge_point=" << detail::formatPlanePointForDebug(bridgePoint)
+                                  << " prefix_" << formatPathForDebug(prefix) << "\n";
         }
 
-        allowFallback = true;
-        return true;
-    });
-    return allowFallback;
-}
-
-bool attemptInteriorBridgeCandidates(
-    LeafClassificationContext &context,
-    std::size_t fragmentIndex,
-    Polygon256 &fragment,
-    LeafClassificationAttemptStats &attemptStats,
-    const std::vector<PlanePoint3i> &pointCandidates)
-{
-    bool allowFallback = true;
-    enumerateLeafClassificationInteriorBridgeCandidatesFromPoints(
-        context.localReference.point,
-        pointCandidates,
-        context.aabb,
-        [&](LeafClassificationPathCandidate candidate)
-    {
-        REEMBER_PROFILE_ZONE("LeafClassification::interiorBridgeCandidate");
-
-        ++context.solveMetrics.leafClassificationInteriorBridgeCandidateCount;
-        const traceStatus status = traceLeafClassificationCandidate(
-                                       context,
-                                       fragmentIndex,
-                                       fragment,
-                                       attemptStats,
-                                       candidate);
-        if (status == SUCCESS)
-            return false;
-
-        if (status != PATH_INVALID)
+        const auto traceWithPrefix =
+            [&](LeafClassificationPathCandidate candidate,
+                const char *label,
+                std::size_t &pathAttemptCounter,
+                std::size_t &metricCounter) -> bool
         {
-            allowFallback = false;
-            return false;
-        }
+            std::vector<Segment256> fullPath;
+            fullPath.reserve(prefix.size() + candidate.path.size());
+            fullPath.insert(fullPath.end(), prefix.begin(), prefix.end());
+            fullPath.insert(
+                fullPath.end(),
+                std::make_move_iterator(candidate.path.begin()),
+                std::make_move_iterator(candidate.path.end()));
 
-        allowFallback = true;
-        return true;
-    });
+            ++pathAttemptCounter;
+            ++metricCounter;
+            if constexpr (kLeafClassificationDebug)
+                attemptStats.debugLog << label << " " << formatPathForDebug(fullPath);
+            const traceStatus status = traceLeafClassificationCandidate(
+                                           context,
+                                           fragmentIndex,
+                                           fragment,
+                                           attemptStats,
+                                           LeafClassificationPathCandidate{
+                                               candidate.targetPoint,
+                                               std::move(fullPath)});
+            if constexpr (kLeafClassificationDebug)
+                attemptStats.debugLog << " status=" << traceStatusName(status) << "\n";
+            if (status == SUCCESS)
+                return false;
+
+            if (status != PATH_INVALID)
+            {
+                allowFallback = false;
+                return false;
+            }
+
+            return true;
+        };
+
+        enumerateLeafClassificationAxisPathCandidatesFromPoints(
+            bridgePoint,
+            attemptStats.bridgeRescueTargets,
+            context.aabb,
+            [&](LeafClassificationPathCandidate candidate)
+        {
+            REEMBER_PROFILE_ZONE("LeafClassification::bridgeRescueAxisCandidate");
+            return traceWithPrefix(
+                std::move(candidate),
+                "bridge_axis_candidate",
+                attemptStats.axisPathAttemptCount,
+                context.solveMetrics.leafClassificationAxisPathAttemptCount);
+        });
+
+        if (attemptStats.classified || !allowFallback)
+            return allowFallback;
+
+        enumerateLeafClassificationExhaustivePlaneReplacementPathCandidatesFromPoints(
+            bridgePoint,
+            attemptStats.bridgeRescueTargets,
+            context.aabb,
+            [&](LeafClassificationPathCandidate candidate)
+        {
+            REEMBER_PROFILE_ZONE("LeafClassification::bridgeRescuePlaneReplacementCandidate");
+            return traceWithPrefix(
+                std::move(candidate),
+                "bridge_plane_replacement_candidate",
+                attemptStats.planeReplacementPathAttemptCount,
+                context.solveMetrics.leafClassificationPlaneReplacementPathAttemptCount);
+        });
+
+        if (attemptStats.classified || !allowFallback)
+            return allowFallback;
+    }
+
     return allowFallback;
-}
-
-bool attemptLeafClassificationPointCandidates(
-    LeafClassificationContext &context,
-    std::size_t fragmentIndex,
-    Polygon256 &fragment,
-    LeafClassificationAttemptStats &attemptStats,
-    const std::vector<PlanePoint3i> &pointCandidates)
-{
-    REEMBER_PROFILE_ZONE("LeafClassification::attemptPointCandidates");
-
-
-    context.solveMetrics.leafClassificationPointCandidateCount += pointCandidates.size();
-
-    bool allowFallback = attemptFastPointCandidates(
-                             context,
-                             fragmentIndex,
-                             fragment,
-                             attemptStats,
-                             pointCandidates);
-    if (!attemptStats.classified && allowFallback)
-    {
-        allowFallback = attemptFallbackPointCandidates(
-                            context,
-                            fragmentIndex,
-                            fragment,
-                            attemptStats,
-                            pointCandidates);
-    }
-    if (!attemptStats.classified && allowFallback)
-    {
-        allowFallback = attemptNormalApproachCandidates(
-                            context,
-                            fragmentIndex,
-                            fragment,
-                            attemptStats,
-                            pointCandidates);
-    }
-    if (!attemptStats.classified && allowFallback)
-    {
-        allowFallback = attemptInteriorBridgeCandidates(
-                            context,
-                            fragmentIndex,
-                            fragment,
-                            attemptStats,
-                            pointCandidates);
-    }
-
-    return !attemptStats.classified && allowFallback;
 }
 
 LeafClassificationResult classifyLeafFragment(
@@ -295,45 +543,26 @@ LeafClassificationResult classifyLeafFragment(
 {
     REEMBER_PROFILE_ZONE("LeafClassification::classifyLeafFragment");
 
-    std::vector<PlanePoint3i> primaryPointCandidates;
+    bool allowFallback = attemptCentroidAxisPathCandidate(
+                             context,
+                             fragmentIndex,
+                             fragment,
+                             attemptStats);
+    if (!attemptStats.classified && allowFallback)
     {
-        REEMBER_PROFILE_ZONE("LeafClassification::enumeratePrimaryPointCandidates");
-        primaryPointCandidates =
-            detail::enumerateLeafClassificationPrimaryPointCandidatesUnchecked(fragment);
+        allowFallback = attemptInsetPlaneReplacementCandidates(
+                            context,
+                            fragmentIndex,
+                            fragment,
+                            attemptStats);
     }
-    context.solveMetrics.leafClassificationPrimaryPointCandidateCount += primaryPointCandidates.size();
-    for (const PlanePoint3i &primaryPointCandidate : primaryPointCandidates)
+    if (!attemptStats.classified && allowFallback)
     {
-        (void)primaryPointCandidate;
-        REEMBER_PROFILE_ZONE("LeafClassification::primaryPointCandidate");
-    }
-
-    const bool shouldTryExpandedPoints = attemptLeafClassificationPointCandidates(
-            context,
-            fragmentIndex,
-            fragment,
-            attemptStats,
-            primaryPointCandidates);
-    if (!attemptStats.classified && shouldTryExpandedPoints)
-    {
-        std::vector<PlanePoint3i> expandedPointCandidates;
-        {
-            REEMBER_PROFILE_ZONE("LeafClassification::enumerateExpandedPointCandidates");
-            expandedPointCandidates =
-                detail::enumerateLeafClassificationPointCandidatesUnchecked(fragment);
-        }
-        context.solveMetrics.leafClassificationExpandedPointCandidateCount += expandedPointCandidates.size();
-        for (const PlanePoint3i &expandedPointCandidate : expandedPointCandidates)
-        {
-            (void)expandedPointCandidate;
-            REEMBER_PROFILE_ZONE("LeafClassification::expandedPointCandidate");
-        }
-        attemptLeafClassificationPointCandidates(
-            context,
-            fragmentIndex,
-            fragment,
-            attemptStats,
-            expandedPointCandidates);
+        allowFallback = attemptBridgeRescueCandidates(
+                            context,
+                            fragmentIndex,
+                            fragment,
+                            attemptStats);
     }
 
     if (attemptStats.classified)
@@ -403,10 +632,12 @@ void SubdivisionSolver::classifyLeafFragmentsAndCollectResults()
         return;
 
     const refPoint localReference(reference_.point, reference_.wnv);
+    std::mt19937 leafRng(42u);
     LeafClassificationContext context{
         localReference,
         polygons_,
         aabb_,
+        leafRng,
         solveMetrics_,
         classifiedFragments_,
         depth_};
@@ -428,7 +659,7 @@ void SubdivisionSolver::classifyLeafFragmentsAndCollectResults()
         const LeafClassificationResult classificationResult =
             classifyLeafFragment(context, fragmentIndex, fragment, attemptStats);
         if (classificationResult == LeafClassificationResult::Failure)
-            throwLeafClassificationFailure(fragmentIndex, depth_);
+            throwLeafClassificationFailure(fragmentIndex, depth_, fragment, attemptStats);
 
         if (singleOperandPolicy_.mayReuseLeafClassification && !hasReusableClassification)
         {

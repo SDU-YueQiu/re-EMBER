@@ -90,5 +90,5 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 - `wntv_aware_split_count`、`center_range_split_count`、`midpoint_split_count`：切分策略命中数。
 - `child_reference_candidate_count`、`child_reference_fast_candidate_count`、`child_reference_exhaustive_candidate_count`：子参考点传播的候选放大量。
 - `child_reference_candidate_tried_count`、`child_reference_fast_candidate_tried_count`、`child_reference_exhaustive_candidate_tried_count`、`child_reference_trace_count`：子参考点传播的实际 trace 放大量。
-- `leaf_classification_primary_point_candidate_count`、`leaf_classification_expanded_point_candidate_count`、`leaf_classification_trace_attempt_count` 及各 layer candidate count：叶片分类阶段的路径尝试量。
+- `leaf_classification_centroid_point_count`、`leaf_classification_inset_point_attempt_count`、`leaf_classification_trace_attempt_count`、`leaf_classification_axis_path_attempt_count`、`leaf_classification_plane_replacement_path_attempt_count`：叶片分类阶段的论文两阶段尝试量。
 - `tracy_zones.csv` 看 inclusive，总体阶段耗时；`tracy_zones_self.csv` 看 self，定位真实热点；领域规模仍以 `timings.csv` / `metrics.txt` 为准。

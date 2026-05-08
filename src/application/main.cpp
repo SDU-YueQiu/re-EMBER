@@ -169,14 +169,11 @@ bool writeTimingMetrics(const std::string &path, const CliTimings &timings, std:
            << "single_operand_leaf_bsp_skip_count=" << timings.solveMetrics.singleOperandLeafBspSkipCount << '\n'
            << "single_operand_classification_reuse_count=" << timings.solveMetrics.singleOperandClassificationReuseCount << '\n'
            << "leaf_bsp_build_count=" << timings.solveMetrics.leafBspBuildCount << '\n'
-           << "leaf_classification_point_candidate_count=" << timings.solveMetrics.leafClassificationPointCandidateCount << '\n'
-           << "leaf_classification_primary_point_candidate_count=" << timings.solveMetrics.leafClassificationPrimaryPointCandidateCount << '\n'
-           << "leaf_classification_expanded_point_candidate_count=" << timings.solveMetrics.leafClassificationExpandedPointCandidateCount << '\n'
+           << "leaf_classification_centroid_point_count=" << timings.solveMetrics.leafClassificationCentroidPointCount << '\n'
+           << "leaf_classification_inset_point_attempt_count=" << timings.solveMetrics.leafClassificationInsetPointAttemptCount << '\n'
            << "leaf_classification_trace_attempt_count=" << timings.solveMetrics.leafClassificationTraceAttemptCount << '\n'
-           << "leaf_classification_fast_candidate_count=" << timings.solveMetrics.leafClassificationFastCandidateCount << '\n'
-           << "leaf_classification_fallback_candidate_count=" << timings.solveMetrics.leafClassificationFallbackCandidateCount << '\n'
-           << "leaf_classification_normal_candidate_count=" << timings.solveMetrics.leafClassificationNormalCandidateCount << '\n'
-           << "leaf_classification_interior_bridge_candidate_count=" << timings.solveMetrics.leafClassificationInteriorBridgeCandidateCount << '\n';
+           << "leaf_classification_axis_path_attempt_count=" << timings.solveMetrics.leafClassificationAxisPathAttemptCount << '\n'
+           << "leaf_classification_plane_replacement_path_attempt_count=" << timings.solveMetrics.leafClassificationPlaneReplacementPathAttemptCount << '\n';
     if (!output)
     {
         outError = "Failed to write timings output file: " + path;
