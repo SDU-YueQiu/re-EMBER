@@ -1347,6 +1347,24 @@ function New-TimingRow {
         leaf_classification_trace_attempt_count = [math]::Round((Get-Metric $metrics "leaf_classification_trace_attempt_count"), 0)
         leaf_classification_axis_path_attempt_count = [math]::Round((Get-Metric $metrics "leaf_classification_axis_path_attempt_count"), 0)
         leaf_classification_plane_replacement_path_attempt_count = [math]::Round((Get-Metric $metrics "leaf_classification_plane_replacement_path_attempt_count"), 0)
+        leaf_classification_candidate_generated_count = [math]::Round((Get-Metric $metrics "leaf_classification_candidate_generated_count"), 0)
+        leaf_classification_candidate_unique_count = [math]::Round((Get-Metric $metrics "leaf_classification_candidate_unique_count"), 0)
+        leaf_classification_candidate_duplicate_skip_count = [math]::Round((Get-Metric $metrics "leaf_classification_candidate_duplicate_skip_count"), 0)
+        leaf_classification_candidate_rejected_count = [math]::Round((Get-Metric $metrics "leaf_classification_candidate_rejected_count"), 0)
+        leaf_classification_candidate_repair_attempt_count = [math]::Round((Get-Metric $metrics "leaf_classification_candidate_repair_attempt_count"), 0)
+        leaf_classification_candidate_repair_success_count = [math]::Round((Get-Metric $metrics "leaf_classification_candidate_repair_success_count"), 0)
+        leaf_classification_centroid_axis_success_count = [math]::Round((Get-Metric $metrics "leaf_classification_centroid_axis_success_count"), 0)
+        leaf_classification_centroid_axis_path_invalid_count = [math]::Round((Get-Metric $metrics "leaf_classification_centroid_axis_path_invalid_count"), 0)
+        leaf_classification_centroid_axis_input_invalid_count = [math]::Round((Get-Metric $metrics "leaf_classification_centroid_axis_input_invalid_count"), 0)
+        leaf_classification_centroid_axis_fail_count = [math]::Round((Get-Metric $metrics "leaf_classification_centroid_axis_fail_count"), 0)
+        leaf_classification_inset_replacement_success_count = [math]::Round((Get-Metric $metrics "leaf_classification_inset_replacement_success_count"), 0)
+        leaf_classification_inset_replacement_path_invalid_count = [math]::Round((Get-Metric $metrics "leaf_classification_inset_replacement_path_invalid_count"), 0)
+        leaf_classification_inset_replacement_input_invalid_count = [math]::Round((Get-Metric $metrics "leaf_classification_inset_replacement_input_invalid_count"), 0)
+        leaf_classification_inset_replacement_fail_count = [math]::Round((Get-Metric $metrics "leaf_classification_inset_replacement_fail_count"), 0)
+        leaf_classification_bridge_rescue_success_count = [math]::Round((Get-Metric $metrics "leaf_classification_bridge_rescue_success_count"), 0)
+        leaf_classification_bridge_rescue_path_invalid_count = [math]::Round((Get-Metric $metrics "leaf_classification_bridge_rescue_path_invalid_count"), 0)
+        leaf_classification_bridge_rescue_input_invalid_count = [math]::Round((Get-Metric $metrics "leaf_classification_bridge_rescue_input_invalid_count"), 0)
+        leaf_classification_bridge_rescue_fail_count = [math]::Round((Get-Metric $metrics "leaf_classification_bridge_rescue_fail_count"), 0)
         exit_code = $Result.ExitCode
         lhs_faces = $Workload.LhsFaces
         rhs_faces = $Workload.RhsFaces
@@ -1753,6 +1771,10 @@ function Write-Reports {
             avg_centroid_points = Measure-AverageProperty $rows "leaf_classification_centroid_point_count"
             avg_inset_point_attempts = Measure-AverageProperty $rows "leaf_classification_inset_point_attempt_count"
             avg_leaf_traces = Measure-AverageProperty $rows "leaf_classification_trace_attempt_count"
+            avg_leaf_candidates = Measure-AverageProperty $rows "leaf_classification_candidate_generated_count"
+            avg_unique_candidates = Measure-AverageProperty $rows "leaf_classification_candidate_unique_count"
+            avg_repair_attempts = Measure-AverageProperty $rows "leaf_classification_candidate_repair_attempt_count"
+            avg_repair_successes = Measure-AverageProperty $rows "leaf_classification_candidate_repair_success_count"
             avg_child_ref_candidates = Measure-AverageProperty $rows "child_reference_candidate_count"
             avg_results = Measure-AverageProperty $rows "result_fragment_count"
         })
@@ -1771,6 +1793,10 @@ function Write-Reports {
         "avg_centroid_points",
         "avg_inset_point_attempts",
         "avg_leaf_traces",
+        "avg_leaf_candidates",
+        "avg_unique_candidates",
+        "avg_repair_attempts",
+        "avg_repair_successes",
         "avg_child_ref_candidates",
         "avg_results"
     ) -Rows ($workloadRows.ToArray())
@@ -1838,6 +1864,9 @@ function Write-Reports {
         $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_trace_attempt" "leaf_classification_trace_attempt_count" @("LeafClassification::traceCandidate")))
         $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_axis_path_attempt" "leaf_classification_axis_path_attempt_count" @("LeafClassification::axisPathCandidate")))
         $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_plane_replacement_path_attempt" "leaf_classification_plane_replacement_path_attempt_count" @("LeafClassification::planeReplacementPathCandidate")))
+        $strategyRows.Add((New-StrategySummaryRowFromMetricValue (Measure-SumProperty $TimingRows "leaf_classification_candidate_generated_count") $inclusiveAggregates $selfAggregates "leaf_classification_candidate_generated" @("LeafClassification::axisPathCandidate", "LeafClassification::planeReplacementPathCandidate", "LeafClassification::bridgeRescueAxisCandidate", "LeafClassification::bridgeRescuePlaneReplacementCandidate")))
+        $strategyRows.Add((New-StrategySummaryRowFromMetricValue (Measure-SumProperty $TimingRows "leaf_classification_candidate_unique_count") $inclusiveAggregates $selfAggregates "leaf_classification_candidate_unique" @("LeafClassification::traceCandidate")))
+        $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "leaf_classification_candidate_repair_attempt" "leaf_classification_candidate_repair_attempt_count" @("LeafClassification::candidateRepair")))
 
         Add-MarkdownTable -Lines $reportLines -Headers @("item", "metric_count", "zone_count", "status", "inclusive_ms", "self_ms", "zone_name") -Rows ($strategyRows.ToArray())
 

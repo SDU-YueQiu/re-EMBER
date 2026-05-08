@@ -12,6 +12,8 @@
 
 #include "geometry/polygon_ops.h"
 
+#include <algorithm>
+#include <array>
 #include <iostream>
 #include <random>
 #include <sstream>
@@ -36,6 +38,7 @@ struct LeafClassificationAttemptStats
     std::size_t axisPathAttemptCount = 0;
     std::size_t planeReplacementPathAttemptCount = 0;
     std::vector<PlanePoint3i> bridgeRescueTargets;
+    std::vector<std::vector<HomPoint4i>> uniquePathSignatures;
     std::ostringstream debugLog;
 };
 
@@ -54,6 +57,25 @@ struct LeafClassificationContext
     BoolSolveMetrics &solveMetrics;
     std::vector<ClassifiedFragment> &classifiedFragments;
     std::size_t depth = 0;
+};
+
+enum class LeafClassificationTraceStage
+{
+    CentroidAxis,
+    InsetReplacement,
+    BridgeRescue
+};
+
+enum class LeafClassificationCandidateKind
+{
+    AxisPath,
+    PlaneReplacementPath
+};
+
+struct LeafClassificationTraceResult
+{
+    bool traced = false;
+    traceStatus status = PATH_INVALID;
 };
 
 [[noreturn]] void throwLeafClassificationFailure(
@@ -115,7 +137,289 @@ const char *traceStatusName(traceStatus status) noexcept
 
 bool isRecoverableClassificationTraceStatus(traceStatus status) noexcept
 {
-    return status == PATH_INVALID || status == INPUT_INVALID;
+    return status == PATH_INVALID;
+}
+
+void recordLeafClassificationStatus(
+    BoolSolveMetrics &metrics,
+    LeafClassificationTraceStage stage,
+    traceStatus status) noexcept
+{
+    std::size_t *successCount = nullptr;
+    std::size_t *pathInvalidCount = nullptr;
+    std::size_t *inputInvalidCount = nullptr;
+    std::size_t *failCount = nullptr;
+
+    switch (stage)
+    {
+    case LeafClassificationTraceStage::CentroidAxis:
+        successCount = &metrics.leafClassificationCentroidAxisSuccessCount;
+        pathInvalidCount = &metrics.leafClassificationCentroidAxisPathInvalidCount;
+        inputInvalidCount = &metrics.leafClassificationCentroidAxisInputInvalidCount;
+        failCount = &metrics.leafClassificationCentroidAxisFailCount;
+        break;
+    case LeafClassificationTraceStage::InsetReplacement:
+        successCount = &metrics.leafClassificationInsetReplacementSuccessCount;
+        pathInvalidCount = &metrics.leafClassificationInsetReplacementPathInvalidCount;
+        inputInvalidCount = &metrics.leafClassificationInsetReplacementInputInvalidCount;
+        failCount = &metrics.leafClassificationInsetReplacementFailCount;
+        break;
+    case LeafClassificationTraceStage::BridgeRescue:
+        successCount = &metrics.leafClassificationBridgeRescueSuccessCount;
+        pathInvalidCount = &metrics.leafClassificationBridgeRescuePathInvalidCount;
+        inputInvalidCount = &metrics.leafClassificationBridgeRescueInputInvalidCount;
+        failCount = &metrics.leafClassificationBridgeRescueFailCount;
+        break;
+    }
+
+    switch (status)
+    {
+    case SUCCESS:
+        ++(*successCount);
+        break;
+    case PATH_INVALID:
+        ++(*pathInvalidCount);
+        break;
+    case INPUT_INVALID:
+        ++(*inputInvalidCount);
+        break;
+    case FAIL:
+        ++(*failCount);
+        break;
+    }
+}
+
+bool samePathSignature(
+    const std::vector<HomPoint4i> &lhs,
+    const std::vector<HomPoint4i> &rhs) noexcept
+{
+    if (lhs.size() != rhs.size())
+        return false;
+
+    for (std::size_t i = 0; i < lhs.size(); ++i)
+    {
+        if (!lhs[i].hasSameComponents(rhs[i]))
+            return false;
+    }
+
+    return true;
+}
+
+std::vector<HomPoint4i> makePathSignature(const std::vector<Segment256> &path)
+{
+    std::vector<HomPoint4i> signature;
+    if (path.empty())
+        return signature;
+
+    signature.reserve(path.size() + 1u);
+    signature.push_back(path.front().getStartPointRef().x);
+    for (const Segment256 &segment : path)
+        signature.push_back(segment.getEndPointRef().x);
+    return signature;
+}
+
+bool hasSeenPathSignature(
+    const LeafClassificationAttemptStats &attemptStats,
+    const std::vector<HomPoint4i> &signature) noexcept
+{
+    for (const std::vector<HomPoint4i> &existing : attemptStats.uniquePathSignatures)
+    {
+        if (samePathSignature(existing, signature))
+            return true;
+    }
+
+    return false;
+}
+
+bool isTraceableSurfaceCandidatePath(
+    const PlanePoint3i &referencePoint,
+    const PlanePoint3i &targetPoint,
+    const std::vector<Segment256> &path) noexcept
+{
+    if (!targetPoint.hasUniqueIntersection() || path.empty())
+        return false;
+
+    if (!areSamePlanePoint(path.front().getStartPointRef(), referencePoint))
+        return false;
+
+    for (std::size_t i = 0; i < path.size(); ++i)
+    {
+        if (!path[i].isValid())
+            return false;
+        if (i > 0u && !areSamePlanePoint(path[i - 1u].getEndPointRef(), path[i].getStartPointRef()))
+            return false;
+    }
+
+    const PlanePoint3i &pathTargetPoint = path.back().getEndPointRef();
+    if (pathTargetPoint.x.hasSameComponents(targetPoint.x))
+        return true;
+
+    return areSamePlanePoint(pathTargetPoint, targetPoint);
+}
+
+bool buildAxisRepairPath(
+    const PlanePoint3i &referencePoint,
+    const PlanePoint3i &targetPoint,
+    const AABB3i &box,
+    std::vector<Segment256> &outPath)
+{
+    const std::array<Plane3i, 3> referenceCoordinatePlanes = {
+        detail::makeCoordinatePlaneFromPoint(referencePoint, SplitAxis3i::X),
+        detail::makeCoordinatePlaneFromPoint(referencePoint, SplitAxis3i::Y),
+        detail::makeCoordinatePlaneFromPoint(referencePoint, SplitAxis3i::Z)
+    };
+    const std::array<Plane3i, 3> targetCoordinatePlanes = {
+        detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::X),
+        detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Y),
+        detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Z)
+    };
+
+    std::vector<SplitAxis3i> changedAxes;
+    changedAxes.reserve(3);
+    if (!detail::areSamePlaneEquation(referenceCoordinatePlanes[0], targetCoordinatePlanes[0]))
+        changedAxes.push_back(SplitAxis3i::X);
+    if (!detail::areSamePlaneEquation(referenceCoordinatePlanes[1], targetCoordinatePlanes[1]))
+        changedAxes.push_back(SplitAxis3i::Y);
+    if (!detail::areSamePlaneEquation(referenceCoordinatePlanes[2], targetCoordinatePlanes[2]))
+        changedAxes.push_back(SplitAxis3i::Z);
+    if (changedAxes.empty())
+        return false;
+
+    std::sort(
+        changedAxes.begin(),
+        changedAxes.end(),
+        detail::axisOrderLess);
+    do
+    {
+        std::vector<Segment256> path;
+        if (detail::buildAxisAlignedCoordinatePath(referencePoint, targetPoint, box, changedAxes, path) &&
+                isTraceableSurfaceCandidatePath(referencePoint, targetPoint, path))
+        {
+            outPath = std::move(path);
+            return true;
+        }
+    } while (std::next_permutation(
+                 changedAxes.begin(),
+                 changedAxes.end(),
+                 detail::axisOrderLess));
+
+    return false;
+}
+
+bool buildPlaneReplacementRepairPath(
+    const PlanePoint3i &referencePoint,
+    const PlanePoint3i &targetPoint,
+    const AABB3i &box,
+    std::vector<Segment256> &outPath)
+{
+    std::vector<int> changedPlaneIndices;
+    changedPlaneIndices.reserve(3);
+    if (!detail::areSamePlaneEquation(referencePoint.p, targetPoint.p))
+        changedPlaneIndices.push_back(0);
+    if (!detail::areSamePlaneEquation(referencePoint.q, targetPoint.q))
+        changedPlaneIndices.push_back(1);
+    if (!detail::areSamePlaneEquation(referencePoint.r, targetPoint.r))
+        changedPlaneIndices.push_back(2);
+    if (changedPlaneIndices.empty())
+        return false;
+
+    std::sort(changedPlaneIndices.begin(), changedPlaneIndices.end());
+    do
+    {
+        std::vector<Segment256> path;
+        if (detail::buildPlaneReplacementPath(referencePoint, targetPoint, box, changedPlaneIndices, path) &&
+                isTraceableSurfaceCandidatePath(referencePoint, targetPoint, path))
+        {
+            outPath = std::move(path);
+            return true;
+        }
+    } while (std::next_permutation(changedPlaneIndices.begin(), changedPlaneIndices.end()));
+
+    return false;
+}
+
+bool repairSurfaceCandidatePath(
+    const LeafClassificationContext &context,
+    const Polygon256 &fragment,
+    const LeafClassificationPathCandidate &candidate,
+    std::vector<Segment256> &outPath)
+{
+    outPath.clear();
+    if (!candidate.targetPoint.hasUniqueIntersection() ||
+            !fragment.containsStrictly(candidate.targetPoint))
+        return false;
+
+    if (buildAxisRepairPath(
+                context.localReference.point,
+                candidate.targetPoint,
+                context.aabb,
+                outPath))
+        return true;
+
+    return buildPlaneReplacementRepairPath(
+               context.localReference.point,
+               candidate.targetPoint,
+               context.aabb,
+               outPath);
+}
+
+bool registerUniqueLeafClassificationCandidatePath(
+    LeafClassificationContext &context,
+    LeafClassificationAttemptStats &attemptStats,
+    const std::vector<Segment256> &path)
+{
+    std::vector<HomPoint4i> signature = makePathSignature(path);
+    if (signature.empty())
+    {
+        ++context.solveMetrics.leafClassificationCandidateRejectedCount;
+        return false;
+    }
+
+    if (hasSeenPathSignature(attemptStats, signature))
+    {
+        ++context.solveMetrics.leafClassificationCandidateDuplicateSkipCount;
+        return false;
+    }
+
+    attemptStats.uniquePathSignatures.push_back(std::move(signature));
+    ++context.solveMetrics.leafClassificationCandidateUniqueCount;
+    return true;
+}
+
+bool prepareLeafClassificationCandidate(
+    LeafClassificationContext &context,
+    Polygon256 &fragment,
+    LeafClassificationAttemptStats &attemptStats,
+    LeafClassificationPathCandidate &candidate)
+{
+    ++context.solveMetrics.leafClassificationCandidateGeneratedCount;
+    if (!candidate.targetPoint.hasUniqueIntersection() ||
+            !fragment.containsStrictly(candidate.targetPoint))
+    {
+        ++context.solveMetrics.leafClassificationCandidateRejectedCount;
+        return false;
+    }
+
+    if (!isTraceableSurfaceCandidatePath(
+                context.localReference.point,
+                candidate.targetPoint,
+                candidate.path))
+    {
+        REEMBER_PROFILE_ZONE("LeafClassification::candidateRepair");
+        ++context.solveMetrics.leafClassificationCandidateRepairAttemptCount;
+
+        std::vector<Segment256> repairedPath;
+        if (!repairSurfaceCandidatePath(context, fragment, candidate, repairedPath))
+        {
+            ++context.solveMetrics.leafClassificationCandidateRejectedCount;
+            return false;
+        }
+
+        candidate.path = std::move(repairedPath);
+        ++context.solveMetrics.leafClassificationCandidateRepairSuccessCount;
+    }
+
+    return registerUniqueLeafClassificationCandidatePath(context, attemptStats, candidate.path);
 }
 
 std::string formatPathForDebug(const std::vector<Segment256> &path)
@@ -207,11 +511,24 @@ traceStatus traceLeafClassificationCandidate(
     std::size_t fragmentIndex,
     Polygon256 &fragment,
     LeafClassificationAttemptStats &attemptStats,
+    LeafClassificationTraceStage stage,
+    LeafClassificationCandidateKind kind,
     const LeafClassificationPathCandidate &candidate)
 {
     REEMBER_PROFILE_ZONE("LeafClassification::traceCandidate");
 
     ++context.solveMetrics.leafClassificationTraceAttemptCount;
+    if (kind == LeafClassificationCandidateKind::AxisPath)
+    {
+        ++attemptStats.axisPathAttemptCount;
+        ++context.solveMetrics.leafClassificationAxisPathAttemptCount;
+    }
+    else
+    {
+        ++attemptStats.planeReplacementPathAttemptCount;
+        ++context.solveMetrics.leafClassificationPlaneReplacementPathAttemptCount;
+    }
+
     WNV frontWNV;
     WNV backWNV;
     const traceStatus status = detail::tracePathWNVToSurfacePointTrusted(
@@ -223,6 +540,7 @@ traceStatus traceLeafClassificationCandidate(
                                    backWNV);
 
     attemptStats.lastStatus = status;
+    recordLeafClassificationStatus(context.solveMetrics, stage, status);
     if (status == SUCCESS)
     {
         context.classifiedFragments.push_back(
@@ -231,6 +549,60 @@ traceStatus traceLeafClassificationCandidate(
     }
 
     return status;
+}
+
+LeafClassificationTraceResult prepareAndTraceLeafClassificationCandidate(
+    LeafClassificationContext &context,
+    std::size_t fragmentIndex,
+    Polygon256 &fragment,
+    LeafClassificationAttemptStats &attemptStats,
+    LeafClassificationTraceStage stage,
+    LeafClassificationCandidateKind kind,
+    LeafClassificationPathCandidate candidate)
+{
+    if (!prepareLeafClassificationCandidate(context, fragment, attemptStats, candidate))
+        return LeafClassificationTraceResult{};
+
+    LeafClassificationTraceResult result{
+        true,
+        traceLeafClassificationCandidate(
+            context,
+            fragmentIndex,
+            fragment,
+            attemptStats,
+            stage,
+            kind,
+            candidate)};
+    if (result.status != INPUT_INVALID)
+        return result;
+
+    // `INPUT_INVALID` 表示候选构造违反 trace 前置条件，只修复当前候选；
+    // 若局部重建仍不可用，继续尝试后续候选，而不是把它当作路径退化全局放大。
+    REEMBER_PROFILE_ZONE("LeafClassification::candidateRepair");
+    ++context.solveMetrics.leafClassificationCandidateRepairAttemptCount;
+
+    std::vector<Segment256> repairedPath;
+    if (!repairSurfaceCandidatePath(context, fragment, candidate, repairedPath))
+    {
+        ++context.solveMetrics.leafClassificationCandidateRejectedCount;
+        return LeafClassificationTraceResult{false, INPUT_INVALID};
+    }
+
+    if (!registerUniqueLeafClassificationCandidatePath(context, attemptStats, repairedPath))
+        return LeafClassificationTraceResult{false, INPUT_INVALID};
+
+    candidate.path = std::move(repairedPath);
+    ++context.solveMetrics.leafClassificationCandidateRepairSuccessCount;
+    return LeafClassificationTraceResult{
+        true,
+        traceLeafClassificationCandidate(
+            context,
+            fragmentIndex,
+            fragment,
+            attemptStats,
+            stage,
+            kind,
+            candidate)};
 }
 
 bool attemptCentroidAxisPathCandidate(
@@ -267,19 +639,24 @@ bool attemptCentroidAxisPathCandidate(
     {
         REEMBER_PROFILE_ZONE("LeafClassification::axisPathCandidate");
 
-        ++attemptStats.axisPathAttemptCount;
-        ++context.solveMetrics.leafClassificationAxisPathAttemptCount;
         if constexpr (kLeafClassificationDebug)
         {
             attemptStats.debugLog << "axis_path_candidate "
                                   << formatPathForDebug(candidate.path);
         }
-        const traceStatus status = traceLeafClassificationCandidate(
-                                       context,
-                                       fragmentIndex,
-                                       fragment,
-                                       attemptStats,
-                                       candidate);
+        const LeafClassificationTraceResult traceResult =
+            prepareAndTraceLeafClassificationCandidate(
+                context,
+                fragmentIndex,
+                fragment,
+                attemptStats,
+                LeafClassificationTraceStage::CentroidAxis,
+                LeafClassificationCandidateKind::AxisPath,
+                std::move(candidate));
+        if (!traceResult.traced)
+            return true;
+
+        const traceStatus status = traceResult.status;
         if constexpr (kLeafClassificationDebug)
             attemptStats.debugLog << " status=" << traceStatusName(status) << "\n";
         if (status == SUCCESS)
@@ -355,17 +732,22 @@ bool attemptInsetPlaneReplacementCandidates(
         {
             REEMBER_PROFILE_ZONE("LeafClassification::planeReplacementPathCandidate");
 
-            ++attemptStats.planeReplacementPathAttemptCount;
-            ++context.solveMetrics.leafClassificationPlaneReplacementPathAttemptCount;
             if constexpr (kLeafClassificationDebug)
                 attemptStats.debugLog << label << " "
                                       << formatPathForDebug(candidate.path);
-            const traceStatus status = traceLeafClassificationCandidate(
-                                           context,
-                                           fragmentIndex,
-                                           fragment,
-                                           attemptStats,
-                                           candidate);
+            const LeafClassificationTraceResult traceResult =
+                prepareAndTraceLeafClassificationCandidate(
+                    context,
+                    fragmentIndex,
+                    fragment,
+                    attemptStats,
+                    LeafClassificationTraceStage::InsetReplacement,
+                    LeafClassificationCandidateKind::PlaneReplacementPath,
+                    std::move(candidate));
+            if (!traceResult.traced)
+                return true;
+
+            const traceStatus status = traceResult.status;
             if constexpr (kLeafClassificationDebug)
                 attemptStats.debugLog << " status=" << traceStatusName(status) << "\n";
             if (status == SUCCESS)
@@ -467,8 +849,7 @@ bool attemptBridgeRescueCandidates(
         const auto traceWithPrefix =
             [&](LeafClassificationPathCandidate candidate,
                 const char *label,
-                std::size_t &pathAttemptCounter,
-                std::size_t &metricCounter) -> bool
+                LeafClassificationCandidateKind kind) -> bool
         {
             std::vector<Segment256> fullPath;
             fullPath.reserve(prefix.size() + candidate.path.size());
@@ -478,18 +859,23 @@ bool attemptBridgeRescueCandidates(
                 std::make_move_iterator(candidate.path.begin()),
                 std::make_move_iterator(candidate.path.end()));
 
-            ++pathAttemptCounter;
-            ++metricCounter;
             if constexpr (kLeafClassificationDebug)
                 attemptStats.debugLog << label << " " << formatPathForDebug(fullPath);
-            const traceStatus status = traceLeafClassificationCandidate(
-                                           context,
-                                           fragmentIndex,
-                                           fragment,
-                                           attemptStats,
-                                           LeafClassificationPathCandidate{
-                                               candidate.targetPoint,
-                                               std::move(fullPath)});
+            const LeafClassificationTraceResult traceResult =
+                prepareAndTraceLeafClassificationCandidate(
+                    context,
+                    fragmentIndex,
+                    fragment,
+                    attemptStats,
+                    LeafClassificationTraceStage::BridgeRescue,
+                    kind,
+                    LeafClassificationPathCandidate{
+                        candidate.targetPoint,
+                        std::move(fullPath)});
+            if (!traceResult.traced)
+                return true;
+
+            const traceStatus status = traceResult.status;
             if constexpr (kLeafClassificationDebug)
                 attemptStats.debugLog << " status=" << traceStatusName(status) << "\n";
             if (status == SUCCESS)
@@ -514,8 +900,7 @@ bool attemptBridgeRescueCandidates(
             return traceWithPrefix(
                 std::move(candidate),
                 "bridge_axis_candidate",
-                attemptStats.axisPathAttemptCount,
-                context.solveMetrics.leafClassificationAxisPathAttemptCount);
+                LeafClassificationCandidateKind::AxisPath);
         });
 
         if (attemptStats.classified || !allowFallback)
@@ -531,8 +916,7 @@ bool attemptBridgeRescueCandidates(
             return traceWithPrefix(
                 std::move(candidate),
                 "bridge_plane_replacement_candidate",
-                attemptStats.planeReplacementPathAttemptCount,
-                context.solveMetrics.leafClassificationPlaneReplacementPathAttemptCount);
+                LeafClassificationCandidateKind::PlaneReplacementPath);
         });
 
         if (attemptStats.classified || !allowFallback)
