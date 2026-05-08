@@ -19,19 +19,19 @@
 当前对外流水线是：
 
 ```text
-OBJ -> 共享 scale + 浮点输入AABB -> Polygon soup -> BoolProblem(校验/懒顶点缓存) -> SubdivisionSolver -> resultFragments -> OBJ n-gon
+OBJ/STL -> 共享 scale + 浮点输入AABB -> Polygon soup -> BoolProblem(校验/懒顶点缓存) -> SubdivisionSolver -> resultFragments -> OBJ n-gon / STL triangles
 ```
 
 其中职责边界是：
 
-- `main.cpp` 只负责 CLI、OBJ 读写、共享量化尺度选择、合并输入 AABB、驱动 `BoolProblem`。
+- `main.cpp` 只负责 CLI、按扩展名读写 OBJ/STL、共享量化尺度选择、合并输入 AABB、驱动 `BoolProblem`。
 - `BoolProblem` 是公开门面，只保存输入、布尔配置和最终结果。
 - `SubdivisionSolver` 独占递归树、AABB、参考点传播、叶片片段、分类片段和结果汇总。
-- `writePolygonSoupObj()` 默认直接导出 n 边面结果，不主动三角化输出。
+- `writePolygonSoupMesh()` 按扩展名分发：`.obj` 保持 n 边面，`.stl` 在 I/O 边界层做扇形三角化。
 
 ```mermaid
 flowchart TD
-    A["CLI: main(argc, argv)"] --> B["readObjMesh(lhs/rhs)"]
+    A["CLI: main(argc, argv)"] --> B["readMesh(lhs/rhs)"]
     B --> C["chooseSharedScale()"]
     C --> D["computeScaledMeshAABB(lhs/rhs)"]
     D --> E["mergeAABB(lhs/rhs); expandAABB(margin=1)"]
@@ -40,8 +40,8 @@ flowchart TD
     G --> H["BoolProblem::solve(sceneAABB)"]
     H --> I["SubdivisionSolver::solve()"]
     I --> J["resultFragments()"]
-    J --> K["writePolygonSoupObj()"]
-    K --> L["OBJ n-gon 输出"]
+    J --> K["writePolygonSoupMesh()"]
+    K --> L["OBJ n-gon 或 STL triangles 输出"]
 ```
 
 ## 2. 应用层到 BoolProblem
@@ -49,22 +49,23 @@ flowchart TD
 `src/application/main.cpp` 的外层顺序比较固定：
 
 1. 解析 `--lhs --rhs --op --out --scale --leaf-threshold --threads`。
-2. 读取左右 OBJ。
+2. 按扩展名读取左右输入网格（OBJ/STL）。
 3. 选择共享 `scale`，把左右输入放进同一个整数坐标系。
-4. 用 `computeScaledMeshAABB()` 对 OBJ 浮点顶点执行 `floor(coord * scale)` / `ceil(coord * scale)`，得到左右输入 AABB。
+4. 用 `computeScaledMeshAABB()` 对输入网格浮点顶点执行 `floor(coord * scale)` / `ceil(coord * scale)`，得到左右输入 AABB。
 5. 合并左右输入 AABB，并扩展一圈 margin 作为根场景 AABB。
-6. 调用 `buildPolygonSoup()` 把 OBJ 面片转换为 `Polygon256` 集合。
+6. 调用 `buildPolygonSoup()` 把输入面片转换为 `Polygon256` 集合。
 7. 构造 `BoolProblem`，设置布尔运算、输入假设、总线程数和左右操作数。
 8. 调用 `problem.solve(sceneAABB)`。
-9. 把 `problem.resultFragments()` 直接写回 OBJ。
+9. 把 `problem.resultFragments()` 按输出扩展名写回 OBJ 或 STL。
 
 这里有几个实现细节值得单独记住：
 
 - `setOperands()` 会给左操作数写入基础 `WNTV={1,0}`，给右操作数写入 `WNTV={0,1}`。
 - `setThreadCount(0)` 表示自动并发度；`setThreadCount(1)` 表示强制串行；`N>1` 表示总参与线程数为 `N`。
 - `BoolProblem` 不再暴露直接注入任意 `WNTV` polygon 集合的公开入口，公开输入边界固定为二元操作数。
-- 根场景 AABB 来自共享 `scale` 后的 OBJ 浮点顶点上/下取整，不再由 `SubdivisionSolver` 从 256 位多边形顶点反推。
-- 应用层构建 polygon soup 时启用了 `triangulateNonCoplanarFaces=true`，但最终结果导出仍保持 polygon soup / n-gon 语义。
+- 根场景 AABB 来自共享 `scale` 后的输入网格浮点顶点上/下取整，不再由 `SubdivisionSolver` 从 256 位多边形顶点反推。
+- STL 输入由 vendored `third_party/stl_reader/stl_reader.h` 负责 ASCII/binary 识别和三角顶点去重；应用层构建 polygon soup 时仍会启用 `triangulateNonCoplanarFaces=true`。
+- 最终结果导出到 `.obj` 时保持 polygon soup / n-gon 语义；导出到 `.stl` 时则在外层做三角化。
 
 ## 3. BoolProblem 门面流程
 

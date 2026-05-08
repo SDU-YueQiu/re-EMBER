@@ -1,17 +1,21 @@
 /**
  * @file io.cpp
- * @brief 实现 OBJ 导入、量化、多边形集合构建和导出。
+ * @brief 实现 OBJ/STL 导入、量化、多边形集合构建和导出。
  */
 #include "io.h"
 
 #include "geometry/plane_geometry256.h"
 #include "geometry/polygon_ops.h"
-#include "math/math256.h"
+#include "math/math256.h"
 
+#include <stl_reader/stl_reader.h>
 #include <tiny_obj_loader.h>
 
 #include <algorithm>
+#include <array>
+#include <cctype>
 #include <cmath>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -34,12 +38,139 @@ bool failIo(std::string &outError, const std::string &message)
 // 论文中给出的输入整数坐标安全范围：每个笛卡尔坐标使用 26-bit 有符号整数。
 long long kInputCoordinateLimit = (1LL << 25) - 1;
 
+enum class MeshFileFormat
+{
+    Obj,
+    Stl
+};
+
+std::string toLowerAscii(std::string value)
+{
+    std::transform(
+        value.begin(),
+        value.end(),
+        value.begin(),
+        [](unsigned char c)
+    {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
+}
+
+bool detectMeshFileFormatFromPath(
+    const std::string &path,
+    MeshFileFormat &outFormat,
+    std::string &outError)
+{
+    const std::string extension =
+        toLowerAscii(std::filesystem::path(path).extension().string());
+    if (extension == ".obj")
+    {
+        outFormat = MeshFileFormat::Obj;
+        return true;
+    }
+    if (extension == ".stl")
+    {
+        outFormat = MeshFileFormat::Stl;
+        return true;
+    }
+
+    return failIo(
+               outError,
+               "Unsupported mesh file extension for path: " + path +
+               ". Expected .obj or .stl.");
+}
+
+bool ensureOutputDirectoryExists(
+    const std::string &path,
+    const std::string &formatLabel,
+    std::string &outError)
+{
+    const std::filesystem::path outputPath(path);
+    if (!outputPath.has_parent_path())
+        return true;
+
+    std::error_code ec;
+    std::filesystem::create_directories(outputPath.parent_path(), ec);
+    if (ec)
+    {
+        return failIo(
+                   outError,
+                   "Failed to create " + formatLabel + " output directory: " +
+                   outputPath.parent_path().string());
+    }
+
+    return true;
+}
+
+void writeLittleEndianUInt32(std::ostream &stream, std::uint32_t value)
+{
+    char bytes[4];
+    bytes[0] = static_cast<char>(value & 0xffu);
+    bytes[1] = static_cast<char>((value >> 8u) & 0xffu);
+    bytes[2] = static_cast<char>((value >> 16u) & 0xffu);
+    bytes[3] = static_cast<char>((value >> 24u) & 0xffu);
+    stream.write(bytes, sizeof(bytes));
+}
+
+void writeLittleEndianUInt16(std::ostream &stream, std::uint16_t value)
+{
+    char bytes[2];
+    bytes[0] = static_cast<char>(value & 0xffu);
+    bytes[1] = static_cast<char>((value >> 8u) & 0xffu);
+    stream.write(bytes, sizeof(bytes));
+}
+
+void writeLittleEndianFloat32(std::ostream &stream, float value)
+{
+    std::uint32_t bits = 0;
+    static_assert(sizeof(bits) == sizeof(value), "float bit width mismatch");
+    std::memcpy(&bits, &value, sizeof(bits));
+    writeLittleEndianUInt32(stream, bits);
+}
+ObjVertex subtractObjVertex(const ObjVertex &lhs, const ObjVertex &rhs) noexcept
+{
+    return ObjVertex{lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z};
+}
+
+ObjVertex crossObjVertex(const ObjVertex &lhs, const ObjVertex &rhs) noexcept
+{
+    return ObjVertex{
+        lhs.y * rhs.z - lhs.z * rhs.y,
+        lhs.z * rhs.x - lhs.x * rhs.z,
+        lhs.x * rhs.y - lhs.y * rhs.x};
+}
+
+ObjVertex normalizeObjVertex(const ObjVertex &vertex) noexcept
+{
+    const double length =
+        std::sqrt(vertex.x * vertex.x + vertex.y * vertex.y + vertex.z * vertex.z);
+    if (length <= 0.0)
+        return ObjVertex{};
+
+    return ObjVertex{vertex.x / length, vertex.y / length, vertex.z / length};
+}
+
+struct StlTriangle
+{
+    ObjVertex a;
+    ObjVertex b;
+    ObjVertex c;
+};
+
+ObjVertex computeTriangleNormal(const StlTriangle &triangle) noexcept
+{
+    const ObjVertex ab = subtractObjVertex(triangle.b, triangle.a);
+    const ObjVertex ac = subtractObjVertex(triangle.c, triangle.a);
+    return normalizeObjVertex(crossObjVertex(ab, ac));
+}
+
 // 按调用方给定的共享 scale 执行四舍五入量化，并同时检查 26-bit 输入界限。
 bool quantizeCoordinate(double value, std::uint64_t scale, Integer &outValue, std::string &outError)
 {
     if (!std::isfinite(value))
     {
-        outError = "OBJ vertex coordinate is not finite.";
+        outError = "Mesh vertex coordinate is not finite.";
         return false;
     }
 
@@ -48,7 +179,7 @@ bool quantizeCoordinate(double value, std::uint64_t scale, Integer &outValue, st
     if (rounded < -static_cast<long double>(kInputCoordinateLimit) ||
             rounded > static_cast<long double>(kInputCoordinateLimit))
     {
-        outError = "Quantized OBJ vertex coordinate exceeds the 26-bit signed input bound.";
+        outError = "Quantized mesh vertex coordinate exceeds the 26-bit signed input bound.";
         return false;
     }
 
@@ -80,7 +211,7 @@ bool computeScaledCoordinateInterval(
 {
     if (!std::isfinite(value))
     {
-        outError = "OBJ vertex coordinate is not finite.";
+        outError = "Mesh vertex coordinate is not finite.";
         return false;
     }
 
@@ -90,7 +221,7 @@ bool computeScaledCoordinateInterval(
     if (lower < static_cast<long double>(std::numeric_limits<int>::lowest()) ||
             upper > static_cast<long double>(std::numeric_limits<int>::max()))
     {
-        outError = "Scaled OBJ vertex coordinate exceeds the integer AABB conversion bound.";
+        outError = "Scaled mesh vertex coordinate exceeds the integer AABB conversion bound.";
         return false;
     }
 
@@ -188,7 +319,7 @@ bool buildPolygonFromQuantizedFace(
     if (hasDuplicateFaceVertex(faceVertices))
     {
         outFailure = PolygonFaceBuildFailure::DuplicateVertices;
-        outError = "OBJ face " + std::to_string(faceIndex) + " contains duplicate vertices after quantization.";
+        outError = "Mesh face " + std::to_string(faceIndex) + " contains duplicate vertices after quantization.";
         return false;
     }
 
@@ -196,7 +327,7 @@ bool buildPolygonFromQuantizedFace(
     if (!findSupportPlane(faceVertices, supportPlane))
     {
         outFailure = PolygonFaceBuildFailure::DegenerateSupport;
-        outError = "OBJ face " + std::to_string(faceIndex) +
+        outError = "Mesh face " + std::to_string(faceIndex) +
                    " degenerates to a collinear or point set after quantization.";
         return false;
     }
@@ -206,7 +337,7 @@ bool buildPolygonFromQuantizedFace(
         if (!isVertexOnPlane(vertex, supportPlane))
         {
             outFailure = PolygonFaceBuildFailure::NonCoplanarAfterQuantization;
-            outError = "OBJ face " + std::to_string(faceIndex) + " is not coplanar after quantization.";
+            outError = "Mesh face " + std::to_string(faceIndex) + " is not coplanar after quantization.";
             return false;
         }
     }
@@ -222,7 +353,7 @@ bool buildPolygonFromQuantizedFace(
         if (isZero(edgeVector.x) && isZero(edgeVector.y) && isZero(edgeVector.z))
         {
             outFailure = PolygonFaceBuildFailure::ZeroLengthEdge;
-            outError = "OBJ face " + std::to_string(faceIndex) + " contains a zero-length edge after quantization.";
+            outError = "Mesh face " + std::to_string(faceIndex) + " contains a zero-length edge after quantization.";
             return false;
         }
 
@@ -230,7 +361,7 @@ bool buildPolygonFromQuantizedFace(
         if (isZero(edgeNormal.x) && isZero(edgeNormal.y) && isZero(edgeNormal.z))
         {
             outFailure = PolygonFaceBuildFailure::InvalidEdgePlane;
-            outError = "OBJ face " + std::to_string(faceIndex) + " produced an invalid edge plane.";
+            outError = "Mesh face " + std::to_string(faceIndex) + " produced an invalid edge plane.";
             return false;
         }
 
@@ -241,7 +372,7 @@ bool buildPolygonFromQuantizedFace(
     if (!polygon.isValid())
     {
         outFailure = PolygonFaceBuildFailure::InvalidPolygon;
-        outError = "OBJ face " + std::to_string(faceIndex) +
+        outError = "Mesh face " + std::to_string(faceIndex) +
                    " is not a valid strictly convex polygon under the current exact geometry contract.";
         return false;
     }
@@ -269,7 +400,7 @@ bool appendTriangulatedNonCoplanarFace(
         std::string triangleError;
         if (!buildPolygonFromQuantizedFace(triangle, faceIndex, polygon, failure, triangleError))
         {
-            outError = "OBJ face " + std::to_string(faceIndex) +
+            outError = "Mesh face " + std::to_string(faceIndex) +
                        " is not coplanar after quantization, and its triangulated fallback failed: " +
                        triangleError;
             return false;
@@ -390,6 +521,45 @@ void writeObjVertexLine(std::ostream &stream, const PlanePoint3i &vertex, std::u
            << point.y << " "
            << point.z << "\n";
 }
+
+bool buildStlTrianglesFromPolygonSoup(
+    const std::vector<Polygon256> &fragments,
+    std::uint64_t coordinateScale,
+    std::vector<StlTriangle> &outTriangles,
+    std::string &outError)
+{
+    outTriangles.clear();
+    outError.clear();
+
+    for (std::size_t polygonIndex = 0; polygonIndex < fragments.size(); ++polygonIndex)
+    {
+        std::vector<PlanePoint3i> orderedVertices;
+        if (!recoverOrderedPolygonVertices(fragments[polygonIndex], orderedVertices, outError))
+        {
+            outError = "Failed to recover polygon " + std::to_string(polygonIndex) + ": " + outError;
+            return false;
+        }
+        if (orderedVertices.size() < 3u)
+        {
+            outError =
+                "Failed to triangulate polygon " + std::to_string(polygonIndex) +
+                ": fewer than three ordered vertices were recovered.";
+            return false;
+        }
+
+        const ObjVertex anchor =
+            homogeneousPointToObjVertex(orderedVertices[0], coordinateScale);
+        for (std::size_t i = 1; i + 1 < orderedVertices.size(); ++i)
+        {
+            outTriangles.push_back(StlTriangle{
+                anchor,
+                homogeneousPointToObjVertex(orderedVertices[i], coordinateScale),
+                homogeneousPointToObjVertex(orderedVertices[i + 1], coordinateScale)});
+        }
+    }
+
+    return true;
+}
 }
 
 bool readObjMesh(const std::string &path, ObjMeshData &outMesh, std::string &outError)
@@ -479,7 +649,72 @@ bool readObjMesh(const std::string &path, ObjMeshData &outMesh, std::string &out
     }
 
     return true;
-}
+}
+
+bool readStlMesh(const std::string &path, ObjMeshData &outMesh, std::string &outError)
+{
+    outMesh = ObjMeshData();
+    outError.clear();
+
+    std::vector<double> coords;
+    std::vector<double> normals;
+    std::vector<std::size_t> tris;
+    std::vector<std::size_t> solids;
+    try
+    {
+        stl_reader::ReadStlFile(path.c_str(), coords, normals, tris, solids);
+    }
+    catch (const std::exception &ex)
+    {
+        return failIo(outError, "Failed to parse STL file: " + path + ": " + ex.what());
+    }
+
+    if ((coords.size() % 3u) != 0u)
+        return failIo(outError, "STL coordinate array is not divisible by three.");
+    if ((tris.size() % 3u) != 0u)
+        return failIo(outError, "STL triangle index array is not divisible by three.");
+    if (tris.empty())
+        return failIo(outError, "STL file does not contain any triangles.");
+
+    outMesh.vertices.reserve(coords.size() / 3u);
+    for (std::size_t i = 0; i < coords.size(); i += 3u)
+        outMesh.vertices.push_back(ObjVertex{coords[i], coords[i + 1u], coords[i + 2u]});
+
+    outMesh.faces.reserve(tris.size() / 3u);
+    for (std::size_t i = 0; i < tris.size(); i += 3u)
+    {
+        const std::size_t a = tris[i];
+        const std::size_t b = tris[i + 1u];
+        const std::size_t c = tris[i + 2u];
+        if (a >= outMesh.vertices.size() ||
+                b >= outMesh.vertices.size() ||
+                c >= outMesh.vertices.size())
+        {
+            return failIo(outError, "STL triangle references a vertex that does not exist.");
+        }
+
+        outMesh.faces.push_back({a, b, c});
+    }
+
+    return true;
+}
+
+bool readMesh(const std::string &path, ObjMeshData &outMesh, std::string &outError)
+{
+    MeshFileFormat format = MeshFileFormat::Obj;
+    if (!detectMeshFileFormatFromPath(path, format, outError))
+        return false;
+
+    switch (format)
+    {
+    case MeshFileFormat::Obj:
+        return readObjMesh(path, outMesh, outError);
+    case MeshFileFormat::Stl:
+        return readStlMesh(path, outMesh, outError);
+    }
+
+    return failIo(outError, "Unsupported mesh file format.");
+}
 
 bool chooseSharedScale(
     const std::vector<ObjMeshData> &meshes,
@@ -521,7 +756,7 @@ bool chooseSharedScale(
     {
         return failIo(
                    outError,
-                   "OBJ coordinates exceed the 26-bit signed input bound even at scale 1.");
+                   "Mesh coordinates exceed the 26-bit signed input bound even at scale 1.");
     }
 
     const long double upperBound = static_cast<long double>(kInputCoordinateLimit) / maxAbsCoordinate;
@@ -546,7 +781,7 @@ bool computeScaledMeshAABB(
     if (sharedScale == 0)
         return failIo(outError, "Shared scale must be a positive integer.");
     if (mesh.vertices.empty())
-        return failIo(outError, "Cannot compute an AABB for an OBJ mesh without vertices.");
+        return failIo(outError, "Cannot compute an AABB for a mesh without vertices.");
 
     for (std::size_t vertexIndex = 0; vertexIndex < mesh.vertices.size(); ++vertexIndex)
     {
@@ -561,7 +796,7 @@ bool computeScaledMeshAABB(
                 !computeScaledCoordinateInterval(vertex.y, sharedScale, yMin, yMax, outError) ||
                 !computeScaledCoordinateInterval(vertex.z, sharedScale, zMin, zMax, outError))
         {
-            outError = "Failed to compute scaled AABB for OBJ vertex " +
+            outError = "Failed to compute scaled AABB for mesh vertex " +
                        std::to_string(vertexIndex) + ": " + outError;
             outAABB = AABB3i();
             return false;
@@ -603,7 +838,7 @@ bool buildPolygonSoup(
         Vec3i quantizedVertex;
         if (!quantizeVertex(mesh.vertices[i], sharedScale, quantizedVertex, outError))
         {
-            outError = "Failed to quantize OBJ vertex " + std::to_string(i) + ": " + outError;
+            outError = "Failed to quantize mesh vertex " + std::to_string(i) + ": " + outError;
             return false;
         }
 
@@ -614,7 +849,7 @@ bool buildPolygonSoup(
     std::size_t triangulatedNonCoplanarFaceCount = 0;
     for (std::size_t faceIndex = 0; faceIndex < mesh.faces.size(); ++faceIndex)
     {
-        // 每个 OBJ 面都必须在量化后独立满足：无重复点、可定支撑平面、全体共面、严格凸。
+        // 每个输入面都必须在量化后独立满足：无重复点、可定支撑平面、全体共面、严格凸。
         const std::vector<std::size_t> &face = mesh.faces[faceIndex];
 
         std::vector<Vec3i> faceVertices;
@@ -625,7 +860,7 @@ bool buildPolygonSoup(
             {
                 return failIo(
                            outError,
-                           "OBJ face " + std::to_string(faceIndex) +
+                           "Mesh face " + std::to_string(faceIndex) +
                            " references an out-of-range quantized vertex.");
             }
 
@@ -669,19 +904,8 @@ bool writePolygonSoupObj(
 
     if (coordinateScale == 0)
         return failIo(outError, "Coordinate scale must be a positive integer.");
-
-    const std::filesystem::path outputPath(path);
-    if (outputPath.has_parent_path())
-    {
-        std::error_code ec;
-        std::filesystem::create_directories(outputPath.parent_path(), ec);
-        if (ec)
-        {
-            return failIo(
-                       outError,
-                       "Failed to create OBJ output directory: " + outputPath.parent_path().string());
-        }
-    }
+    if (!ensureOutputDirectoryExists(path, "OBJ", outError))
+        return false;
 
     RecoveredPolygonSoupData recovered;
     if (!recoverPolygonSoupData(fragments, recovered, outError))
@@ -714,6 +938,95 @@ bool writePolygonSoupObj(
     outFaceCount = recovered.faces.size();
     return true;
 }
+
+bool writePolygonSoupStl(
+    const std::vector<Polygon256> &fragments,
+    const std::string &path,
+    std::size_t &outFaceCount,
+    std::string &outError,
+    std::uint64_t coordinateScale)
+{
+    outFaceCount = 0;
+    outError.clear();
+
+    if (coordinateScale == 0)
+        return failIo(outError, "Coordinate scale must be a positive integer.");
+    if (!ensureOutputDirectoryExists(path, "STL", outError))
+        return false;
+
+    std::vector<StlTriangle> triangles;
+    if (!buildStlTrianglesFromPolygonSoup(fragments, coordinateScale, triangles, outError))
+    {
+        outError = "Failed to prepare polygon soup STL export: " + outError;
+        return false;
+    }
+    if (triangles.size() > static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max()))
+    {
+        return failIo(
+                   outError,
+                   "STL export triangle count exceeds the 32-bit facet count limit.");
+    }
+
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    if (!output)
+        return failIo(outError, "Failed to open STL output file for writing: " + path);
+
+    std::array<char, 80> header{};
+    const std::string headerText = "Ember exact polygon soup triangulated STL export";
+    std::memcpy(
+        header.data(),
+        headerText.data(),
+        std::min(header.size(), headerText.size()));
+    output.write(header.data(), static_cast<std::streamsize>(header.size()));
+    writeLittleEndianUInt32(output, static_cast<std::uint32_t>(triangles.size()));
+
+    for (const StlTriangle &triangle : triangles)
+    {
+        const ObjVertex normal = computeTriangleNormal(triangle);
+        writeLittleEndianFloat32(output, static_cast<float>(normal.x));
+        writeLittleEndianFloat32(output, static_cast<float>(normal.y));
+        writeLittleEndianFloat32(output, static_cast<float>(normal.z));
+
+        writeLittleEndianFloat32(output, static_cast<float>(triangle.a.x));
+        writeLittleEndianFloat32(output, static_cast<float>(triangle.a.y));
+        writeLittleEndianFloat32(output, static_cast<float>(triangle.a.z));
+        writeLittleEndianFloat32(output, static_cast<float>(triangle.b.x));
+        writeLittleEndianFloat32(output, static_cast<float>(triangle.b.y));
+        writeLittleEndianFloat32(output, static_cast<float>(triangle.b.z));
+        writeLittleEndianFloat32(output, static_cast<float>(triangle.c.x));
+        writeLittleEndianFloat32(output, static_cast<float>(triangle.c.y));
+        writeLittleEndianFloat32(output, static_cast<float>(triangle.c.z));
+        writeLittleEndianUInt16(output, 0u);
+    }
+
+    if (!output)
+        return failIo(outError, "Failed to finish writing STL output file: " + path);
+
+    outFaceCount = triangles.size();
+    return true;
+}
+
+bool writePolygonSoupMesh(
+    const std::vector<Polygon256> &fragments,
+    const std::string &path,
+    std::size_t &outFaceCount,
+    std::string &outError,
+    std::uint64_t coordinateScale)
+{
+    MeshFileFormat format = MeshFileFormat::Obj;
+    if (!detectMeshFileFormatFromPath(path, format, outError))
+        return false;
+
+    switch (format)
+    {
+    case MeshFileFormat::Obj:
+        return writePolygonSoupObj(fragments, path, outFaceCount, outError, coordinateScale);
+    case MeshFileFormat::Stl:
+        return writePolygonSoupStl(fragments, path, outFaceCount, outError, coordinateScale);
+    }
+
+    return failIo(outError, "Unsupported mesh file format.");
+}
 
 bool buildObjMeshFromPolygonSoup(
     const std::vector<Polygon256> &fragments,

@@ -7,13 +7,13 @@
 当前代码已经具备一条可运行的基础布尔流水线：
 
 ```text
-OBJ -> 共享 scale + 浮点输入AABB -> 多边形集合 -> BoolProblem(校验/懒顶点缓存) -> SubdivisionSolver -> resultFragments -> OBJ n 边面
+OBJ/STL -> 共享 scale + 浮点输入AABB -> 多边形集合 -> BoolProblem(校验/懒顶点缓存) -> SubdivisionSolver -> resultFragments -> OBJ n 边面 / STL 三角面
 ```
 
 重要边界如下：
 
-- `src/application/main.cpp`：命令行入口，只负责解析参数、读写 OBJ、组装二元布尔任务。
-- `src/io/io.h/.cpp`：OBJ 读取、共享量化尺度选择、scale 后浮点输入 AABB 计算、`Polygon256` 多边形集合构建、OBJ n 边面导出。
+- `src/application/main.cpp`：命令行入口，只负责解析参数、按扩展名读写 OBJ/STL、组装二元布尔任务。
+- `src/io/io.h/.cpp`：OBJ 读取、基于 vendored `third_party/stl_reader/stl_reader.h` 的 ASCII/binary STL 读取、共享量化尺度选择、scale 后浮点输入 AABB 计算、`Polygon256` 多边形集合构建，以及 OBJ n 边面 / STL 三角面导出。
 - `src/core/bool_problem.h/.cpp`：公开布尔问题门面，接收输入、保存配置、调用内部求解器并缓存结果。
 - `src/core/subdivision_solver.h/.cpp`：内部细分求解器，独占递归节点、AABB、参考点、叶片片段和结果汇总。
 - `src/core/leaf_classifier.cpp`：叶片局部编排后的 WNV 分类与结果筛选。
@@ -22,7 +22,7 @@ OBJ -> 共享 scale + 浮点输入AABB -> 多边形集合 -> BoolProblem(校验/
 - `src/tests/`：仓库自定义断言测试，不依赖第三方测试框架。
 - `tools/profile-re-ember.ps1`：端到端性能测试、Tracy 捕获和报告入口。
 
-`BoolProblem` 现在只暴露应用需要的二元门面接口：`setOperation`、`setOperandAssumptions`、`setThreadCount`、`setOperands`、`solve(sceneAABB)`、`isDiscarded`、`resultFragments`、`leafSummaries` 和 `solveMetrics`。`setOperands()` 会统一覆写输入多边形的 `WNTV`，强制收敛到 `lhs={1,0}`、`rhs={0,1}` 的二元约定，不再暴露“直接注入任意带标签 polygon 集合”的公开入口。根场景 AABB 在共享 `scale` 选定后直接由 OBJ 浮点顶点经 `floor(coord * scale)` / `ceil(coord * scale)` 生成，调用方合并左右输入后加 margin 并传给 `solve(sceneAABB)`；`SubdivisionSolver` 不再从 256 位多边形顶点反推根 AABB。`Polygon256` 顶点缓存改为按需构造，首次调用 `vertex()` / `vertices()` 时生成，后续复用。递归子问题状态属于 `SubdivisionSolver` 内部实现；它会在递归返回路径上一次性向上汇总 `resultFragments / leafSummaries / solveMetrics`，并尽早释放子树中间状态。当前并行实现使用 `oneTBB` 的 sibling-task work stealing：每次细分后当前线程继续一个 child，另一个 child 作为 task 提交给共享运行时，最终仍按 `left -> right` 固定顺序 merge。`BoolProblem` 仍然不是外部并发安全对象；一个实例不能被多个线程同时读写或复用。每个 `BoolProblem` 实例只允许执行一次 `solve()`；无论成功还是抛错，后续都不能再次 `solve()` 或修改配置。
+`BoolProblem` 现在只暴露应用需要的二元门面接口：`setOperation`、`setOperandAssumptions`、`setThreadCount`、`setOperands`、`solve(sceneAABB)`、`isDiscarded`、`resultFragments`、`leafSummaries` 和 `solveMetrics`。`setOperands()` 会统一覆写输入多边形的 `WNTV`，强制收敛到 `lhs={1,0}`、`rhs={0,1}` 的二元约定，不再暴露“直接注入任意带标签 polygon 集合”的公开入口。根场景 AABB 在共享 `scale` 选定后直接由输入网格浮点顶点经 `floor(coord * scale)` / `ceil(coord * scale)` 生成，调用方合并左右输入后加 margin 并传给 `solve(sceneAABB)`；`SubdivisionSolver` 不再从 256 位多边形顶点反推根 AABB。`Polygon256` 顶点缓存改为按需构造，首次调用 `vertex()` / `vertices()` 时生成，后续复用。递归子问题状态属于 `SubdivisionSolver` 内部实现；它会在递归返回路径上一次性向上汇总 `resultFragments / leafSummaries / solveMetrics`，并尽早释放子树中间状态。当前并行实现使用 `oneTBB` 的 sibling-task work stealing：每次细分后当前线程继续一个 child，另一个 child 作为 task 提交给共享运行时，最终仍按 `left -> right` 固定顺序 merge。`BoolProblem` 仍然不是外部并发安全对象；一个实例不能被多个线程同时读写或复用。每个 `BoolProblem` 实例只允许执行一次 `solve()`；无论成功还是抛错，后续都不能再次 `solve()` 或修改配置。
 
 ## 构建与测试
 
@@ -59,6 +59,12 @@ Tracy 性能插桩是编译期可选项，默认关闭；普通 Debug/Release/Re
 build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\codex_boolean_smoke.obj --leaf-threshold 25 --threads 4
 ```
 
+也可以直接让 STL 走完整 CLI 边界：
+
+```powershell
+build\Debug\re-EMBER.exe --lhs build\test-output\lhs_box.stl --rhs build\test-output\rhs_box.stl --op difference --out build\codex_boolean_smoke.stl --leaf-threshold 25
+```
+
 I/O 中较慢的回归用环境变量开启：
 
 ```powershell
@@ -69,21 +75,21 @@ build\Debug\re-EMBER_tests.exe
 ## 命令行用法
 
 ```powershell
-build\Debug\re-EMBER.exe --lhs <left.obj> --rhs <right.obj> --op union|intersection|difference --out <result.obj> [--scale <positive_integer>] [--leaf-threshold <positive_integer>] [--threads <positive_integer>] [--timings-out <metrics.txt>] [--assume-lhs-nsi] [--assume-lhs-nnc] [--assume-rhs-nsi] [--assume-rhs-nnc]
+build\Debug\re-EMBER.exe --lhs <left.obj|left.stl> --rhs <right.obj|right.stl> --op union|intersection|difference --out <result.obj|result.stl> [--scale <positive_integer>] [--leaf-threshold <positive_integer>] [--threads <positive_integer>] [--timings-out <metrics.txt>] [--assume-lhs-nsi] [--assume-lhs-nnc] [--assume-rhs-nsi] [--assume-rhs-nnc]
 ```
 
 参数说明：
 
-- `--lhs`、`--rhs`：左右输入 OBJ。
+- `--lhs`、`--rhs`：左右输入网格，当前支持 `.obj`、`.stl`。
 - `--op`：二元布尔运算，支持 `union`、`intersection`、`difference`。
-- `--out`：输出 OBJ 路径。
+- `--out`：输出网格路径；`.obj` 保持 n 边面，`.stl` 会导出三角面。
 - `--scale`：可选的显式十进制量化尺度；不传时会为两输入选择共享尺度。
 - `--leaf-threshold`：可选的叶子停止细分阈值，默认 `25`。
 - `--threads`：可选的总线程数；不传时自动选择并发度，`1` 表示强制串行。
 - `--timings-out`：把本次运行的时间与高层求解统计写到文本文件。
 - `--assume-*-nsi`、`--assume-*-nnc`：声明输入操作数满足 NSI/NNC 假设，只用于性能优化；错误声明会破坏正确性。
 
-导出默认保持多边形集合形态，直接写 OBJ n 边面。三角化、拓扑缝合和 T 形连接恢复属于调用方后处理。
+导出到 `.obj` 时默认保持多边形集合形态，直接写 n 边面；导出到 `.stl` 时会在 I/O 边界层按每个 `Polygon256` 的有序顶点做扇形三角化。更高层的拓扑缝合和 T 形连接恢复仍属于调用方后处理。
 
 ## visual-test
 
@@ -209,10 +215,10 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 
 先看时间拆分：
 
-- `read_ms`：OBJ 读取时间。
+- `read_ms`：输入网格读取时间。
 - `prepare_ms`：共享尺度选择和多边形集合构建时间。
 - `solve_ms`：真正的布尔求解时间。
-- `export_ms`：结果 OBJ 导出时间。
+- `export_ms`：结果网格导出时间。
 - `effective_thread_count`：本次求解实际参与的总线程数。
 
 再看高层工作量：
@@ -250,6 +256,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 
 - 当前公开流水线面向二元布尔；多网格表达式和通用布尔表达式解析不在计划内。
 - `BoolProblem` 公开输入固定为左右两个操作数；自定义混合 `WNTV` 标签或多输入聚合不再作为支持目标。
-- OBJ 导入只保留几何位置，不保留法线、UV、材质或拓扑连通关系。
-- CLI 为了跑通真实 OBJ，会对量化后非共面的输入面启用扇形三角化；库 API 默认仍是严格构造策略。
-- 输出是 OBJ n 边面多边形集合，不保证进行全局拓扑恢复。
+- OBJ/STL 导入都只保留几何位置，不保留法线、UV、材质或拓扑连通关系。
+- 当前 STL 导入支持 ASCII STL 和 binary STL，并忽略 facet normal / attribute byte count。
+- CLI 为了跑通真实网格，会对量化后非共面的输入面启用扇形三角化；库 API 默认仍是严格构造策略。
+- 输出到 `.obj` 时保持 n 边面多边形集合；输出到 `.stl` 时会导出三角面，但都不保证进行全局拓扑恢复。

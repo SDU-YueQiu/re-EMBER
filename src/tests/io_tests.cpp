@@ -7,9 +7,11 @@
 #include "core/bool_problem.h"
 #include "io/io.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -51,6 +53,61 @@ void writeTextFile(const std::filesystem::path &path, const std::string &content
         throw std::runtime_error("io_tests failed to open file for writing: " + path.string());
 
     output << contents;
+}
+
+void writeUInt32LE(std::ostream &output, std::uint32_t value)
+{
+    char bytes[4];
+    bytes[0] = static_cast<char>(value & 0xffu);
+    bytes[1] = static_cast<char>((value >> 8u) & 0xffu);
+    bytes[2] = static_cast<char>((value >> 16u) & 0xffu);
+    bytes[3] = static_cast<char>((value >> 24u) & 0xffu);
+    output.write(bytes, sizeof(bytes));
+}
+
+void writeUInt16LE(std::ostream &output, std::uint16_t value)
+{
+    char bytes[2];
+    bytes[0] = static_cast<char>(value & 0xffu);
+    bytes[1] = static_cast<char>((value >> 8u) & 0xffu);
+    output.write(bytes, sizeof(bytes));
+}
+
+void writeFloatLE(std::ostream &output, float value)
+{
+    std::uint32_t bits = 0;
+    static_assert(sizeof(bits) == sizeof(value), "float bit width mismatch");
+    std::memcpy(&bits, &value, sizeof(bits));
+    writeUInt32LE(output, bits);
+}
+
+void writeBinaryStlFile(
+    const std::filesystem::path &path,
+    const std::vector<std::array<MeshVec3, 3>> &triangles)
+{
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    if (!output)
+        throw std::runtime_error("io_tests failed to open STL file for writing: " + path.string());
+
+    std::array<char, 80> header{};
+    const std::string headerText = "io_tests binary stl";
+    std::memcpy(header.data(), headerText.data(), std::min(header.size(), headerText.size()));
+    output.write(header.data(), static_cast<std::streamsize>(header.size()));
+    writeUInt32LE(output, static_cast<std::uint32_t>(triangles.size()));
+
+    for (const auto &triangle : triangles)
+    {
+        writeFloatLE(output, 0.0f);
+        writeFloatLE(output, 0.0f);
+        writeFloatLE(output, 1.0f);
+        for (const MeshVec3 &vertex : triangle)
+        {
+            writeFloatLE(output, static_cast<float>(vertex.x));
+            writeFloatLE(output, static_cast<float>(vertex.y));
+            writeFloatLE(output, static_cast<float>(vertex.z));
+        }
+        writeUInt16LE(output, 0u);
+    }
 }
 
 std::string readTextFile(const std::filesystem::path &path)
@@ -481,6 +538,56 @@ void runIoTests()
         assert(ember::buildPolygonSoup(mesh, 10u, polygons, error));
         assert(polygons.size() == 1u);
         assert(polygons.front().isValid());
+    }
+
+    {
+        const std::filesystem::path inputPath = makeTestPath("io_ascii_triangle.stl");
+        writeTextFile(
+            inputPath,
+            "solid ascii_triangle\n"
+            "  facet normal 0 0 1\n"
+            "    outer loop\n"
+            "      vertex 0 0 0\n"
+            "      vertex 1 0 0\n"
+            "      vertex 0 1 0\n"
+            "    endloop\n"
+            "  endfacet\n"
+            "endsolid ascii_triangle\n");
+
+        ObjMeshData mesh;
+        std::string error;
+        assert(ember::readStlMesh(inputPath.string(), mesh, error));
+        assert(mesh.vertices.size() == 3u);
+        assert(mesh.faces.size() == 1u);
+        assert(mesh.faces.front().size() == 3u);
+
+        std::vector<Polygon256> polygons;
+        assert(ember::buildPolygonSoup(mesh, 10u, polygons, error));
+        assert(polygons.size() == 1u);
+        assert(polygons.front().isValid());
+    }
+
+    {
+        const std::filesystem::path inputPath = makeTestPath("io_binary_square.stl");
+        writeBinaryStlFile(
+            inputPath,
+            {
+                std::array<MeshVec3, 3>{
+                    MeshVec3{0.0, 0.0, 0.0},
+                    MeshVec3{1.0, 0.0, 0.0},
+                    MeshVec3{1.0, 1.0, 0.0}},
+                std::array<MeshVec3, 3>{
+                    MeshVec3{0.0, 0.0, 0.0},
+                    MeshVec3{1.0, 1.0, 0.0},
+                    MeshVec3{0.0, 1.0, 0.0}}});
+
+        ObjMeshData mesh;
+        std::string error;
+        assert(ember::readMesh(inputPath.string(), mesh, error));
+        assert(mesh.vertices.size() == 4u);
+        assert(mesh.faces.size() == 2u);
+        assert(mesh.faces[0].size() == 3u);
+        assert(mesh.faces[1].size() == 3u);
     }
 
     {
@@ -985,6 +1092,24 @@ void runIoTests()
 
         assert(vertexLineCount == 4u);
         assert(faceLineCount == 1u);
+    }
+
+    {
+        const Polygon256 square = makeFaceXY(0, 0, 2, 0, 2, 1);
+        const std::filesystem::path outputPath = makeTestPath("io_single_square_export.stl");
+
+        std::size_t faceCount = 0;
+        std::string error;
+        const std::vector<Polygon256> fragments{square};
+        assert(ember::writePolygonSoupMesh(fragments, outputPath.string(), faceCount, error));
+        assert(faceCount == 2u);
+
+        ObjMeshData mesh;
+        assert(ember::readMesh(outputPath.string(), mesh, error));
+        assert(mesh.faces.size() == 2u);
+        assert(mesh.vertices.size() == 4u);
+        assert(mesh.faces[0].size() == 3u);
+        assert(mesh.faces[1].size() == 3u);
     }
 
     {
