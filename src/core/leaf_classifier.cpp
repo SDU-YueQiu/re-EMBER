@@ -649,6 +649,9 @@ bool SubdivisionSolver::tryClassifySingleOperandLeafByBulkReuse()
     if (classificationResult == LeafClassificationResult::Failure)
         throwLeafClassificationFailure(0u, depth_, representativeFragment, attemptStats);
 
+    // bulk reuse 只真正分类一个代表片段，其余片段沿用同一前后侧 WNV；
+    // 这里补回诊断计数，避免 fast path 让 reuse 指标失真。
+    solveMetrics_.singleOperandClassificationReuseCount += (polygonCount_ > 0u) ? (polygonCount_ - 1u) : 0u;
     classifiedFragmentCount_ = polygonCount_;
     const ClassifiedFragment &classifiedFragment = classifiedFragments_.back();
     const BoolStatus frontStatus = evaluateBooleanIndicator(classifiedFragment.frontWNV);
