@@ -382,6 +382,10 @@ function(reember_add_paper_experiment_test test_name pair_subdir)
       --out "${REEMBER_PAPER_EXPERIMENT_OUTPUT_DIR}/${test_name}.obj"
       --leaf-threshold 25
       --threads 1
+      --assume-lhs-nsi
+      --assume-lhs-nnc
+      --assume-rhs-nsi
+      --assume-rhs-nnc
       --timings-out "${REEMBER_PAPER_EXPERIMENT_OUTPUT_DIR}/${test_name}.metrics.txt"
   )
   set_tests_properties(${test_name} PROPERTIES
@@ -391,12 +395,44 @@ function(reember_add_paper_experiment_test test_name pair_subdir)
   )
 endfunction()
 
-# 论文实验 oracle-success 样本，作为真实端到端正确性回归测试。
+# 论文 10% 实验 oracle-success 样本，作为真实端到端正确性回归测试。
 reember_add_paper_experiment_test(
-  re-EMBER_paper_small_bsp_overlap
+  re-EMBER_paper_small_001
   "small/small_001_1291011_minus_153368"
 )
 reember_add_paper_experiment_test(
-  re-EMBER_paper_small_leaf_classification
-  "small/small_026_996810_minus_1582439"
+  re-EMBER_paper_small_002
+  "small/small_002_567033_minus_77949"
+)
+reember_add_paper_experiment_test(
+  re-EMBER_paper_small_003
+  "small/small_003_702407_minus_81309"
+)
+reember_add_paper_experiment_test(
+  re-EMBER_paper_small_004
+  "small/small_004_76206_minus_62571"
+)
+reember_add_paper_experiment_test(
+  re-EMBER_paper_small_005
+  "small/small_005_702390_minus_472032"
+)
+reember_add_paper_experiment_test(
+  re-EMBER_paper_small_006
+  "small/small_006_98765_minus_1514496"
+)
+reember_add_paper_experiment_test(
+  re-EMBER_paper_small_007
+  "small/small_007_702398_minus_118675"
+)
+reember_add_paper_experiment_test(
+  re-EMBER_paper_small_008
+  "small/small_008_45512_minus_84023"
+)
+reember_add_paper_experiment_test(
+  re-EMBER_paper_small_009
+  "small/small_009_48418_minus_269121"
+)
+reember_add_paper_experiment_test(
+  re-EMBER_paper_small_010
+  "small/small_010_1614064_minus_129914"
 )

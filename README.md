@@ -36,7 +36,7 @@ ctest --test-dir build -C Debug --output-on-failure --timeout 60
 cmake --build build --config Debug --target re-EMBER
 ```
 
-`ctest` 现在包含 [论文实验测试](docs/paper-experiment-tests.md)。这些测试直接运行 `re-EMBER` CLI，输入来自 `tests/paper_experiments/`，产物写到 `build/paper_experiment_tests/`。它们是 oracle-success 样本，不设置 expected-fail；当前算法在这些样本上失败时，CTest 应该失败。
+`ctest` 现在包含 [论文实验测试](docs/paper-experiment-tests.md)。这些测试直接运行 `re-EMBER` CLI，输入来自 `tests/paper_experiments/`，产物写到 `build/paper_experiment_tests/`。它们是 oracle-success 样本，并启用论文实验使用的 NSI/NNC 假设；不设置 expected-fail，当前算法在这些样本上失败时，CTest 应该失败。
 
 当前仓库默认通过 vcpkg toolchain 解析 `oneTBB`。如果当前机器还没有这个依赖，先执行：
 
