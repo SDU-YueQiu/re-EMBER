@@ -1553,6 +1553,137 @@ inline bool buildPlaneReplacementSegment(
            areSamePlanePoint(outSegment.getEndPointRef(), endPoint);
 }
 
+struct PlaneReplacementPointPath
+{
+    std::array<PlanePoint3i, 4> points{};
+    std::size_t pointCount = 0;
+};
+
+struct PlaneReplacementBuildSignature
+{
+    std::array<Plane3i, 3> startPlanes{};
+    std::array<Plane3i, 3> targetPlanes{};
+    std::array<int, 3> planeReplacementOrder{};
+    std::size_t planeReplacementCount = 0;
+};
+
+inline PlaneReplacementBuildSignature makePlaneReplacementBuildSignature(
+    const PlanePoint3i &startPoint,
+    const PlanePoint3i &targetPoint,
+    const std::array<int, 3> &planeReplacementOrder,
+    std::size_t planeReplacementCount)
+{
+    return PlaneReplacementBuildSignature{
+        {startPoint.p, startPoint.q, startPoint.r},
+        {targetPoint.p, targetPoint.q, targetPoint.r},
+        planeReplacementOrder,
+        planeReplacementCount};
+}
+
+inline bool samePlaneReplacementBuildSignature(
+    const PlaneReplacementBuildSignature &lhs,
+    const PlaneReplacementBuildSignature &rhs) noexcept
+{
+    if (lhs.planeReplacementCount != rhs.planeReplacementCount)
+        return false;
+
+    for (std::size_t i = 0; i < 3u; ++i)
+    {
+        if (!areSamePlaneEquation(lhs.startPlanes[i], rhs.startPlanes[i]) ||
+                !areSamePlaneEquation(lhs.targetPlanes[i], rhs.targetPlanes[i]))
+            return false;
+    }
+
+    for (std::size_t i = 0; i < lhs.planeReplacementCount; ++i)
+    {
+        if (lhs.planeReplacementOrder[i] != rhs.planeReplacementOrder[i])
+            return false;
+    }
+
+    return true;
+}
+
+/**
+ * @brief 按给定顺序构造完全留在 AABB 内的平面替换端点序列。
+ */
+inline bool buildBoundedPlaneReplacementPathForOrder(
+    const PlanePoint3i &startPoint,
+    const PlanePoint3i &targetPoint,
+    const AABB3i &box,
+    const std::array<int, 3> &planeReplacementOrder,
+    std::size_t planeReplacementCount,
+    PlaneReplacementPointPath &outPointPath)
+{
+    REEMBER_PROFILE_ZONE("buildBoundedPlaneReplacementPathForOrder");
+
+    outPointPath.pointCount = 0;
+    if (!isPointInsideOrOnAABB(startPoint, box) || !isPointInsideOrOnAABB(targetPoint, box))
+        return false;
+
+    std::array<Plane3i, 3> currentPlanes = {startPoint.p, startPoint.q, startPoint.r};
+    const Plane3i targetPlanes[3] = {targetPoint.p, targetPoint.q, targetPoint.r};
+    PlanePoint3i currentPoint = startPoint;
+    outPointPath.points[0] = startPoint;
+    outPointPath.pointCount = 1;
+
+    for (std::size_t orderIndex = 0; orderIndex < planeReplacementCount; ++orderIndex)
+    {
+        REEMBER_PROFILE_ZONE("buildBoundedPlaneReplacementPathForOrder::step");
+        const int replacedIndex = planeReplacementOrder[orderIndex];
+        currentPlanes[replacedIndex] = targetPlanes[replacedIndex];
+        const PlanePoint3i nextPoint = makePointFromPlanes(currentPlanes);
+        if (!nextPoint.hasUniqueIntersection() || !isPointInsideOrOnAABB(nextPoint, box))
+        {
+            outPointPath.pointCount = 0;
+            return false;
+        }
+
+        outPointPath.points[outPointPath.pointCount++] = nextPoint;
+        currentPoint = nextPoint;
+    }
+
+    if (!areSamePlanePoint(currentPoint, targetPoint))
+    {
+        outPointPath.pointCount = 0;
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * @brief 将已确认在 AABB 内的换平面端点序列实体化为线段路径。
+ */
+inline bool materializePlaneReplacementPointPath(
+    const PlaneReplacementPointPath &pointPath,
+    const std::array<int, 3> &planeReplacementOrder,
+    std::size_t planeReplacementCount,
+    std::vector<Segment256> &outPath)
+{
+    outPath.clear();
+    if (pointPath.pointCount != planeReplacementCount + 1u)
+        return false;
+
+    outPath.reserve(planeReplacementCount);
+    for (std::size_t orderIndex = 0; orderIndex < planeReplacementCount; ++orderIndex)
+    {
+        Segment256 segment;
+        if (!buildPlaneReplacementSegment(
+                    pointPath.points[orderIndex],
+                    pointPath.points[orderIndex + 1u],
+                    planeReplacementOrder[orderIndex],
+                    segment))
+        {
+            outPath.clear();
+            return false;
+        }
+
+        outPath.push_back(std::move(segment));
+    }
+
+    return true;
+}
+
 /**
  * @brief 按给定顺序构造完全留在 AABB 内的平面替换桥接路径。
  */
@@ -1564,46 +1695,24 @@ inline bool buildBoundedPlaneReplacementPathForOrder(
     std::size_t planeReplacementCount,
     std::vector<Segment256> &outPath)
 {
-    REEMBER_PROFILE_ZONE("buildBoundedPlaneReplacementPathForOrder");
-
-    outPath.clear();
-    if (!isPointInsideOrOnAABB(startPoint, box) || !isPointInsideOrOnAABB(targetPoint, box))
-        return false;
-
-    std::array<Plane3i, 3> currentPlanes = {startPoint.p, startPoint.q, startPoint.r};
-    const Plane3i targetPlanes[3] = {targetPoint.p, targetPoint.q, targetPoint.r};
-    PlanePoint3i currentPoint = startPoint;
-
-    for (std::size_t orderIndex = 0; orderIndex < planeReplacementCount; ++orderIndex)
-    {
-        REEMBER_PROFILE_ZONE("buildBoundedPlaneReplacementPathForOrder::step");
-        const int replacedIndex = planeReplacementOrder[orderIndex];
-        currentPlanes[replacedIndex] = targetPlanes[replacedIndex];
-        const PlanePoint3i nextPoint = makePointFromPlanes(currentPlanes);
-        if (!nextPoint.hasUniqueIntersection() || !isPointInsideOrOnAABB(nextPoint, box))
-        {
-            outPath.clear();
-            return false;
-        }
-
-        Segment256 segment;
-        if (!buildPlaneReplacementSegment(currentPoint, nextPoint, replacedIndex, segment))
-        {
-            outPath.clear();
-            return false;
-        }
-
-        outPath.push_back(std::move(segment));
-        currentPoint = nextPoint;
-    }
-
-    if (!areSamePlanePoint(currentPoint, targetPoint))
+    PlaneReplacementPointPath pointPath;
+    if (!buildBoundedPlaneReplacementPathForOrder(
+                startPoint,
+                targetPoint,
+                box,
+                planeReplacementOrder,
+                planeReplacementCount,
+                pointPath))
     {
         outPath.clear();
         return false;
     }
 
-    return true;
+    return materializePlaneReplacementPointPath(
+               pointPath,
+               planeReplacementOrder,
+               planeReplacementCount,
+               outPath);
 }
 
 inline bool buildBoundedPlaneReplacementPathForOrder(
@@ -1696,10 +1805,16 @@ inline bool buildPlaneReplacementPath(
     std::size_t planeReplacementCount,
     std::vector<Segment256> &outPath)
 {
+    PlaneReplacementPointPath pointPath;
     if (buildBoundedPlaneReplacementPathForOrder(
                 refPoint,
                 targetPoint,
                 box,
+                planeReplacementOrder,
+                planeReplacementCount,
+                pointPath) &&
+            materializePlaneReplacementPointPath(
+                pointPath,
                 planeReplacementOrder,
                 planeReplacementCount,
                 outPath))
