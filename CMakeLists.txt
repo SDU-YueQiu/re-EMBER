@@ -369,6 +369,14 @@ endif()
 enable_testing()
 add_test(NAME re-EMBER_tests COMMAND re-EMBER_tests)
 
+include(ProcessorCount)
+ProcessorCount(REEMBER_HOST_PROCESSOR_COUNT)
+if(NOT REEMBER_HOST_PROCESSOR_COUNT)
+  set(REEMBER_HOST_PROCESSOR_COUNT 1)
+endif()
+set(REEMBER_CTEST_THREADS "${REEMBER_HOST_PROCESSOR_COUNT}" CACHE STRING "Thread count used by re-EMBER CLI CTest workloads.")
+message(STATUS "REEMBER_CTEST_THREADS=${REEMBER_CTEST_THREADS}")
+
 set(REEMBER_PAPER_EXPERIMENT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests/paper_experiments")
 set(REEMBER_PAPER_EXPERIMENT_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/paper_experiment_tests")
 
@@ -381,7 +389,7 @@ function(reember_add_paper_experiment_test test_name pair_subdir)
       --op difference
       --out "${REEMBER_PAPER_EXPERIMENT_OUTPUT_DIR}/${test_name}.obj"
       --leaf-threshold 25
-      --threads 1
+      --threads "${REEMBER_CTEST_THREADS}"
       --assume-lhs-nsi
       --assume-lhs-nnc
       --assume-rhs-nsi

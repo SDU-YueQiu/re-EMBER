@@ -36,7 +36,7 @@ ctest --test-dir build -C Debug --output-on-failure --timeout 60
 cmake --build build --config Debug --target re-EMBER
 ```
 
-`ctest` 现在包含 [论文实验测试](docs/paper-experiment-tests.md)。这些测试直接运行 `re-EMBER` CLI，输入来自 `tests/paper_experiments/`，产物写到 `build/paper_experiment_tests/`。它们是 oracle-success 样本，并启用论文实验使用的 NSI/NNC 假设；不设置 expected-fail，当前算法在这些样本上失败时，CTest 应该失败。
+`ctest` 现在包含 [论文实验测试](docs/paper-experiment-tests.md)。这些测试直接运行 `re-EMBER` CLI，输入来自 `tests/paper_experiments/`，产物写到 `build/paper_experiment_tests/`。它们是 oracle-success 样本，并启用论文实验使用的 NSI/NNC 假设；不设置 expected-fail，当前算法在这些样本上失败时，CTest 应该失败。CLI 回归默认使用 `REEMBER_CTEST_THREADS`，其默认值是当前构建机的逻辑处理器数；只有专门排查串行分支时才显式设为 `1`。
 
 当前仓库默认通过 vcpkg toolchain 解析 `oneTBB`。如果当前机器还没有这个依赖，先执行：
 
@@ -59,13 +59,13 @@ Tracy 性能插桩是编译期可选项，默认关闭；普通 Debug/Release/Re
 基础 CLI smoke：
 
 ```powershell
-build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\codex_boolean_smoke.obj --leaf-threshold 25 --threads 4
+build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\codex_boolean_smoke.obj --leaf-threshold 25 --threads $env:NUMBER_OF_PROCESSORS
 ```
 
 也可以直接让 STL 走完整 CLI 边界：
 
 ```powershell
-build\Debug\re-EMBER.exe --lhs build\test-output\lhs_box.stl --rhs build\test-output\rhs_box.stl --op difference --out build\codex_boolean_smoke.stl --leaf-threshold 25
+build\Debug\re-EMBER.exe --lhs build\test-output\lhs_box.stl --rhs build\test-output\rhs_box.stl --op difference --out build\codex_boolean_smoke.stl --leaf-threshold 25 --threads $env:NUMBER_OF_PROCESSORS
 ```
 
 I/O 中较慢的回归用环境变量开启：
@@ -88,7 +88,7 @@ build\Debug\re-EMBER.exe --lhs <left.obj|left.stl> --rhs <right.obj|right.stl> -
 - `--out`：输出网格路径；`.obj` 保持 n 边面，`.stl` 会导出三角面。
 - `--scale`：可选的显式十进制量化尺度；不传时会为两输入选择共享尺度。
 - `--leaf-threshold`：可选的叶子停止细分阈值，默认 `25`。
-- `--threads`：可选的总线程数；不传时自动选择并发度，`1` 表示强制串行。
+- `--threads`：可选的总线程数；不传时自动选择并发度，`1` 表示强制串行。常规测试和性能测试应使用多线程，串行只用于专项排查。
 - `--timings-out`：把本次运行的时间与高层求解统计写到文本文件。
 - `--assume-*-nsi`、`--assume-*-nnc`：声明输入操作数满足 NSI/NNC 假设，只用于性能优化；错误声明会破坏正确性。
 
@@ -124,16 +124,16 @@ build\Debug\visual-test.exe
 vcpkg install tracy[cli-tools]:x64-windows
 ```
 
-性能脚本默认会配置 `build\profile_tracy\` 并构建 `re-EMBER`：
+性能脚本默认会配置 `build\profile_tracy\` 并构建 `re-EMBER`，未显式传 `-Threads` 时会使用当前机器的全部逻辑处理器：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo
 ```
 
-如果要强制固定求解线程数，直接加 `-Threads`，脚本会透传给 `re-EMBER.exe` 并写进 profiling 产物：
+如果要强制固定其它求解线程数，直接加 `-Threads`，脚本会透传给 `re-EMBER.exe` 并写进 profiling 产物：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -NoTracy -Threads 4
+powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -NoTracy -Threads $env:NUMBER_OF_PROCESSORS
 ```
 
 如果对应模式的 profiling 构建树已经由脚本准备过，可以加 `-SkipBuild` 只运行 workload：
