@@ -45,27 +45,44 @@ using NefPolyhedron = CGAL::Nef_polyhedron_3<Kernel>;
 namespace
 {
 /**
- * @brief 解析 visual-test 默认 OBJ 资源的仓库内路径。
- * @param relativePath 相对仓库根目录的资源路径。
- * @return 可直接传给 OBJ 读取器的路径字符串；若未命中任何候选，则退回原始相对路径。
+ * @brief 在仓库内查找 visual-test 默认资源文件。
+ * @param relativeStemPath 相对仓库根目录的资源 stem 路径，不含扩展名。
+ * @return 若命中 `stem + .obj/.stl` 候选，则返回首个存在路径；否则退回 `stem + .obj`。
  */
-std::string resolveDefaultAssetPath(const std::string &relativePath)
+std::string resolveDefaultAssetPath(const std::string &relativeStemPath)
 {
+    const std::filesystem::path stemPath(relativeStemPath);
+    const std::array<std::filesystem::path, 2> suffixCandidates = {
+        stemPath.string() + ".obj",
+        stemPath.string() + ".stl"};
+
+    auto tryResolveFromRoot = [&](const std::filesystem::path &root, std::string &outPath) -> bool
+    {
+        for (const std::filesystem::path &suffixCandidate : suffixCandidates)
+        {
+            const std::filesystem::path candidate = root / suffixCandidate;
+            std::error_code error;
+            if (std::filesystem::exists(candidate, error))
+            {
+                outPath = candidate.string();
+                return true;
+            }
+        }
+
+        return false;
+    };
+
+    std::string resolvedPath;
 #ifdef REEMBER_SOURCE_DIR
-    const std::filesystem::path sourceCandidate =
-        std::filesystem::path(REEMBER_SOURCE_DIR) / relativePath;
-    std::error_code error;
-    if (std::filesystem::exists(sourceCandidate, error))
-        return sourceCandidate.string();
+    if (tryResolveFromRoot(std::filesystem::path(REEMBER_SOURCE_DIR), resolvedPath))
+        return resolvedPath;
 #endif
 
     std::filesystem::path current = std::filesystem::current_path();
     for (int depth = 0; depth < 8; ++depth)
     {
-        const std::filesystem::path candidate = current / relativePath;
-        std::error_code error;
-        if (std::filesystem::exists(candidate, error))
-            return candidate.string();
+        if (tryResolveFromRoot(current, resolvedPath))
+            return resolvedPath;
 
         const std::filesystem::path parent = current.parent_path();
         if (parent == current || parent.empty())
@@ -73,7 +90,7 @@ std::string resolveDefaultAssetPath(const std::string &relativePath)
         current = parent;
     }
 
-    return relativePath;
+    return (stemPath.string() + ".obj");
 }
 }
 using Clock = std::chrono::steady_clock;
@@ -837,18 +854,18 @@ int main()
     using namespace ember::visual_test;
 
     SceneData scene;
-    scene.workpiecePath = resolveDefaultAssetPath("assets/visual_test/workpiece_block.obj");
-    scene.toolPath = resolveDefaultAssetPath("assets/visual_test/tool_box.obj");
+    scene.workpiecePath = resolveDefaultAssetPath("assets/visual_test/workpiece_block");
+    scene.toolPath = resolveDefaultAssetPath("assets/visual_test/tool_box");
 
     std::string error;
-    if (!ember::readObjMesh(scene.workpiecePath, scene.workpieceMesh, error))
+    if (!ember::readMesh(scene.workpiecePath, scene.workpieceMesh, error))
     {
-        std::cerr << "Failed to read the workpiece OBJ: " << error << std::endl;
+        std::cerr << "Failed to read the workpiece mesh: " << error << std::endl;
         return 1;
     }
-    if (!ember::readObjMesh(scene.toolPath, scene.toolOriginalMesh, error))
+    if (!ember::readMesh(scene.toolPath, scene.toolOriginalMesh, error))
     {
-        std::cerr << "Failed to read the tool OBJ: " << error << std::endl;
+        std::cerr << "Failed to read the tool mesh: " << error << std::endl;
         return 1;
     }
     scene.workpieceDisplayMesh = scene.workpieceMesh;
