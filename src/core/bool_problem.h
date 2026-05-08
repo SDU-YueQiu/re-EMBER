@@ -71,14 +71,11 @@ struct BoolSolveMetrics
     std::size_t singleOperandLeafBspSkipCount = 0;  ///< 单操作数叶子跳过局部 BSP 的次数。
     std::size_t singleOperandClassificationReuseCount = 0; ///< 单操作数叶子复用分类结果的次数。
     std::size_t leafBspBuildCount = 0;              ///< 真实执行局部 BSP 构建的次数。
-    std::size_t leafClassificationPointCandidateCount = 0; ///< 叶片分类阶段枚举的目标点总数。
-    std::size_t leafClassificationPrimaryPointCandidateCount = 0; ///< 叶片分类阶段 primary 点候选总数。
-    std::size_t leafClassificationExpandedPointCandidateCount = 0; ///< 叶片分类阶段 expanded 点候选总数。
+    std::size_t leafClassificationCentroidPointCount = 0; ///< 叶片分类阶段命中的重心启发式目标点总数。
+    std::size_t leafClassificationInsetPointAttemptCount = 0; ///< 叶片分类阶段按论文 inset 规则尝试构点的总次数。
     std::size_t leafClassificationTraceAttemptCount = 0; ///< 叶片分类阶段实际尝试的路径总数。
-    std::size_t leafClassificationFastCandidateCount = 0; ///< fast layer 候选总数。
-    std::size_t leafClassificationFallbackCandidateCount = 0; ///< fallback layer 候选总数。
-    std::size_t leafClassificationNormalCandidateCount = 0; ///< normal layer 候选总数。
-    std::size_t leafClassificationInteriorBridgeCandidateCount = 0; ///< interior bridge layer 候选总数。
+    std::size_t leafClassificationAxisPathAttemptCount = 0; ///< 叶片分类阶段 axis-aligned 路径尝试总数。
+    std::size_t leafClassificationPlaneReplacementPathAttemptCount = 0; ///< 叶片分类阶段换平面路径尝试总数。
 };
 
 /**
