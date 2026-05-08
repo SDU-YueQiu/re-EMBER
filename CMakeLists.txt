@@ -334,6 +334,7 @@ endif()
 add_executable(re-EMBER_tests ${REEMBER_TEST_SOURCES} ${REEMBER_TEST_HEADERS})
 target_compile_definitions(re-EMBER_tests PRIVATE TINYOBJLOADER_USE_DOUBLE)
 target_link_libraries(re-EMBER_tests PRIVATE reember_lib)
+add_dependencies(re-EMBER_tests re-EMBER)
 
 if(MSVC)
   reember_apply_msvc_arch(re-EMBER_tests)
@@ -367,3 +368,35 @@ endif()
 
 enable_testing()
 add_test(NAME re-EMBER_tests COMMAND re-EMBER_tests)
+
+set(REEMBER_PAPER_EXPERIMENT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests/paper_experiments")
+set(REEMBER_PAPER_EXPERIMENT_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/paper_experiment_tests")
+
+function(reember_add_paper_experiment_test test_name pair_subdir)
+  add_test(
+    NAME ${test_name}
+    COMMAND "$<TARGET_FILE:re-EMBER>"
+      --lhs "${REEMBER_PAPER_EXPERIMENT_DIR}/inputs/${pair_subdir}/lhs.obj"
+      --rhs "${REEMBER_PAPER_EXPERIMENT_DIR}/inputs/${pair_subdir}/rhs.obj"
+      --op difference
+      --out "${REEMBER_PAPER_EXPERIMENT_OUTPUT_DIR}/${test_name}.obj"
+      --leaf-threshold 25
+      --threads 1
+      --timings-out "${REEMBER_PAPER_EXPERIMENT_OUTPUT_DIR}/${test_name}.metrics.txt"
+  )
+  set_tests_properties(${test_name} PROPERTIES
+    LABELS "paper_experiment;cli"
+    TIMEOUT 60
+    RUN_SERIAL TRUE
+  )
+endfunction()
+
+# 论文实验 oracle-success 样本，作为真实端到端正确性回归测试。
+reember_add_paper_experiment_test(
+  re-EMBER_paper_small_bsp_overlap
+  "small/small_001_1291011_minus_153368"
+)
+reember_add_paper_experiment_test(
+  re-EMBER_paper_small_leaf_classification
+  "small/small_026_996810_minus_1582439"
+)
