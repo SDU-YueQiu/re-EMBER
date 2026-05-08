@@ -577,8 +577,11 @@ void SubdivisionSolver::solveLeafArrangement()
 {
     REEMBER_PROFILE_ZONE("SubdivisionSolver::solveLeafArrangement");
 
+    leafFragmentsAliasPolygons_ = false;
     leafFragments_.clear();
     classifiedFragments_.clear();
+    leafFragmentCount_ = 0;
+    classifiedFragmentCount_ = 0;
     if (discarded_ || polygons_.empty())
         return;
 
@@ -586,12 +589,14 @@ void SubdivisionSolver::solveLeafArrangement()
     {
         REEMBER_PROFILE_ZONE("SubdivisionSolver::skipLeafBspBySingleOperandAssumption");
         ++solveMetrics_.singleOperandLeafBspSkipCount;
-        leafFragments_ = polygons_;
+        leafFragmentsAliasPolygons_ = true;
+        leafFragmentCount_ = polygonCount_;
         return;
     }
 
     ++solveMetrics_.leafBspBuildCount;
     leafFragments_ = buildLeafArrangement(polygons_);
+    leafFragmentCount_ = leafFragments_.size();
 
 }
 
@@ -621,6 +626,54 @@ bool SubdivisionSolver::tryReuseSingleOperandFragmentClassification(
     return true;
 }
 
+bool SubdivisionSolver::tryClassifySingleOperandLeafByBulkReuse()
+{
+    if (!singleOperandPolicy_.mayReuseLeafClassification || !leafFragmentsAliasPolygons_ || polygons_.empty())
+        return false;
+
+    const refPoint localReference(reference_.point, reference_.wnv);
+    std::mt19937 leafRng(42u);
+    LeafClassificationContext context{
+        localReference,
+        polygons_,
+        aabb_,
+        leafRng,
+        solveMetrics_,
+        classifiedFragments_,
+        depth_};
+
+    LeafClassificationAttemptStats attemptStats;
+    Polygon256 &representativeFragment = polygons_.front();
+    const LeafClassificationResult classificationResult =
+        classifyLeafFragment(context, 0u, representativeFragment, attemptStats);
+    if (classificationResult == LeafClassificationResult::Failure)
+        throwLeafClassificationFailure(0u, depth_, representativeFragment, attemptStats);
+
+    classifiedFragmentCount_ = polygonCount_;
+    const ClassifiedFragment &classifiedFragment = classifiedFragments_.back();
+    const BoolStatus frontStatus = evaluateBooleanIndicator(classifiedFragment.frontWNV);
+    const BoolStatus backStatus = evaluateBooleanIndicator(classifiedFragment.backWNV);
+
+    resultFragments_.clear();
+    if (frontStatus == OUT && backStatus == IN)
+    {
+        resultFragments_.swap(polygons_);
+    }
+    else if (frontStatus == IN && backStatus == OUT)
+    {
+        resultFragments_.reserve(polygons_.size());
+        for (const Polygon256 &polygon : polygons_)
+            resultFragments_.push_back(reversePolygonOrientation(polygon));
+        polygons_.clear();
+    }
+    else
+    {
+        polygons_.clear();
+    }
+
+    return true;
+}
+
 // 对每个叶片片段追踪到严格内部点；分类失败属于不可恢复错误。
 void SubdivisionSolver::classifyLeafFragmentsAndCollectResults()
 {
@@ -628,7 +681,11 @@ void SubdivisionSolver::classifyLeafFragmentsAndCollectResults()
 
     resultFragments_.clear();
     classifiedFragments_.clear();
-    if (discarded_ || leafFragments_.empty())
+    const std::size_t sourceFragmentCount = leafFragmentsAliasPolygons_ ? polygons_.size() : leafFragments_.size();
+    if (discarded_ || sourceFragmentCount == 0)
+        return;
+
+    if (tryClassifySingleOperandLeafByBulkReuse())
         return;
 
     const refPoint localReference(reference_.point, reference_.wnv);
@@ -645,9 +702,9 @@ void SubdivisionSolver::classifyLeafFragmentsAndCollectResults()
     WNV reusableBackWNV;
     bool hasReusableClassification = false;
 
-    for (std::size_t fragmentIndex = 0; fragmentIndex < leafFragments_.size(); ++fragmentIndex)
+    for (std::size_t fragmentIndex = 0; fragmentIndex < sourceFragmentCount; ++fragmentIndex)
     {
-        Polygon256 &fragment = leafFragments_[fragmentIndex];
+        Polygon256 &fragment = leafFragmentsAliasPolygons_ ? polygons_[fragmentIndex] : leafFragments_[fragmentIndex];
         if (tryReuseSingleOperandFragmentClassification(
                     fragment,
                     hasReusableClassification,
@@ -671,6 +728,8 @@ void SubdivisionSolver::classifyLeafFragmentsAndCollectResults()
 
         appendResultFragmentFromClassification(classifiedFragments_.back());
     }
+
+    classifiedFragmentCount_ = sourceFragmentCount;
 }
 
 bool SubdivisionSolver::trySolveSingleOperandAssumptionLeaf()

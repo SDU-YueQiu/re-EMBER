@@ -159,6 +159,11 @@ private:
     void classifyLeafFragmentsAndCollectResults();
 
     /**
+     * @brief 对可直接复用单一分类结果的大叶子执行零额外几何副本的快速路径。
+     */
+    bool tryClassifySingleOperandLeafByBulkReuse();
+
+    /**
      * @brief 按共享单操作数策略尝试提前把当前节点作为叶子求解。
      */
     bool trySolveSingleOperandAssumptionLeaf();
@@ -296,6 +301,7 @@ private:
     std::size_t polygonCount_ = 0;
     std::size_t leafFragmentCount_ = 0;
     std::size_t classifiedFragmentCount_ = 0;
+    bool leafFragmentsAliasPolygons_ = false;
     std::unique_ptr<SubdivisionSolver> leftChild_;
     std::unique_ptr<SubdivisionSolver> rightChild_;
 };
