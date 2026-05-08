@@ -1000,6 +1000,20 @@ void SubdivisionSolver::mergeSolvedChildren()
     finalizeInternalNode();
 }
 
+bool SubdivisionSolver::shouldSpawnParallelSiblingTask() const noexcept
+{
+    if (leftChild_ == nullptr || rightChild_ == nullptr)
+        return false;
+    if (parallelContext_ == nullptr || !parallelContext_->canSpawnSiblingTasks())
+        return false;
+
+    const std::size_t smallerChildPolygonCount = std::min(leftChild_->polygonCount_, rightChild_->polygonCount_);
+    const std::size_t largerChildPolygonCount = std::max(leftChild_->polygonCount_, rightChild_->polygonCount_);
+    const std::size_t spawnPolygonFloor = std::max<std::size_t>(leafPolygonThreshold_ * 2u, 16u);
+    return smallerChildPolygonCount >= spawnPolygonFloor &&
+           largerChildPolygonCount > leafPolygonThreshold_;
+}
+
 void SubdivisionSolver::solveChildSubtrees()
 {
     if (leftChild_ == nullptr)
@@ -1015,7 +1029,7 @@ void SubdivisionSolver::solveChildSubtrees()
         return;
     }
 
-    if (parallelContext_ == nullptr || !parallelContext_->canSpawnSiblingTasks())
+    if (!shouldSpawnParallelSiblingTask())
     {
         leftChild_->solveRecursive();
         rightChild_->solveRecursive();
@@ -1028,13 +1042,13 @@ void SubdivisionSolver::solveChildSubtrees()
     SubdivisionSolver *localChild = nullptr;
     if (leftChild_->polygonCount_ >= rightChild_->polygonCount_)
     {
-        spawnedChild = leftChild_.get();
-        localChild = rightChild_.get();
+        localChild = leftChild_.get();
+        spawnedChild = rightChild_.get();
     }
     else
     {
-        spawnedChild = rightChild_.get();
-        localChild = leftChild_.get();
+        localChild = rightChild_.get();
+        spawnedChild = leftChild_.get();
     }
 
     ++solveMetrics_.parallelSiblingSpawnCount;
