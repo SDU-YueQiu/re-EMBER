@@ -1,0 +1,3 @@
+pair_id,stratum,operation,lhs_path,rhs_path,lhs_obj_vertices,lhs_obj_faces,rhs_obj_vertices,rhs_obj_faces,oracle_status,oracle_result_faces,current_failure_category
+small_001_1291011_minus_153368,small,difference,inputs/small/small_001_1291011_minus_153368/lhs.obj,inputs/small/small_001_1291011_minus_153368/rhs.obj,548,1100,676,1352,success,2402,bsp_or_overlap_interior_point
+small_026_996810_minus_1582439,small,difference,inputs/small/small_026_996810_minus_1582439/lhs.obj,inputs/small/small_026_996810_minus_1582439/rhs.obj,2311,4622,730,1488,success,4734,leaf_classification
