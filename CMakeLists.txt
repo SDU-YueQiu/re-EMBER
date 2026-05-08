@@ -228,7 +228,6 @@ if(REEMBER_ENABLE_TRACY)
 endif()
 
 set(REEMBER_LIBRARY_HEADERS
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/reember_pch.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/WNV_tracing.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/bsp.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/algorithm/leaf_arrangement.h"
@@ -264,10 +263,6 @@ set(REEMBER_TEST_HEADERS
 
 add_library(reember_lib ${REEMBER_LIBRARY_SOURCES} ${REEMBER_LIBRARY_HEADERS})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${REEMBER_LIBRARY_SOURCES} ${REEMBER_LIBRARY_HEADERS})
-target_precompile_headers(reember_lib
-  PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/reember_pch.h"
-)
 
 target_include_directories(reember_lib
   PUBLIC
@@ -316,7 +311,6 @@ if(REEMBER_ENABLE_TRACY)
 endif()
 
 add_executable(re-EMBER ${REEMBER_APP_SOURCE})
-target_precompile_headers(re-EMBER REUSE_FROM reember_lib)
 target_compile_definitions(re-EMBER PRIVATE TINYOBJLOADER_USE_DOUBLE)
 target_link_libraries(re-EMBER PRIVATE reember_lib)
 
@@ -334,7 +328,6 @@ if(MSVC)
 endif()
 
 add_executable(re-EMBER_tests ${REEMBER_TEST_SOURCES} ${REEMBER_TEST_HEADERS})
-target_precompile_headers(re-EMBER_tests REUSE_FROM reember_lib)
 target_compile_definitions(re-EMBER_tests PRIVATE TINYOBJLOADER_USE_DOUBLE)
 target_link_libraries(re-EMBER_tests PRIVATE reember_lib)
 
