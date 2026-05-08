@@ -20,6 +20,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace ember
 {
@@ -39,6 +40,7 @@ struct LeafClassificationAttemptStats
     std::size_t planeReplacementPathAttemptCount = 0;
     std::vector<PlanePoint3i> bridgeRescueTargets;
     std::vector<std::vector<HomPoint4i>> uniquePathSignatures;
+    std::vector<detail::PlaneReplacementBuildSignature> seenPlaneReplacementBuildSignatures;
     std::ostringstream debugLog;
 };
 
@@ -231,6 +233,21 @@ bool hasSeenPathSignature(
     return false;
 }
 
+bool shouldSkipRepeatedPlaneReplacementBuild(
+    LeafClassificationAttemptStats &attemptStats,
+    const detail::PlaneReplacementBuildSignature &signature)
+{
+    for (const detail::PlaneReplacementBuildSignature &existing :
+            attemptStats.seenPlaneReplacementBuildSignatures)
+    {
+        if (detail::samePlaneReplacementBuildSignature(existing, signature))
+            return true;
+    }
+
+    attemptStats.seenPlaneReplacementBuildSignatures.push_back(signature);
+    return false;
+}
+
 bool isTraceableSurfaceCandidatePath(
     const PlanePoint3i &referencePoint,
     const PlanePoint3i &targetPoint,
@@ -312,28 +329,39 @@ bool buildPlaneReplacementRepairPath(
     const AABB3i &box,
     std::vector<Segment256> &outPath)
 {
-    std::vector<int> changedPlaneIndices;
-    changedPlaneIndices.reserve(3);
+    std::array<int, 3> changedPlaneIndices = {};
+    std::size_t changedPlaneCount = 0;
     if (!detail::areSamePlaneEquation(referencePoint.p, targetPoint.p))
-        changedPlaneIndices.push_back(0);
+        changedPlaneIndices[changedPlaneCount++] = 0;
     if (!detail::areSamePlaneEquation(referencePoint.q, targetPoint.q))
-        changedPlaneIndices.push_back(1);
+        changedPlaneIndices[changedPlaneCount++] = 1;
     if (!detail::areSamePlaneEquation(referencePoint.r, targetPoint.r))
-        changedPlaneIndices.push_back(2);
-    if (changedPlaneIndices.empty())
+        changedPlaneIndices[changedPlaneCount++] = 2;
+    if (changedPlaneCount == 0)
         return false;
 
-    std::sort(changedPlaneIndices.begin(), changedPlaneIndices.end());
+    std::sort(
+        changedPlaneIndices.begin(),
+        changedPlaneIndices.begin() + static_cast<std::ptrdiff_t>(changedPlaneCount));
+    std::array<int, 3> planeReplacementOrder = changedPlaneIndices;
     do
     {
         std::vector<Segment256> path;
-        if (detail::buildPlaneReplacementPath(referencePoint, targetPoint, box, changedPlaneIndices, path) &&
+        if (detail::buildPlaneReplacementPath(
+                    referencePoint,
+                    targetPoint,
+                    box,
+                    planeReplacementOrder,
+                    changedPlaneCount,
+                    path) &&
                 isTraceableSurfaceCandidatePath(referencePoint, targetPoint, path))
         {
             outPath = std::move(path);
             return true;
         }
-    } while (std::next_permutation(changedPlaneIndices.begin(), changedPlaneIndices.end()));
+    } while (std::next_permutation(
+                 planeReplacementOrder.begin(),
+                 planeReplacementOrder.begin() + static_cast<std::ptrdiff_t>(changedPlaneCount)));
 
     return false;
 }
@@ -728,6 +756,10 @@ bool attemptInsetPlaneReplacementCandidates(
             context.localReference.point,
             targets,
             context.aabb,
+            [&](const detail::PlaneReplacementBuildSignature &signature, const PlanePoint3i &)
+        {
+            return shouldSkipRepeatedPlaneReplacementBuild(attemptStats, signature);
+        },
             [&](LeafClassificationPathCandidate candidate)
         {
             REEMBER_PROFILE_ZONE("LeafClassification::planeReplacementPathCandidate");
@@ -910,6 +942,10 @@ bool attemptBridgeRescueCandidates(
             bridgePoint,
             attemptStats.bridgeRescueTargets,
             context.aabb,
+            [&](const detail::PlaneReplacementBuildSignature &signature, const PlanePoint3i &)
+        {
+            return shouldSkipRepeatedPlaneReplacementBuild(attemptStats, signature);
+        },
             [&](LeafClassificationPathCandidate candidate)
         {
             REEMBER_PROFILE_ZONE("LeafClassification::bridgeRescuePlaneReplacementCandidate");

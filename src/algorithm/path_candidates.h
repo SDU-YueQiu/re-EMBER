@@ -69,6 +69,14 @@ inline bool appendUniqueIntegerTarget(
     return true;
 }
 
+struct KeepAllPlaneReplacementBuilds
+{
+    bool operator()(const PlaneReplacementBuildSignature &, const PlanePoint3i &) const noexcept
+    {
+        return false;
+    }
+};
+
 template <typename SeedVisitor>
 inline bool emitAABBPathCandidateSeed(
     const PlanePoint3i &targetPoint,
@@ -555,11 +563,12 @@ inline std::size_t enumerateLeafClassificationAxisPathCandidatesFromPoints(
  *
  * @tparam CandidateVisitor 接收 `LeafClassificationPathCandidate` 的回调；返回 `false` 表示停止枚举。
  */
-template <typename CandidateVisitor>
+template <typename PlaneReplacementBuildDuplicatePredicate, typename CandidateVisitor>
 inline std::size_t enumerateLeafClassificationPlaneReplacementPathCandidatesFromPoints(
     const PlanePoint3i &referencePoint,
     const std::vector<PlanePoint3i> &targetPoints,
     const AABB3i &box,
+    PlaneReplacementBuildDuplicatePredicate &&isDuplicatePlaneReplacementBuild,
     CandidateVisitor &&visitor)
 {
     REEMBER_PROFILE_ZONE("enumerateLeafClassificationPlaneReplacementPathCandidatesFromPoints");
@@ -570,36 +579,67 @@ inline std::size_t enumerateLeafClassificationPlaneReplacementPathCandidatesFrom
 
     for (const PlanePoint3i &targetPoint : targetPoints)
     {
-        std::vector<int> changedPlaneIndices;
+        std::array<int, 3> changedPlaneIndices = {};
+        std::size_t changedPlaneCount = 0;
         if (!detail::areSamePlaneEquation(referencePoint.p, targetPoint.p))
-            changedPlaneIndices.push_back(0);
+            changedPlaneIndices[changedPlaneCount++] = 0;
         if (!detail::areSamePlaneEquation(referencePoint.q, targetPoint.q))
-            changedPlaneIndices.push_back(1);
+            changedPlaneIndices[changedPlaneCount++] = 1;
         if (!detail::areSamePlaneEquation(referencePoint.r, targetPoint.r))
-            changedPlaneIndices.push_back(2);
-        if (changedPlaneIndices.empty())
+            changedPlaneIndices[changedPlaneCount++] = 2;
+        if (changedPlaneCount == 0)
             continue;
 
-        std::sort(changedPlaneIndices.begin(), changedPlaneIndices.end());
+        std::sort(
+            changedPlaneIndices.begin(),
+            changedPlaneIndices.begin() + static_cast<std::ptrdiff_t>(changedPlaneCount));
+        std::array<int, 3> planeReplacementOrder = changedPlaneIndices;
         do
         {
+            const detail::PlaneReplacementBuildSignature buildSignature =
+                detail::makePlaneReplacementBuildSignature(
+                    referencePoint,
+                    targetPoint,
+                    planeReplacementOrder,
+                    changedPlaneCount);
+            if (isDuplicatePlaneReplacementBuild(buildSignature, targetPoint))
+                continue;
+
             std::vector<Segment256> path;
             if (!detail::buildPlaneReplacementPath(
-                        referencePoint,
-                        targetPoint,
-                        box,
-                        changedPlaneIndices,
-                        path))
+                    referencePoint,
+                    targetPoint,
+                    box,
+                    planeReplacementOrder,
+                    changedPlaneCount,
+                    path))
                 continue;
 
             ++emitted;
             if (!visitor(LeafClassificationPathCandidate{targetPoint, std::move(path)}))
                 return emitted;
-        } while (std::next_permutation(changedPlaneIndices.begin(), changedPlaneIndices.end()));
+        } while (std::next_permutation(
+                     planeReplacementOrder.begin(),
+                     planeReplacementOrder.begin() + static_cast<std::ptrdiff_t>(changedPlaneCount)));
     }
 
     return emitted;
 }
+
+template <typename CandidateVisitor>
+inline std::size_t enumerateLeafClassificationPlaneReplacementPathCandidatesFromPoints(
+    const PlanePoint3i &referencePoint,
+    const std::vector<PlanePoint3i> &targetPoints,
+    const AABB3i &box,
+    CandidateVisitor &&visitor)
+{
+    return enumerateLeafClassificationPlaneReplacementPathCandidatesFromPoints(
+               referencePoint,
+               targetPoints,
+               box,
+               detail::KeepAllPlaneReplacementBuilds{},
+               std::forward<CandidateVisitor>(visitor));
+}
 
 /**
  * @brief 从已生成的内部点收集快速分类路径候选。
@@ -643,11 +683,12 @@ inline std::vector<LeafClassificationPathCandidate> enumerateLeafClassificationP
     return candidates;
 }
 
-template <typename CandidateVisitor>
+template <typename PlaneReplacementBuildDuplicatePredicate, typename CandidateVisitor>
 inline std::size_t enumerateLeafClassificationExhaustivePlaneReplacementPathCandidatesFromPoints(
     const PlanePoint3i &referencePoint,
     const std::vector<PlanePoint3i> &targetPoints,
     const AABB3i &box,
+    PlaneReplacementBuildDuplicatePredicate &&isDuplicatePlaneReplacementBuild,
     CandidateVisitor &&visitor)
 {
     REEMBER_PROFILE_ZONE("enumerateLeafClassificationExhaustivePlaneReplacementPathCandidatesFromPoints");
@@ -670,36 +711,67 @@ inline std::size_t enumerateLeafClassificationExhaustivePlaneReplacementPathCand
                     !areSamePlanePoint(permutedTargetPoint, targetPoint))
                 continue;
 
-            std::vector<int> changedPlaneIndices;
+            std::array<int, 3> changedPlaneIndices = {};
+            std::size_t changedPlaneCount = 0;
             if (!detail::areSamePlaneEquation(referencePoint.p, permutedTargetPoint.p))
-                changedPlaneIndices.push_back(0);
+                changedPlaneIndices[changedPlaneCount++] = 0;
             if (!detail::areSamePlaneEquation(referencePoint.q, permutedTargetPoint.q))
-                changedPlaneIndices.push_back(1);
+                changedPlaneIndices[changedPlaneCount++] = 1;
             if (!detail::areSamePlaneEquation(referencePoint.r, permutedTargetPoint.r))
-                changedPlaneIndices.push_back(2);
-            if (changedPlaneIndices.empty())
+                changedPlaneIndices[changedPlaneCount++] = 2;
+            if (changedPlaneCount == 0)
                 continue;
 
-            std::sort(changedPlaneIndices.begin(), changedPlaneIndices.end());
+            std::sort(
+                changedPlaneIndices.begin(),
+                changedPlaneIndices.begin() + static_cast<std::ptrdiff_t>(changedPlaneCount));
+            std::array<int, 3> planeReplacementOrder = changedPlaneIndices;
             do
             {
+                const detail::PlaneReplacementBuildSignature buildSignature =
+                    detail::makePlaneReplacementBuildSignature(
+                        referencePoint,
+                        permutedTargetPoint,
+                        planeReplacementOrder,
+                        changedPlaneCount);
+                if (isDuplicatePlaneReplacementBuild(buildSignature, targetPoint))
+                    continue;
+
                 std::vector<Segment256> path;
                 if (!detail::buildPlaneReplacementPath(
-                            referencePoint,
-                            permutedTargetPoint,
-                            box,
-                            changedPlaneIndices,
-                            path))
+                        referencePoint,
+                        permutedTargetPoint,
+                        box,
+                        planeReplacementOrder,
+                        changedPlaneCount,
+                        path))
                     continue;
 
                 ++emitted;
                 if (!visitor(LeafClassificationPathCandidate{targetPoint, std::move(path)}))
                     return emitted;
-            } while (std::next_permutation(changedPlaneIndices.begin(), changedPlaneIndices.end()));
+            } while (std::next_permutation(
+                         planeReplacementOrder.begin(),
+                         planeReplacementOrder.begin() + static_cast<std::ptrdiff_t>(changedPlaneCount)));
         } while (std::next_permutation(targetPlaneOrder.begin(), targetPlaneOrder.end()));
     }
 
     return emitted;
+}
+
+template <typename CandidateVisitor>
+inline std::size_t enumerateLeafClassificationExhaustivePlaneReplacementPathCandidatesFromPoints(
+    const PlanePoint3i &referencePoint,
+    const std::vector<PlanePoint3i> &targetPoints,
+    const AABB3i &box,
+    CandidateVisitor &&visitor)
+{
+    return enumerateLeafClassificationExhaustivePlaneReplacementPathCandidatesFromPoints(
+               referencePoint,
+               targetPoints,
+               box,
+               detail::KeepAllPlaneReplacementBuilds{},
+               std::forward<CandidateVisitor>(visitor));
 }
 
 }
