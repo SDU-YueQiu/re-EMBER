@@ -167,12 +167,15 @@ struct Polygon256
 private:
     void invalidateDerivedCaches() noexcept;
     void invalidateValidityCache() const noexcept;
-    void rebuildDerivedCaches() const;
+    void rebuildVertexCache() const;
+    void rebuildVertexAndAABBCaches() const;
+    void rebuildAABBCacheFromVertices() const;
     bool computeValidity() const;
 
     mutable std::vector<PlanePoint3i> cachedVertices_;
     mutable AABB3i cachedAABB_;
-    mutable bool derivedCachesValid_ = false;
+    mutable bool vertexCacheValid_ = false;
+    mutable bool aabbCacheValid_ = false;
     mutable bool validityCacheValid_ = false;
     mutable bool cachedValidity_ = false;
 };

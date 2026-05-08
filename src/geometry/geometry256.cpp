@@ -138,7 +138,8 @@ void Polygon256::invalidateDerivedCaches() noexcept
 {
     cachedVertices_.clear();
     cachedAABB_ = AABB3i();
-    derivedCachesValid_ = false;
+    vertexCacheValid_ = false;
+    aabbCacheValid_ = false;
     validityCacheValid_ = false;
     cachedValidity_ = false;
 }
@@ -152,12 +153,32 @@ void Polygon256::invalidateValidityCache() const noexcept
 void Polygon256::precomputeVertices() const
 {
     invalidateValidityCache();
-    rebuildDerivedCaches();
+    cachedVertices_.clear();
+    cachedAABB_ = AABB3i();
+    vertexCacheValid_ = false;
+    aabbCacheValid_ = false;
+    rebuildVertexCache();
 }
 
-void Polygon256::rebuildDerivedCaches() const
+void Polygon256::rebuildVertexCache() const
 {
     REEMBER_PROFILE_ZONE("precomputeVertices");
+
+    cachedVertices_.clear();
+    const std::size_t n = edgePlanes.size();
+    cachedVertices_.reserve(n);
+    for (std::size_t i = 0; i < n; ++i)
+    {
+        const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
+        cachedVertices_.emplace_back(plane, edgePlanes[i], edgePlanes[prev]);
+    }
+    vertexCacheValid_ = true;
+}
+
+void Polygon256::rebuildVertexAndAABBCaches() const
+{
+    REEMBER_PROFILE_ZONE("precomputeVertices");
+
     cachedVertices_.clear();
     cachedAABB_ = AABB3i();
     const std::size_t n = edgePlanes.size();
@@ -168,27 +189,38 @@ void Polygon256::rebuildDerivedCaches() const
         cachedVertices_.emplace_back(plane, edgePlanes[i], edgePlanes[prev]);
         appendPointToAABB(cachedAABB_, cachedVertices_.back());
     }
-    derivedCachesValid_ = true;
+    vertexCacheValid_ = true;
+    aabbCacheValid_ = true;
+}
+
+void Polygon256::rebuildAABBCacheFromVertices() const
+{
+    cachedAABB_ = AABB3i();
+    for (const PlanePoint3i &vertex : cachedVertices_)
+        appendPointToAABB(cachedAABB_, vertex);
+    aabbCacheValid_ = true;
 }
 
 const PlanePoint3i &Polygon256::vertex(std::size_t vertexIndex) const
 {
-    if (!derivedCachesValid_)
-        rebuildDerivedCaches();
+    if (!vertexCacheValid_)
+        rebuildVertexCache();
     return cachedVertices_[vertexIndex];
 }
 
 const std::vector<PlanePoint3i> &Polygon256::vertices() const
 {
-    if (!derivedCachesValid_)
-        rebuildDerivedCaches();
+    if (!vertexCacheValid_)
+        rebuildVertexCache();
     return cachedVertices_;
 }
 
 const AABB3i &Polygon256::aabb() const
 {
-    if (!derivedCachesValid_)
-        rebuildDerivedCaches();
+    if (!vertexCacheValid_)
+        rebuildVertexAndAABBCaches();
+    else if (!aabbCacheValid_)
+        rebuildAABBCacheFromVertices();
     return cachedAABB_;
 }
 
