@@ -248,6 +248,7 @@ set(REEMBER_LIBRARY_HEADERS
   "${CMAKE_CURRENT_SOURCE_DIR}/src/io/io.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/math/math256.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/math/winding_number_f.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/third_party/stl_reader/stl_reader.h"
 )
 
 set(REEMBER_TEST_SOURCES

@@ -1,6 +1,6 @@
 /**
  * @file main.cpp
- * @brief 实现基于 OBJ 的命令行布尔运算程序。
+ * @brief 实现基于 OBJ/STL 的命令行布尔运算程序。
  */
 #include "core/bool_problem.h"
 #include "core/perf_tracing.h"
@@ -58,8 +58,8 @@ struct CliTimings
 void printUsage()
 {
     std::cerr
-            << "Usage: re-EMBER --lhs <file.obj> --rhs <file.obj> "
-            << "--op union|intersection|difference --out <result.obj> "
+            << "Usage: re-EMBER --lhs <file.obj|file.stl> --rhs <file.obj|file.stl> "
+            << "--op union|intersection|difference --out <result.obj|result.stl> "
             << "[--scale <positive_integer>] [--leaf-threshold <positive_integer>] "
             << "[--threads <positive_integer>] "
             << "[--timings-out <metrics.txt>] "
@@ -68,6 +68,9 @@ void printUsage()
             << std::endl;
     std::cerr
             << "Assumption flags are unchecked optimizations; wrong NSI/NNC declarations can make results invalid."
+            << std::endl;
+    std::cerr
+            << "Input supports .obj/.stl. Output .obj preserves n-gons; output .stl triangulates."
             << std::endl;
 }
 
@@ -390,7 +393,7 @@ int main(int argc, char **argv)
 
     try
     {
-        // 应用层只做三件事：OBJ 转多边形集合、驱动 BoolProblem、结果写回 OBJ。
+        // 应用层只做三件事：网格转多边形集合、驱动 BoolProblem、结果按扩展名写回 OBJ/STL。
         ember::ObjMeshData lhsMesh;
         ember::ObjMeshData rhsMesh;
         CliTimings timings;
@@ -399,12 +402,12 @@ int main(int argc, char **argv)
         const Clock::time_point readStart = Clock::now();
         {
             REEMBER_PROFILE_ZONE("re-EMBER::read_obj");
-            if (!ember::readObjMesh(options.lhsPath, lhsMesh, error))
+            if (!ember::readMesh(options.lhsPath, lhsMesh, error))
             {
                 std::cerr << error << std::endl;
                 return 1;
             }
-            if (!ember::readObjMesh(options.rhsPath, rhsMesh, error))
+            if (!ember::readMesh(options.rhsPath, rhsMesh, error))
             {
                 std::cerr << error << std::endl;
                 return 1;
@@ -487,12 +490,12 @@ int main(int argc, char **argv)
         timings.solveMs = elapsedMilliseconds(solveStart, solveEnd);
         timings.solveMetrics = problem.solveMetrics();
 
-        // 默认直接导出 OBJ n 边面；三角化和拓扑恢复属于调用方后处理。
+        // 输出扩展名决定导出格式：OBJ 保持 n 边面，STL 在边界层做扇形三角化。
         const Clock::time_point exportStart = Clock::now();
         std::size_t exportedFaces = 0;
         {
             REEMBER_PROFILE_ZONE("re-EMBER::export_obj");
-            if (!ember::writePolygonSoupObj(problem.resultFragments(), options.outputPath, exportedFaces, error, sharedScale))
+            if (!ember::writePolygonSoupMesh(problem.resultFragments(), options.outputPath, exportedFaces, error, sharedScale))
             {
                 std::cerr << error << std::endl;
                 return 1;
