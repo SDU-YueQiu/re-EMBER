@@ -9,4 +9,4 @@
 - `--assume-rhs-nsi`
 - `--assume-rhs-nnc`
 
-10% 实验中 `small_003_702407_minus_81309` 当前成功，其余 9 个样本当前都会触发 `BSPTree failed to find a strict interior point while disabling overlap leaves.`。测试产物写入 `build/paper_experiment_tests/`，不写回本目录。`manifest.csv` 记录 oracle 结果面数和当前已知失败类别；面数只作为实验来源说明，不要求与当前 polygon-soup n-gon 输出一一相等。
+当前 10 个默认 small 样本都作为普通 CTest 运行，不设置 expected-fail；任一样本失败都表示当前流水线回归。测试产物写入 `build/paper_experiment_tests/`，不写回本目录。`manifest.csv` 记录 oracle 结果面数和本工作树上次刷新后的当前状态；面数只作为实验来源说明，不要求与当前 polygon-soup n-gon 输出一一相等。

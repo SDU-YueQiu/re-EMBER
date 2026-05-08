@@ -36,7 +36,7 @@ ctest --test-dir build -C Debug --output-on-failure --timeout 60
 cmake --build build --config Debug --target re-EMBER
 ```
 
-`ctest` 现在包含 [论文实验测试](docs/paper-experiment-tests.md)。这些测试直接运行 `re-EMBER` CLI，输入来自 `tests/paper_experiments/`，产物写到 `build/paper_experiment_tests/`。它们是 oracle-success 样本，并启用论文实验使用的 NSI/NNC 假设；不设置 expected-fail，当前算法在这些样本上失败时，CTest 应该失败。CLI 回归默认使用 `REEMBER_CTEST_THREADS`，其默认值是当前构建机的逻辑处理器数；只有专门排查串行分支时才显式设为 `1`。
+`ctest` 现在包含 [论文实验测试](docs/paper-experiment-tests.md)。这些测试直接运行 `re-EMBER` CLI，输入来自 `tests/paper_experiments/`，产物写到 `build/paper_experiment_tests/`。它们是 oracle-success 样本，并启用论文实验使用的 NSI/NNC 假设；不设置 expected-fail，当前默认 10 个 small pair 都应通过，任一样本失败都表示当前流水线回归。CLI 回归默认使用 `REEMBER_CTEST_THREADS`，其默认值是当前构建机的逻辑处理器数；只有专门排查串行分支时才显式设为 `1`。
 
 当前仓库默认通过 vcpkg toolchain 解析 `oneTBB`。如果当前机器还没有这个依赖，先执行：
 
@@ -245,8 +245,8 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 - `leaf_classification_inset_point_attempt_count`：叶片分类阶段按论文 inset 规则尝试构点的总次数。
 - `leaf_classification_trace_attempt_count`：叶片分类实际尝试的 path trace 总数。
 - `leaf_classification_axis_path_attempt_count`、`leaf_classification_plane_replacement_path_attempt_count`：论文两阶段路径尝试分布。
-- `leaf_classification_candidate_generated_count`、`leaf_classification_candidate_unique_count`：叶片分类候选枚举生成量和按路径去重后真正保留量。
-- `leaf_classification_candidate_duplicate_skip_count`、`leaf_classification_candidate_rejected_count`：候选因重复或结构非法且无法局部修复而跳过的数量。
+- `leaf_classification_candidate_generated_count`、`leaf_classification_candidate_unique_count`：叶片分类候选枚举生成量和按路径端点签名去重后真正保留量。
+- `leaf_classification_candidate_duplicate_skip_count`、`leaf_classification_candidate_rejected_count`：候选因 trace 级路径重复或结构非法且无法局部修复而跳过的数量；换平面构造级签名缓存发生在生成路径前，不单独计入该字段。
 - `leaf_classification_candidate_repair_attempt_count`、`leaf_classification_candidate_repair_success_count`：候选路径终点/连续性不满足 surface trace 前置条件时，局部重建路径的尝试和成功次数。
 - `leaf_classification_*_success_count`、`leaf_classification_*_path_invalid_count`、`leaf_classification_*_input_invalid_count`、`leaf_classification_*_fail_count`：按 `centroid_axis`、`inset_replacement`、`bridge_rescue` 三个阶段拆分的 trace 状态分布；`INPUT_INVALID` 应优先解释为候选构造问题，而不是普通几何退化路径。
 
