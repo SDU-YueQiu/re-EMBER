@@ -20,6 +20,7 @@ OBJ/STL -> 共享 scale + 浮点输入AABB -> 多边形集合 -> BoolProblem(校
 - `src/algorithm/`：局部 BSP、叶子编排、WNV 路径追踪和分类路径候选。
 - `src/geometry/`、`src/math/`：固定宽度整数几何 primitive、平面点表示、裁剪和基础代数。
 - `src/tests/`：仓库自定义断言测试，不依赖第三方测试框架。
+- `tests/paper_experiments/`：从论文实验复制来的 oracle-success 端到端回归输入。
 - `tools/profile-re-ember.ps1`：端到端性能测试、Tracy 捕获和报告入口。
 
 `BoolProblem` 现在只暴露应用需要的二元门面接口：`setOperation`、`setOperandAssumptions`、`setThreadCount`、`setOperands`、`solve(sceneAABB)`、`isDiscarded`、`resultFragments`、`leafSummaries` 和 `solveMetrics`。`setOperands()` 会统一覆写输入多边形的 `WNTV`，强制收敛到 `lhs={1,0}`、`rhs={0,1}` 的二元约定，不再暴露“直接注入任意带标签 polygon 集合”的公开入口。根场景 AABB 在共享 `scale` 选定后直接由输入网格浮点顶点经 `floor(coord * scale)` / `ceil(coord * scale)` 生成，调用方合并左右输入后加 margin 并传给 `solve(sceneAABB)`；`SubdivisionSolver` 不再从 256 位多边形顶点反推根 AABB。`Polygon256` 顶点缓存改为按需构造，首次调用 `vertex()` / `vertices()` 时生成，后续复用。递归子问题状态属于 `SubdivisionSolver` 内部实现；它会在递归返回路径上一次性向上汇总 `resultFragments / leafSummaries / solveMetrics`，并尽早释放子树中间状态。当前并行实现使用 `oneTBB` 的 sibling-task work stealing：每次细分后当前线程继续一个 child，另一个 child 作为 task 提交给共享运行时，最终仍按 `left -> right` 固定顺序 merge。`BoolProblem` 仍然不是外部并发安全对象；一个实例不能被多个线程同时读写或复用。每个 `BoolProblem` 实例只允许执行一次 `solve()`；无论成功还是抛错，后续都不能再次 `solve()` 或修改配置。
@@ -34,6 +35,8 @@ cmake --build build --config Debug --target re-EMBER_tests
 ctest --test-dir build -C Debug --output-on-failure --timeout 60
 cmake --build build --config Debug --target re-EMBER
 ```
+
+`ctest` 现在包含 [论文实验测试](docs/paper-experiment-tests.md)。这些测试直接运行 `re-EMBER` CLI，输入来自 `tests/paper_experiments/`，产物写到 `build/paper_experiment_tests/`。它们是 oracle-success 样本，不设置 expected-fail；当前算法在这些样本上失败时，CTest 应该失败。
 
 当前仓库默认通过 vcpkg toolchain 解析 `oneTBB`。如果当前机器还没有这个依赖，先执行：
 
