@@ -4,6 +4,7 @@
  */
 #include "clipping.h"
 
+#include <array>
 #include <sstream>
 #include <utility>
 
@@ -81,20 +82,43 @@ bool computePolygonPlaneIntersection(
         return false;
 
     const std::size_t n = source.edgeCount();
+    const std::vector<PlanePoint3i> &sourceVertices = source.vertices();
 
-    std::vector<int> sides;
-    sides.resize(n);
+    std::array<int, 16> stackSides;
+    std::vector<int> heapSides;
+    int *sides = nullptr;
+    if (n <= stackSides.size())
+        sides = stackSides.data();
+    else
+    {
+        heapSides.resize(n);
+        sides = heapSides.data();
+    }
+
+    bool hasPositive = false;
+    bool hasNegative = false;
+    bool hasZero = false;
     {
         REEMBER_PROFILE_ZONE("computePolygonPlaneIntersection::classifyVertices");
         for (std::size_t i = 0; i < n; ++i)
         {
-            const PlanePoint3i &v = source.vertex(i);
-            sides[i] = v.classify(target);
+            const int side = sourceVertices[i].classify(target);
+            sides[i] = side;
+            if (side > 0)
+                hasPositive = true;
+            else if (side < 0)
+                hasNegative = true;
+            else
+                hasZero = true;
         }
     }
 
-    std::vector<Plane3i> intersectionCarriers;
-    std::vector<PlanePoint3i> intersectionPoints;
+    if (!hasZero && (!hasPositive || !hasNegative))
+        return false;
+
+    std::array<Plane3i, 2> intersectionCarriers;
+    std::array<PlanePoint3i, 2> intersectionPoints;
+    std::size_t intersectionCount = 0;
 
     auto appendIntersectionCarrier = [&](const Plane3i& carrier) -> bool
     {
@@ -102,17 +126,18 @@ bool computePolygonPlaneIntersection(
         if (!point.hasUniqueIntersection())
             return true;
 
-        for (const PlanePoint3i& existing : intersectionPoints)
+        for (std::size_t existingIndex = 0; existingIndex < intersectionCount; ++existingIndex)
         {
-            if (areSameHomPoint(existing.x, point.x))
+            if (areSameHomPoint(intersectionPoints[existingIndex].x, point.x))
                 return true;
         }
 
-        if (intersectionCarriers.size() == 2u)
+        if (intersectionCount == intersectionCarriers.size())
             return false;
 
-        intersectionCarriers.push_back(carrier);
-        intersectionPoints.push_back(point);
+        intersectionCarriers[intersectionCount] = carrier;
+        intersectionPoints[intersectionCount] = point;
+        ++intersectionCount;
         return true;
     };
 
@@ -155,7 +180,7 @@ bool computePolygonPlaneIntersection(
         }
     }
 
-    if (intersectionCarriers.size() != 2u ||
+    if (intersectionCount != 2u ||
             areSameHomPoint(intersectionPoints[0].x, intersectionPoints[1].x))
         return false;
 
@@ -293,16 +318,18 @@ bool detail::clipLeafGeometryByPlaneTrustedWithSides(
     Polygon256& backClipped,
     PolygonEdgeProvenance insertedEdgeProvenance)
 {
-    frontClipped = Polygon256();
-    frontClipped.plane = source.plane;
-    frontClipped.WNTV = source.WNTV;
-    backClipped = Polygon256();
-    backClipped.plane = source.plane;
-    backClipped.WNTV = source.WNTV;
-
     const std::size_t n = source.edgeCount();
     if (vertexSides.size() != n)
         return false;
+
+    std::vector<Plane3i> frontEdges;
+    std::vector<PolygonEdgeProvenance> frontProvenances;
+    std::vector<Plane3i> backEdges;
+    std::vector<PolygonEdgeProvenance> backProvenances;
+    frontEdges.reserve(n + 1u);
+    frontProvenances.reserve(n + 1u);
+    backEdges.reserve(n + 1u);
+    backProvenances.reserve(n + 1u);
 
     const Plane3i oppositePlane(-clipPlane.a, -clipPlane.b, -clipPlane.c, -clipPlane.d);// 取反后表示裁剪平面的另一侧。
 
@@ -326,45 +353,57 @@ bool detail::clipLeafGeometryByPlaneTrustedWithSides(
 
         if (sInside && eInside)
         {
-            frontClipped.addEdgePlane(segmentEdge, segmentEdgeProvenance);
+            frontEdges.push_back(segmentEdge);
+            frontProvenances.push_back(segmentEdgeProvenance);
             continue;
         }
 
         if (!sInside && !eInside)
         {
-            backClipped.addEdgePlane(segmentEdge, segmentEdgeProvenance);
+            backEdges.push_back(segmentEdge);
+            backProvenances.push_back(segmentEdgeProvenance);
             continue;
         }
 
         if (sInside && !eInside)
         {
             if (sSide == 1) // (s,e) == (1, -1)
-                frontClipped.addEdgePlane(segmentEdge, segmentEdgeProvenance);
-            frontClipped.addEdgePlane(oppositePlane, insertedEdgeProvenance);
+            {
+                frontEdges.push_back(segmentEdge);
+                frontProvenances.push_back(segmentEdgeProvenance);
+            }
+            frontEdges.push_back(oppositePlane);
+            frontProvenances.push_back(insertedEdgeProvenance);
 
-            backClipped.addEdgePlane(segmentEdge, segmentEdgeProvenance);
+            backEdges.push_back(segmentEdge);
+            backProvenances.push_back(segmentEdgeProvenance);
             continue;
         }
 
         if (!sInside && eInside)
         {
-            backClipped.addEdgePlane(segmentEdge, segmentEdgeProvenance);
-            backClipped.addEdgePlane(clipPlane, insertedEdgeProvenance);
+            backEdges.push_back(segmentEdge);
+            backProvenances.push_back(segmentEdgeProvenance);
+            backEdges.push_back(clipPlane);
+            backProvenances.push_back(insertedEdgeProvenance);
             if (eSide == 1) // (s,e) == (-1, 1)
-                frontClipped.addEdgePlane(segmentEdge, segmentEdgeProvenance);
+            {
+                frontEdges.push_back(segmentEdge);
+                frontProvenances.push_back(segmentEdgeProvenance);
+            }
         }
     }
 
     Polygon256 orientedFront(
-        frontClipped.plane,
-        std::move(frontClipped.edgePlanes),
-        std::move(frontClipped.edgeProvenances));
-    orientedFront.WNTV = std::move(frontClipped.WNTV);
+        source.plane,
+        std::move(frontEdges),
+        std::move(frontProvenances));
+    orientedFront.WNTV = source.WNTV;
     Polygon256 orientedBack(
-        backClipped.plane,
-        std::move(backClipped.edgePlanes),
-        std::move(backClipped.edgeProvenances));
-    orientedBack.WNTV = std::move(backClipped.WNTV);
+        source.plane,
+        std::move(backEdges),
+        std::move(backProvenances));
+    orientedBack.WNTV = source.WNTV;
 
     const bool frontValid = orientedFront.isValid();
     const bool backValid = orientedBack.isValid();
