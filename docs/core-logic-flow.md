@@ -126,7 +126,7 @@ flowchart TD
 2. 若达到叶子阈值，或 AABB 已不可再切分，则转叶子求解。
 3. 否则选择切分面并创建左右子节点。
 4. 常量 indicator 剪枝只发生在 child 创建前。
-5. 若两个 child 都存在且有效线程数大于 1，则把 polygon soup 更大的 sibling 作为 `oneTBB` task 提交，当前线程继续另一个 child。
+5. 若两个 child 都存在，且 sibling 并行门槛满足，则当前线程继续 polygon soup 更大的 child，把较小的 sibling 作为 `oneTBB` task 提交。
 6. 两个 child 都完成后，仍按 `left -> right` 固定顺序 move-merge 结果，并立即释放子节点。
 
 ```mermaid
@@ -140,10 +140,10 @@ flowchart TD
     G -->|否| H["按叶子完成求解"]
     G -->|是| I["createChildrenFromSplit()"]
     I --> J["child 创建前按扫描缓存 + reference 做常量剪枝"]
-    J --> K{"可并行 sibling?"}
+    J --> K{"满足 sibling 并行门槛?"}
     K -->|否| L["按 left 再 right 串行递归"]
-    K -->|是| M["spawn 较大 sibling task"]
-    M --> N["当前线程继续另一个 child"]
+    K -->|是| M["spawn 较小 sibling task"]
+    M --> N["当前线程继续较大 child"]
     N --> O["wait sibling task"]
     L --> P["mergeSolvedChildren()"]
     O --> P["mergeSolvedChildren()"]
@@ -273,58 +273,65 @@ flowchart TD
 
 ## 8. 叶片分类流程
 
-`classifyLeafFragmentsAndCollectResults()` 会对每个叶片片段求出其支撑平面两侧的 `frontWNV/backWNV`，再用布尔指示函数决定是否输出。
+`classifyLeafFragmentsAndCollectResults()` 会对叶片片段求出其支撑平面两侧的 `frontWNV/backWNV`，再用布尔指示函数决定是否输出。若当前叶子满足 NSI/NNC 单操作数快路径，并且 `leafFragments_` 实际直接别名到原始 `polygons_`，则不会逐片复用分类结果，而是只真实分类一个代表面，再把该结果直接作用到整批多边形。
 
 核心顺序：
 
 1. 以当前节点参考点 `reference_` 作为局部参考点。
-2. 遍历 `leafFragments_`。
-3. 如果单操作数分类结果可复用，则第一个片段负责真实分类，其余片段直接复用同一组 `front/back WNV`。
-4. 否则调用 `classifyLeafFragment()` 为当前片段尝试路径传播。
-5. 分类成功后，根据 `(frontStatus, backStatus)` 决定是否写入 `resultFragments_`。
-6. 如果分类失败，当前实现直接抛异常，不输出不可信结果。
+2. 先判断是否命中 NSI/NNC 单操作数 bulk fast path；否则再进入普通逐片遍历。
+3. 如果命中 NSI/NNC 单操作数 bulk fast path，则只对一个代表面调用 `classifyLeafFragment()`。
+4. 代表面分类成功后，直接根据 `(frontStatus, backStatus)` 对整批 `polygons_` 做三选一处理：整体直接输出、整体翻转后输出，或整体丢弃。
+5. 如果没有命中 bulk fast path，则回到普通逐片流程：当前片段调用 `classifyLeafFragment()`；在允许单操作数逐片复用时，后续片段可以复用首个片段的 `front/back WNV`。
+6. 任一真实分类失败都会直接抛异常，不输出不可信结果。
 
 ```mermaid
 flowchart TD
-    A["classifyLeafFragmentsAndCollectResults()"] --> B["遍历 leafFragments_"]
-    B --> C{"可复用单操作数分类?"}
-    C -->|是| D["复用 front/back WNV"]
-    C -->|否| E["classifyLeafFragment()"]
-    E --> F{"分类成功?"}
-    F -->|否| G["记录诊断并抛异常"]
-    F -->|是| H["appendResultFragmentFromClassification()"]
-    D --> H
-    H --> I["继续下一个 fragment"]
+    A["classifyLeafFragmentsAndCollectResults()"] --> B{"命中 NSI/NNC bulk fast path?"}
+    B -->|是| C["只分类一个代表面"]
+    C --> D{"分类成功?"}
+    D -->|否| E["记录诊断并抛异常"]
+    D -->|是| F["按 front/back 状态整批直接输出/翻转/丢弃 polygons_"]
+    B -->|否| G["遍历 leafFragments_"]
+    G --> H{"可逐片复用单操作数分类?"}
+    H -->|是| I["复用 front/back WNV"]
+    H -->|否| J["classifyLeafFragment()"]
+    J --> K{"分类成功?"}
+    K -->|否| E
+    K -->|是| L["appendResultFragmentFromClassification()"]
+    I --> L
+    L --> M["继续下一个 fragment"]
 ```
 
 ### 8.1 单个叶片片段的候选顺序
 
 `classifyLeafFragment()` 的真实策略是两层嵌套：
 
-第一层先选目标点：
+当前实现的外层顺序已经直接固定为三段：
 
-1. `primary` 严格内部点
-2. 如果还没成功，再试 `expanded` 严格内部点
+1. `centroid heuristic + axis-aligned path`
+2. `randomized inset fallback + plane-replacement path`
+3. `AABB interior bridge rescue`
 
-第二层已收缩为论文 4.4 的两阶段流程：
+其中第二段内部还有一个小的目标点扩展策略：
 
-1. `centroid heuristic`
-2. `randomized inset fallback`
+1. 先尝试前 3 个 inset 目标点
+2. 仍未成功时，再扩展剩余 inset 目标点
 
 ```mermaid
 flowchart TD
     A["classifyLeafFragment()"] --> B["重心启发式生成 0/1 个目标点"]
-    B --> C["坐标轴路径候选校验/去重/局部修复"]
+    B --> C["axis-aligned 路径候选校验/去重/局部修复"]
     C --> D{"已成功?"}
     D -->|是| E["返回 Success"]
     D -->|否| F["固定 seed=42 的随机 inset 构点"]
-    F --> G["换平面路径候选校验/去重/局部修复"]
-    G --> H{"已成功?"}
-    H -->|是| E
-    H -->|否| I["AABB 内桥接 rescue"]
-    I --> K{"已成功?"}
+    F --> G["先试前 3 个目标点, 必要时扩展剩余目标点"]
+    G --> H["plane-replacement 路径候选校验/去重/局部修复"]
+    H --> I{"已成功?"}
+    I -->|是| E
+    I -->|否| J["AABB 内 bridge rescue"]
+    J --> K{"已成功?"}
     K -->|是| E
-    K -->|否| J["返回 Failure"]
+    K -->|否| L["返回 Failure"]
 ```
 
 当前实现不会因为 `PATH_INVALID` 回退到递归细分；无论是普通叶节点还是入口单操作数快路径，一旦叶分类穷尽候选仍失败，就按叶节点失败处理。候选进入 trace 前会先验证路径非空、从局部参考点连续连接、终点落在待分类片段支撑平面上；不满足这些结构条件时只在当前候选上尝试局部重建，不把 `INPUT_INVALID` 当成普通 `PATH_INVALID` 推动全局穷举。
@@ -348,7 +355,7 @@ flowchart TD
 
 ## 9. 结果筛选与朝向
 
-分类完成后，并不是所有叶片片段都会进入最终结果。
+分类完成后，并不是所有叶片片段都会进入最终结果。普通路径通过 `appendResultFragmentFromClassification()` 逐片筛选；NSI/NNC 单操作数 bulk fast path 则直接对整批 `polygons_` 做输出、翻转或丢弃，不再逐片追加。
 
 `appendResultFragmentFromClassification()` 的规则是：
 
