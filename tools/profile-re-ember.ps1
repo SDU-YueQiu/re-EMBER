@@ -1,9 +1,11 @@
-# Capture re-EMBER CLI workloads with Tracy and write reports under build\perf.
+# Capture re-EMBER CLI workloads with Tracy and write reports under build\performance.
 param(
     [string]$Lhs,
     [string]$Rhs,
     [ValidateSet("union", "intersection", "difference")][string]$Op = "difference",
     [string]$Out,
+    [string]$InputRoot,
+    [string]$ExecutablePath,
     [ValidateSet("Debug", "Release", "RelWithDebInfo", "MinSizeRel")][string]$Configuration = "RelWithDebInfo",
     [int]$LeafThreshold = 25,
     [int]$Threads = 0,
@@ -13,14 +15,11 @@ param(
     [int]$ReportTimeoutSeconds = 120,
     [int]$TracyPort = 8086,
     [int]$TracyAttachWaitMilliseconds = 1500,
-    [string]$TracyToolRoot,
     [string[]]$UnwrapZoneFilter = @(),
     [switch]$EnableMathTracy,
     [switch]$SkipBuild,
-    [switch]$ForceBuild,
     [switch]$NoTracy,
     [switch]$NoInputAssumptions,
-    [switch]$PaperSlowOnly,
     [ValidateSet("Normal", "AboveNormal", "High")][string]$WorkloadPriority = "Normal",
     [string]$WorkloadAffinityMask,
     [switch]$UsePCores,
@@ -47,23 +46,25 @@ function Show-Help {
 Usage:
   powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1
   powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Lhs <lhs.obj> -Rhs <rhs.obj> -Op difference
-  powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Lhs <lhs.obj> -Rhs <rhs.obj> -Op difference -Threads `$env:NUMBER_OF_PROCESSORS
+  powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -InputRoot <case-root> -Op difference -ExecutablePath .\build\Debug\re-EMBER.exe
 
 Outputs:
-  build\perf\run_<timestamp>\profile.log
-  build\perf\run_<timestamp>\manifest.json
-  build\perf\run_<timestamp>\timings.csv
-  build\perf\run_<timestamp>\tracy_traces\*.tracy
-  build\perf\run_<timestamp>\tracy_zones.csv
-  build\perf\run_<timestamp>\tracy_zones_self.csv
-  build\perf\run_<timestamp>\tracy_unwrap\*.csv
-  build\perf\run_<timestamp>\report.md
-  build\perf\run_<timestamp>\summary.txt
+  build\performance\run_<timestamp>\profile.log
+  build\performance\run_<timestamp>\manifest.json
+  build\performance\run_<timestamp>\timings.csv
+  build\performance\run_<timestamp>\tracy_traces\*.tracy
+  build\performance\run_<timestamp>\tracy_zones.csv
+  build\performance\run_<timestamp>\tracy_zones_self.csv
+  build\performance\run_<timestamp>\tracy_unwrap\*.csv
+  build\performance\run_<timestamp>\report.md
+  build\performance\run_<timestamp>\summary.txt
 
 Notes:
   - Uses build\ only; profiling builds live under build\profile_* and do not reuse the ordinary build\ tree.
   - Tracy profiling is the default path and uses build\profile_tracy\ with REEMBER_ENABLE_TRACY=ON.
   - When -SkipBuild is not specified, the script configures the mode-matched profiling build tree automatically.
+  - Use -ExecutablePath to reuse an existing re-EMBER.exe directly and skip all configure/build logic.
+  - Use -InputRoot when one parent directory contains multiple case subdirectories, each with exactly one lhs.obj|stl and one rhs.obj|stl.
   - Use -EnableMathTracy to additionally enable low-level math256 Tracy zones; the default is OFF to avoid steady-state overhead.
   - -EnableMathTracy uses build\profile_tracy_math\ and enables REEMBER_ENABLE_TRACY_MATH automatically.
   - Install the required tools with: vcpkg install tracy[cli-tools]:x64-windows
@@ -74,7 +75,6 @@ Notes:
   - Use -NoTracy only for timing-only runs without zone capture; that mode uses build\profile_notracy\ automatically.
   - OBJ workloads are assumed to satisfy NSI/NNC input assumptions by default.
   - Use -NoInputAssumptions only when profiling intentionally invalid or adversarial OBJ inputs.
-  - Use -PaperSlowOnly to profile the three slowest paper 10% regression samples copied under tests\paper_experiments.
   - The script uses all logical processors by default. Use -Threads <N> to force a different total solve thread count; pass 0 only when intentionally testing the solver auto-thread mode.
   - -WorkloadPriority only applies to the timed re-EMBER.exe workload process, not cmake or report/export helpers.
   - Use -UsePCores to auto-pin the workload to the highest EfficiencyClass logical processors exposed by Windows.
@@ -95,6 +95,18 @@ if ($Threads -lt 0) {
     throw "-Threads must be 0 or a positive integer."
 }
 
+if (($Lhs -and -not $Rhs) -or ($Rhs -and -not $Lhs)) {
+    throw "Specify both -Lhs and -Rhs, or omit both to use default workloads."
+}
+
+if ($InputRoot -and ($Lhs -or $Rhs)) {
+    throw "-InputRoot cannot be combined with -Lhs/-Rhs."
+}
+
+if ($InputRoot -and $Out) {
+    throw "-Out applies only to single-workload mode and cannot be combined with -InputRoot."
+}
+
 if (-not $ThreadsWasExplicit -and $Threads -eq 0) {
     $Threads = [math]::Max(1, [Environment]::ProcessorCount)
 }
@@ -105,6 +117,25 @@ if ($UsePCores -and $WorkloadAffinityMask) {
 
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 Set-Location -LiteralPath $RepoRoot
+$script:UsingExplicitExecutable = $PSBoundParameters.ContainsKey("ExecutablePath")
+$script:ResolvedInputRoot = $null
+if ($InputRoot) {
+    $script:ResolvedInputRoot = (Resolve-Path -LiteralPath $InputRoot).Path
+}
+
+function Get-RunMode {
+    if ($script:ResolvedInputRoot) {
+        return "batch"
+    }
+
+    if ($Lhs -and $Rhs) {
+        return "custom"
+    }
+
+    return "default"
+}
+
+$script:RunMode = Get-RunMode
 
 function Get-ProfilingBuildFlavor {
     if ($NoTracy) {
@@ -118,10 +149,16 @@ function Get-ProfilingBuildFlavor {
     return "tracy"
 }
 
-$BuildFlavor = Get-ProfilingBuildFlavor
-$BuildRoot = Join-Path $RepoRoot ("build\profile_{0}" -f $BuildFlavor)
+$BuildFlavor = "explicit"
+if (-not $script:UsingExplicitExecutable) {
+    $BuildFlavor = Get-ProfilingBuildFlavor
+}
+$BuildRoot = $null
+if (-not $script:UsingExplicitExecutable) {
+    $BuildRoot = Join-Path $RepoRoot ("build\profile_{0}" -f $BuildFlavor)
+}
 $RunStamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$PerfRoot = Join-Path $RepoRoot ("build\perf\run_{0}" -f $RunStamp)
+$PerfRoot = Join-Path $RepoRoot ("build\performance\run_{0}" -f $RunStamp)
 $TraceRoot = Join-Path $PerfRoot "tracy_traces"
 $UnwrapRoot = Join-Path $PerfRoot "tracy_unwrap"
 New-Item -ItemType Directory -Force -Path $PerfRoot | Out-Null
@@ -928,16 +965,9 @@ function Invoke-CMakeBuild {
 }
 
 function Resolve-ToolPath {
-    param(
-        [string]$ToolName,
-        [string]$ExplicitRoot
-    )
+    param([string]$ToolName)
 
     $candidates = New-Object System.Collections.Generic.List[string]
-    if ($ExplicitRoot) {
-        $candidates.Add((Join-Path $ExplicitRoot $ToolName))
-        $candidates.Add((Join-Path $ExplicitRoot ("tools\tracy\{0}" -f $ToolName)))
-    }
     if ($env:VCPKG_ROOT) {
         $candidates.Add((Join-Path $env:VCPKG_ROOT ("installed\x64-windows\tools\tracy\{0}" -f $ToolName)))
         $candidates.Add((Join-Path $env:VCPKG_ROOT ("installed\x64-windows\bin\{0}" -f $ToolName)))
@@ -964,7 +994,7 @@ function Assert-TracyTools {
     )
 
     if (-not $CapturePath -or -not $CsvExportPath) {
-        throw "Missing Tracy CLI tools. Install them with: vcpkg install tracy[cli-tools]:x64-windows, or pass -TracyToolRoot."
+        throw "Missing Tracy CLI tools. Install them with: vcpkg install tracy[cli-tools]:x64-windows."
     }
 }
 
@@ -988,12 +1018,53 @@ function New-Workload {
     }
 }
 
+function Resolve-BatchCaseMeshPath {
+    param(
+        [string]$CaseDir,
+        [string]$Stem
+    )
+
+    $matches = New-Object System.Collections.Generic.List[string]
+    foreach ($extension in @(".obj", ".stl")) {
+        $candidate = Join-Path $CaseDir ($Stem + $extension)
+        if (Test-Path -LiteralPath $candidate) {
+            $matches.Add((Resolve-Path -LiteralPath $candidate).Path)
+        }
+    }
+
+    if ($matches.Count -eq 0) {
+        throw ("Batch case '{0}' is missing {1}.obj or {1}.stl." -f $CaseDir, $Stem)
+    }
+    if ($matches.Count -gt 1) {
+        throw ("Batch case '{0}' contains multiple {1} inputs. Keep exactly one of {1}.obj or {1}.stl." -f $CaseDir, $Stem)
+    }
+
+    return $matches[0]
+}
+
+function Get-BatchWorkloads {
+    $items = New-Object System.Collections.Generic.List[object]
+    $caseDirectories = @(Get-ChildItem -LiteralPath $script:ResolvedInputRoot -Directory | Sort-Object Name)
+    if ($caseDirectories.Count -eq 0) {
+        throw ("Batch input root contains no case subdirectories: {0}" -f $script:ResolvedInputRoot)
+    }
+
+    foreach ($caseDirectory in $caseDirectories) {
+        $lhsPath = Resolve-BatchCaseMeshPath $caseDirectory.FullName "lhs"
+        $rhsPath = Resolve-BatchCaseMeshPath $caseDirectory.FullName "rhs"
+        $outPath = Join-Path $PerfRoot ("result_{0}.obj" -f $caseDirectory.Name)
+        $items.Add((New-Workload $caseDirectory.Name $lhsPath $rhsPath $Op $outPath))
+    }
+
+    return $items
+}
+
 function Get-Workloads {
     $items = New-Object System.Collections.Generic.List[object]
     $missingDefaults = New-Object System.Collections.Generic.List[string]
 
-    if (($Lhs -and -not $Rhs) -or ($Rhs -and -not $Lhs)) {
-        throw "Specify both -Lhs and -Rhs, or omit both to use default workloads."
+    if ($script:ResolvedInputRoot) {
+        return @(Get-BatchWorkloads)
     }
 
     if ($Lhs -and $Rhs) {
@@ -1005,57 +1076,18 @@ function Get-Workloads {
         return $items
     }
 
-    if ($PaperSlowOnly) {
-        $paperDefaults = @(
-            [pscustomobject]@{
-                Name = "paper_small_001_1291011_minus_153368"
-                Lhs = "tests\paper_experiments\inputs\small\small_001_1291011_minus_153368\lhs.obj"
-                Rhs = "tests\paper_experiments\inputs\small\small_001_1291011_minus_153368\rhs.obj"
-                Op = "difference"
-            },
-            [pscustomobject]@{
-                Name = "paper_small_009_48418_minus_269121"
-                Lhs = "tests\paper_experiments\inputs\small\small_009_48418_minus_269121\lhs.obj"
-                Rhs = "tests\paper_experiments\inputs\small\small_009_48418_minus_269121\rhs.obj"
-                Op = "difference"
-            },
-            [pscustomobject]@{
-                Name = "paper_small_007_702398_minus_118675"
-                Lhs = "tests\paper_experiments\inputs\small\small_007_702398_minus_118675\lhs.obj"
-                Rhs = "tests\paper_experiments\inputs\small\small_007_702398_minus_118675\rhs.obj"
-                Op = "difference"
-            }
-        )
-
-        foreach ($item in $paperDefaults) {
-            if ((Test-Path -LiteralPath $item.Lhs) -and (Test-Path -LiteralPath $item.Rhs)) {
-                $outPath = Join-Path $PerfRoot ("result_{0}.obj" -f $item.Name)
-                $items.Add((New-Workload $item.Name $item.Lhs $item.Rhs $item.Op $outPath))
-            }
-            else {
-                $missingDefaults.Add($item.Name)
-            }
-        }
-
-        if ($missingDefaults.Count -gt 0) {
-            throw ("Paper slow workloads are incomplete. Missing inputs for: {0}." -f ($missingDefaults -join ", "))
-        }
-
-        return $items
-    }
-
-    $visualWorkpieceSource = "assets\visual_test\workpiece_block.obj"
-    $visualToolSource = "assets\visual_test\tool_box.obj"
-    $visualToolOverlapPosePath = Join-Path $PerfRoot "visual_test_overlap_pose_tool.obj"
-    $visualToolUiDefaultPosePath = Join-Path $PerfRoot "visual_test_ui_default_pose_tool.obj"
-    if ((Test-Path -LiteralPath $visualWorkpieceSource) -and (Test-Path -LiteralPath $visualToolSource)) {
-        $visualWorkpieceBounds = Get-ObjBounds $visualWorkpieceSource
-        $visualToolBounds = Get-ObjBounds $visualToolSource
-        $visualTranslationRange = Get-VisualTranslationRange $visualWorkpieceBounds $visualToolBounds
+    $visualLhsSource = "assets\visual_test\lhs.obj"
+    $visualRhsSource = "assets\visual_test\rhs.obj"
+    $visualOverlapRhsPath = Join-Path $PerfRoot "visual_test_overlap_pose_rhs.obj"
+    $visualUiDefaultRhsPath = Join-Path $PerfRoot "visual_test_ui_default_pose_rhs.obj"
+    if ((Test-Path -LiteralPath $visualLhsSource) -and (Test-Path -LiteralPath $visualRhsSource)) {
+        $visualLhsBounds = Get-ObjBounds $visualLhsSource
+        $visualRhsBounds = Get-ObjBounds $visualRhsSource
+        $visualTranslationRange = Get-VisualTranslationRange $visualLhsBounds $visualRhsBounds
         $overlapOffsetY = -0.25 * $visualTranslationRange
 
-        [void](Write-CenterAlignedObjCopy $visualToolSource $visualWorkpieceSource $visualToolOverlapPosePath 0.0 $overlapOffsetY 0.0)
-        [void](Write-CenterAlignedObjCopy $visualToolSource $visualWorkpieceSource $visualToolUiDefaultPosePath 0.0 0.0 0.0)
+        [void](Write-CenterAlignedObjCopy $visualRhsSource $visualLhsSource $visualOverlapRhsPath 0.0 $overlapOffsetY 0.0)
+        [void](Write-CenterAlignedObjCopy $visualRhsSource $visualLhsSource $visualUiDefaultRhsPath 0.0 0.0 0.0)
     }
 
     $defaults = @(
@@ -1066,15 +1098,15 @@ function Get-Workloads {
             Op = "difference"
         },
         [pscustomobject]@{
-            Name = "visual_block_toolbox_overlap_intersection"
-            Lhs = "assets\visual_test\workpiece_block.obj"
-            Rhs = $visualToolOverlapPosePath
+            Name = "visual_lhs_rhs_overlap_intersection"
+            Lhs = "assets\visual_test\lhs.obj"
+            Rhs = $visualOverlapRhsPath
             Op = "intersection"
         },
         [pscustomobject]@{
-            Name = "visual_block_toolbox_visual_test_default_difference"
-            Lhs = "assets\visual_test\workpiece_block.obj"
-            Rhs = $visualToolUiDefaultPosePath
+            Name = "visual_lhs_rhs_visual_test_default_difference"
+            Lhs = "assets\visual_test\lhs.obj"
+            Rhs = $visualUiDefaultRhsPath
             Op = "difference"
         }
     )
@@ -1742,8 +1774,12 @@ function Write-Reports {
     $reportLines.Add("# re-EMBER Tracy Performance Report")
     $reportLines.Add("")
     $reportLines.Add(("run={0}" -f $RunStamp))
+    $reportLines.Add(("mode={0}" -f $script:RunMode))
     $reportLines.Add(("configuration={0}" -f $Configuration))
     $reportLines.Add(("iterations={0}" -f $Iterations))
+    if ($script:ResolvedInputRoot) {
+        $reportLines.Add(("input_root={0}" -f $script:ResolvedInputRoot))
+    }
     $reportLines.Add(("timings_csv={0}" -f $TimingCsvPath))
     if ($InclusiveZonesCsvPath) {
         $reportLines.Add(("tracy_zones_csv={0}" -f $InclusiveZonesCsvPath))
@@ -1908,8 +1944,12 @@ function Write-Reports {
 
     $summaryLines = New-Object System.Collections.Generic.List[string]
     $summaryLines.Add(("executable={0}" -f $script:ExePath))
+    $summaryLines.Add(("mode={0}" -f $script:RunMode))
     $summaryLines.Add(("configuration={0}" -f $Configuration))
     $summaryLines.Add(("iterations={0}" -f $Iterations))
+    if ($script:ResolvedInputRoot) {
+        $summaryLines.Add(("input_root={0}" -f $script:ResolvedInputRoot))
+    }
     $summaryLines.Add(("workload_scheduling_enabled={0}" -f $script:WorkloadScheduling.Enabled))
     $summaryLines.Add(("workload_priority={0}" -f $script:WorkloadScheduling.Priority))
     if ($script:WorkloadScheduling.AffinityMaskText) {
@@ -1959,30 +1999,48 @@ try {
     Start-Transcript -Path $TranscriptPath -Force | Out-Null
     $TranscriptStarted = $true
 
-    if (-not (Test-Path -LiteralPath $BuildRoot)) {
-        New-Item -ItemType Directory -Force -Path $BuildRoot | Out-Null
+    $script:TracyEnabledInBuild = $null
+    $script:MathTracyEnabledInBuild = $null
+    if ($script:UsingExplicitExecutable) {
+        $script:ExePath = (Resolve-Path -LiteralPath $ExecutablePath).Path
+        Write-Info ("Using explicit executable: {0}" -f $script:ExePath)
     }
-    Write-Info ("Using profiling build tree: {0}" -f $BuildRoot)
+    else {
+        if (-not (Test-Path -LiteralPath $BuildRoot)) {
+            New-Item -ItemType Directory -Force -Path $BuildRoot | Out-Null
+        }
+        Write-Info ("Using profiling build tree: {0}" -f $BuildRoot)
 
-    if (-not $SkipBuild) {
-        Invoke-CMakeConfigure
-    }
+        if (-not $SkipBuild) {
+            Invoke-CMakeConfigure
+        }
 
-    $script:TracyEnabledInBuild = Test-TracyEnabledInBuild $BuildRoot
-    $script:MathTracyEnabledInBuild = Test-TracyMathEnabledInBuild $BuildRoot
+        $script:TracyEnabledInBuild = Test-TracyEnabledInBuild $BuildRoot
+        $script:MathTracyEnabledInBuild = Test-TracyMathEnabledInBuild $BuildRoot
 
-    if ($NoTracy -and $script:TracyEnabledInBuild) {
-        throw ("The selected profiling build tree '{0}' is configured with REEMBER_ENABLE_TRACY=ON, but -NoTracy was requested. Re-run without -SkipBuild so the script can configure build\\profile_notracy\\ automatically." -f $BuildRoot)
-    }
-    if ((-not $NoTracy) -and (-not $script:TracyEnabledInBuild)) {
-        throw ("The profiling build tree '{0}' is not configured with REEMBER_ENABLE_TRACY=ON. Re-run without -SkipBuild so the script can configure it automatically." -f $BuildRoot)
-    }
-    if ($EnableMathTracy -and (-not $script:MathTracyEnabledInBuild)) {
-        throw ("The profiling build tree '{0}' is not configured with REEMBER_ENABLE_TRACY_MATH=ON. Re-run without -SkipBuild so the script can configure it automatically." -f $BuildRoot)
-    }
-    $script:MathTracyEnabledInBuild = (-not $NoTracy) -and $script:MathTracyEnabledInBuild
-    if ($SkipBuild -and (-not $EnableMathTracy) -and $script:MathTracyEnabledInBuild) {
-        throw ("The selected profiling build tree '{0}' already has REEMBER_ENABLE_TRACY_MATH=ON, but -EnableMathTracy was not requested. Re-run without -SkipBuild so the script can reconfigure build\\profile_tracy\\ automatically." -f $BuildRoot)
+        if ($NoTracy -and $script:TracyEnabledInBuild) {
+            throw ("The selected profiling build tree '{0}' is configured with REEMBER_ENABLE_TRACY=ON, but -NoTracy was requested. Re-run without -SkipBuild so the script can configure build\\profile_notracy\\ automatically." -f $BuildRoot)
+        }
+        if ((-not $NoTracy) -and (-not $script:TracyEnabledInBuild)) {
+            throw ("The profiling build tree '{0}' is not configured with REEMBER_ENABLE_TRACY=ON. Re-run without -SkipBuild so the script can configure it automatically." -f $BuildRoot)
+        }
+        if ($EnableMathTracy -and (-not $script:MathTracyEnabledInBuild)) {
+            throw ("The profiling build tree '{0}' is not configured with REEMBER_ENABLE_TRACY_MATH=ON. Re-run without -SkipBuild so the script can configure it automatically." -f $BuildRoot)
+        }
+        $script:MathTracyEnabledInBuild = (-not $NoTracy) -and $script:MathTracyEnabledInBuild
+        if ($SkipBuild -and (-not $EnableMathTracy) -and $script:MathTracyEnabledInBuild) {
+            throw ("The selected profiling build tree '{0}' already has REEMBER_ENABLE_TRACY_MATH=ON, but -EnableMathTracy was not requested. Re-run without -SkipBuild so the script can reconfigure build\\profile_tracy\\ automatically." -f $BuildRoot)
+        }
+
+        if (-not $SkipBuild) {
+            Invoke-CMakeBuild
+        }
+
+        $script:ExePath = Resolve-ReEmberExecutablePath $BuildRoot $Configuration
+        if (-not $script:ExePath) {
+            $expectedLocations = Get-ReEmberExecutableCandidates $BuildRoot $Configuration
+            throw ("Missing executable after build. Checked: {0}" -f ($expectedLocations -join ", "))
+        }
     }
 
     $script:ResolvedTracyPort = $null
@@ -1991,21 +2049,11 @@ try {
         Write-Info ("Using Tracy port {0}" -f $script:ResolvedTracyPort)
     }
 
-    if ((-not $SkipBuild) -or $ForceBuild) {
-        Invoke-CMakeBuild
-    }
-
-    $script:ExePath = Resolve-ReEmberExecutablePath $BuildRoot $Configuration
-    if (-not $script:ExePath) {
-        $expectedLocations = Get-ReEmberExecutableCandidates $BuildRoot $Configuration
-        throw ("Missing executable after build. Checked: {0}" -f ($expectedLocations -join ", "))
-    }
-
     $tracyCapturePath = $null
     $tracyCsvExportPath = $null
     if (-not $NoTracy) {
-        $tracyCapturePath = Resolve-ToolPath "tracy-capture.exe" $TracyToolRoot
-        $tracyCsvExportPath = Resolve-ToolPath "tracy-csvexport.exe" $TracyToolRoot
+        $tracyCapturePath = Resolve-ToolPath "tracy-capture.exe"
+        $tracyCsvExportPath = Resolve-ToolPath "tracy-csvexport.exe"
         Assert-TracyTools $tracyCapturePath $tracyCsvExportPath
     }
 
@@ -2014,12 +2062,15 @@ try {
     Write-WorkloadSchedulingSummary $script:WorkloadScheduling
     $manifest = [pscustomobject]@{
         repoRoot = [string]$RepoRoot
-        buildDir = [string]$BuildRoot
+        buildDir = $BuildRoot
         buildFlavor = [string]$BuildFlavor
         outputDir = [string]$PerfRoot
         timestamp = $RunStamp
+        runMode = $script:RunMode
+        inputRoot = $script:ResolvedInputRoot
         configuration = $Configuration
         executable = $script:ExePath
+        usingExplicitExecutable = $script:UsingExplicitExecutable
         leafThreshold = $LeafThreshold
         requestedThreads = $(if ($Threads -gt 0) { $Threads } else { "auto" })
         iterations = $Iterations
