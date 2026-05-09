@@ -59,13 +59,13 @@ Tracy 性能插桩是编译期可选项，默认关闭；普通 Debug/Release/Re
 基础 CLI smoke：
 
 ```powershell
-build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\codex_boolean_smoke.obj --leaf-threshold 25 --threads $env:NUMBER_OF_PROCESSORS
+build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\boolean_smoke.obj --leaf-threshold 25 --threads $env:NUMBER_OF_PROCESSORS
 ```
 
 也可以直接让 STL 走完整 CLI 边界：
 
 ```powershell
-build\Debug\re-EMBER.exe --lhs build\test-output\lhs_box.stl --rhs build\test-output\rhs_box.stl --op difference --out build\codex_boolean_smoke.stl --leaf-threshold 25 --threads $env:NUMBER_OF_PROCESSORS
+build\Debug\re-EMBER.exe --lhs build\test-output\lhs_box.stl --rhs build\test-output\rhs_box.stl --op difference --out build\boolean_smoke.stl --leaf-threshold 25 --threads $env:NUMBER_OF_PROCESSORS
 ```
 
 I/O 中较慢的回归用环境变量开启：
