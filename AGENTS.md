@@ -10,7 +10,7 @@
 - `path_candidates.h` 保留公开候选类型和模板枚举入口；内部候选构造在 `path_candidate_details.h`。
 - CMake 使用显式源文件列表，新增源码需要同步加入 `CMakeLists.txt`。
 - Tracy 性能插桩由 `REEMBER_ENABLE_TRACY` 控制；底层 `math256` 热点桩再由 `REEMBER_ENABLE_TRACY_MATH` 单独控制，二者默认都关闭，不影响普通发布构建。
-- 性能脚本入口是 `tools/profile-re-ember.ps1`；统一把计时、Tracy 捕获、报告和结果 OBJ 写到 `build\perf\run_<timestamp>\`，并按 `-NoTracy/-EnableMathTracy` 自动切换 `build\profile_*` 专用构建树。
+- 性能脚本入口是 `tools/profile-re-ember.ps1`；统一把计时、Tracy 捕获、报告和结果 OBJ 写到 `build\performance\run_<timestamp>\`，并按 `-NoTracy/-EnableMathTracy` 自动切换 `build\profile_*` 专用构建树；如果传 `-ExecutablePath` 则直接复用已有 `re-EMBER.exe`。
 
 ## 工作规则
 
@@ -36,7 +36,7 @@
 ```powershell
 cmake -S . -B build
 cmake --build build --config Debug --target re-EMBER_tests
-ctest --test-dir build -C Debug --output-on-failure --timeout 60
+ctest --test-dir build -C Debug --output-on-failure --timeout 120
 cmake --build build --config Debug --target re-EMBER
 build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\boolean_smoke.obj --leaf-threshold 25
 ```
@@ -65,8 +65,8 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configura
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
   -Configuration RelWithDebInfo -SkipBuild -Iterations 1 `
-  -Lhs assets\visual_test\workpiece_block.obj `
-  -Rhs build\perf\run_<existing>\visual_test_overlap_pose_tool.obj `
+  -Lhs assets\visual_test\lhs.obj `
+  -Rhs build\performance\run_<existing>\visual_test_overlap_pose_rhs.obj `
   -Op difference
 ```
 

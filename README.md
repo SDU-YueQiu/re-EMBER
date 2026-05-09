@@ -32,11 +32,11 @@ OBJ/STL -> 共享 scale + 浮点输入AABB -> 多边形集合 -> BoolProblem(校
 ```powershell
 cmake -S . -B build
 cmake --build build --config Debug --target re-EMBER_tests
-ctest --test-dir build -C Debug --output-on-failure --timeout 60
+ctest --test-dir build -C Debug --output-on-failure --timeout 120
 cmake --build build --config Debug --target re-EMBER
 ```
 
-`ctest` 现在包含 [论文实验测试](docs/paper-experiment-tests.md)。这些测试直接运行 `re-EMBER` CLI，输入来自 `tests/paper_experiments/`，产物写到 `build/paper_experiment_tests/`。它们是 oracle-success 样本，并启用论文实验使用的 NSI/NNC 假设；不设置 expected-fail，当前默认 10 个 small pair 都应通过，任一样本失败都表示当前流水线回归。CLI 回归默认使用 `REEMBER_CTEST_THREADS`，其默认值是当前构建机的逻辑处理器数；只有专门排查串行分支时才显式设为 `1`。
+`ctest` 现在包含 [论文实验测试](docs/paper-experiment-tests.md)。默认 paper 回归不再注册 10 个逐个 CLI case，而是通过聚合 test `re-EMBER_paper_small_batch` 调用 `tools/profile-re-ember.ps1 -InputRoot tests/paper_experiments/inputs/small` 批量跑完整 10 个 small pair。该 test 仍然是 correctness regression，失败即表示当前流水线回归，同时会把逐 case 的 `solve_ms`、问题规模和其它统计汇总到最新的 `build/performance/run_<timestamp>/`。paper 回归默认使用 `REEMBER_CTEST_THREADS`，其默认值是当前构建机的逻辑处理器数；只有专门排查串行分支时才显式设为 `1`。
 
 当前仓库默认通过 vcpkg toolchain 解析 `oneTBB`。如果当前机器还没有这个依赖，先执行：
 
@@ -103,7 +103,7 @@ cmake --build build --config Debug --target visual-test
 build\Debug\visual-test.exe
 ```
 
-当前 visual-test 默认按 stem 查找 `assets\visual_test\workpiece_block` 和 `assets\visual_test\tool_box`，后缀接受 `.obj` 或 `.stl`，并优先命中 `.obj`。这套 UI 现在按当前两模型的 AABB 自动对齐中心，再把 `dx/dy/dz` 解释为相对偏移，因此像 `classic_fandisk` 这类原始坐标远离原点的模型也能直接拖回到可相交范围。`tool scale` 会围绕刀具自身 AABB 中心做统一缩放，适合在不同尺寸模型之间快速调到更容易观察和比较的比例。
+当前 visual-test 默认按 stem 查找 `assets\visual_test\lhs` 和 `assets\visual_test\rhs`，后缀接受 `.obj` 或 `.stl`，并优先命中 `.obj`。这套 UI 现在按当前两模型的 AABB 自动对齐中心，再把 `dx/dy/dz` 解释为相对偏移，因此像 `classic_fandisk` 这类原始坐标远离原点的模型也能直接拖回到可相交范围。`tool scale` 会围绕右操作数自身 AABB 中心做统一缩放，适合在不同尺寸模型之间快速调到更容易观察和比较的比例。
 
 交互规则也改成了“两阶段”，并保留可切换的连续求解：
 
@@ -140,6 +140,15 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configura
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configuration RelWithDebInfo -SkipBuild
+```
+
+如果已经有一份想直接复用的 `re-EMBER.exe`，可以改用 `-ExecutablePath` 跳过 profiling 构建树：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
+  -ExecutablePath .\build\Debug\re-EMBER.exe `
+  -InputRoot .\tests\paper_experiments\inputs\small `
+  -Op difference -NoTracy -Iterations 1 -Threads $env:NUMBER_OF_PROCESSORS
 ```
 
 如果要追 `math256` 里的底层代数热点，例如 `determinant3x3`、`gcdMagnitude`、`primitiveHomPoint`，直接给脚本加 `-EnableMathTracy`；它会自动切到 `build\profile_tracy_math\`：
@@ -183,10 +192,10 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 默认 workload 包含：
 
 - `icosphere80_toolbox_difference`
-- `visual_block_toolbox_overlap_intersection`
-- `visual_block_toolbox_visual_test_default_difference`
+- `visual_lhs_rhs_overlap_intersection`
+- `visual_lhs_rhs_visual_test_default_difference`
 
-`tools\profile-re-ember.ps1` 现在会先把当前 `assets\visual_test\tool_box.obj` 按 AABB 中心自动对齐到 `workpiece_block.obj`，再生成 visual 默认位姿与 overlap 位姿的临时 OBJ，因此把 `assets\visual_test` 替换成更大模型后，不需要再手改脚本里的平移常量。
+`tools\profile-re-ember.ps1` 现在会先把当前 `assets\visual_test\rhs.obj` 按 AABB 中心自动对齐到 `lhs.obj`，再生成 visual 默认位姿与 overlap 位姿的临时 OBJ，因此把 `assets\visual_test` 替换成更大模型后，不需要再手改脚本里的平移常量。
 
 注意：默认 visual intersection 和 visual difference 使用的是不同刀具位姿，不能直接拿它们比较三种布尔运算的快慢。
 
@@ -195,14 +204,14 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
   -Configuration RelWithDebInfo -SkipBuild -Iterations 1 `
-  -Lhs assets\visual_test\workpiece_block.obj `
-  -Rhs build\perf\run_<existing>\visual_test_overlap_pose_tool.obj `
+  -Lhs assets\visual_test\lhs.obj `
+  -Rhs build\performance\run_<existing>\visual_test_overlap_pose_rhs.obj `
   -Op difference
 ```
 
 ### 看哪些文件
 
-每次运行会生成一个 `build\perf\run_<timestamp>\` 目录。最常用的文件是：
+每次运行会生成一个 `build\performance\run_<timestamp>\` 目录。最常用的文件是：
 
 - `summary.txt`：每个 workload 的总体摘要。
 - `timings.csv`：逐次迭代的结构化表格。
