@@ -854,8 +854,8 @@ int main()
     using namespace ember::visual_test;
 
     SceneData scene;
-    scene.workpiecePath = resolveDefaultAssetPath("assets/visual_test/workpiece_block");
-    scene.toolPath = resolveDefaultAssetPath("assets/visual_test/tool_box");
+    scene.workpiecePath = resolveDefaultAssetPath("assets/visual_test/lhs");
+    scene.toolPath = resolveDefaultAssetPath("assets/visual_test/rhs");
 
     std::string error;
     if (!ember::readMesh(scene.workpiecePath, scene.workpieceMesh, error))
@@ -1056,8 +1056,8 @@ int main()
             ImGui::Text("shared_scale=%llu", static_cast<unsigned long long>(ui.stats.sharedScale));
             ImGui::Text("leaf_threshold=%zu", ui.leafThreshold);
         }
-        ImGui::Text("workpiece=%s", scene.workpiecePath.c_str());
-        ImGui::Text("tool=%s", scene.toolPath.c_str());
+        ImGui::Text("lhs=%s", scene.workpiecePath.c_str());
+        ImGui::Text("rhs=%s", scene.toolPath.c_str());
 
         if (!ui.lastError.empty())
         {

@@ -722,8 +722,8 @@ void runIoTests()
 
     if (runExpensiveIoRegressionTests())
     {
-        const ObjMeshData workpiece = readRepoObjMesh("assets/visual_test/workpiece_block.obj");
-        const ObjMeshData tool = readRepoObjMesh("assets/visual_test/tool_box.obj");
+        const ObjMeshData workpiece = readRepoObjMesh("assets/visual_test/lhs.obj");
+        const ObjMeshData tool = readRepoObjMesh("assets/visual_test/rhs.obj");
 
         const ObjMeshData screenshotDifferenceTool = transformObjMesh(
                 tool,

@@ -376,71 +376,27 @@ if(NOT REEMBER_HOST_PROCESSOR_COUNT)
 endif()
 set(REEMBER_CTEST_THREADS "${REEMBER_HOST_PROCESSOR_COUNT}" CACHE STRING "Thread count used by re-EMBER CLI CTest workloads.")
 message(STATUS "REEMBER_CTEST_THREADS=${REEMBER_CTEST_THREADS}")
+find_program(REEMBER_POWERSHELL_EXECUTABLE NAMES powershell REQUIRED)
 
 set(REEMBER_PAPER_EXPERIMENT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests/paper_experiments")
-set(REEMBER_PAPER_EXPERIMENT_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/paper_experiment_tests")
 
-function(reember_add_paper_experiment_test test_name pair_subdir)
-  add_test(
-    NAME ${test_name}
-    COMMAND "$<TARGET_FILE:re-EMBER>"
-      --lhs "${REEMBER_PAPER_EXPERIMENT_DIR}/inputs/${pair_subdir}/lhs.obj"
-      --rhs "${REEMBER_PAPER_EXPERIMENT_DIR}/inputs/${pair_subdir}/rhs.obj"
-      --op difference
-      --out "${REEMBER_PAPER_EXPERIMENT_OUTPUT_DIR}/${test_name}.obj"
-      --leaf-threshold 25
-      --threads "${REEMBER_CTEST_THREADS}"
-      --assume-lhs-nsi
-      --assume-lhs-nnc
-      --assume-rhs-nsi
-      --assume-rhs-nnc
-      --timings-out "${REEMBER_PAPER_EXPERIMENT_OUTPUT_DIR}/${test_name}.metrics.txt"
-  )
-  set_tests_properties(${test_name} PROPERTIES
-    LABELS "paper_experiment;cli"
-    TIMEOUT 60
-    RUN_SERIAL TRUE
-  )
-endfunction()
-
-# 论文 10% 实验 oracle-success 样本，作为真实端到端正确性回归测试。
-reember_add_paper_experiment_test(
-  re-EMBER_paper_small_001
-  "small/small_001_1291011_minus_153368"
+# 论文 10% 实验 small oracle-success 样本，统一走批量 profiling 脚本并输出汇总报告。
+add_test(
+  NAME re-EMBER_paper_small_batch
+  COMMAND "${REEMBER_POWERSHELL_EXECUTABLE}"
+    -ExecutionPolicy Bypass
+    -File "${CMAKE_CURRENT_SOURCE_DIR}/tools/profile-re-ember.ps1"
+    -ExecutablePath "$<TARGET_FILE:re-EMBER>"
+    -InputRoot "${REEMBER_PAPER_EXPERIMENT_DIR}/inputs/small"
+    -Configuration "$<CONFIG>"
+    -Op difference
+    -NoTracy
+    -Iterations 1
+    -LeafThreshold 25
+    -Threads "${REEMBER_CTEST_THREADS}"
 )
-reember_add_paper_experiment_test(
-  re-EMBER_paper_small_002
-  "small/small_002_567033_minus_77949"
-)
-reember_add_paper_experiment_test(
-  re-EMBER_paper_small_003
-  "small/small_003_702407_minus_81309"
-)
-reember_add_paper_experiment_test(
-  re-EMBER_paper_small_004
-  "small/small_004_76206_minus_62571"
-)
-reember_add_paper_experiment_test(
-  re-EMBER_paper_small_005
-  "small/small_005_702390_minus_472032"
-)
-reember_add_paper_experiment_test(
-  re-EMBER_paper_small_006
-  "small/small_006_98765_minus_1514496"
-)
-reember_add_paper_experiment_test(
-  re-EMBER_paper_small_007
-  "small/small_007_702398_minus_118675"
-)
-reember_add_paper_experiment_test(
-  re-EMBER_paper_small_008
-  "small/small_008_45512_minus_84023"
-)
-reember_add_paper_experiment_test(
-  re-EMBER_paper_small_009
-  "small/small_009_48418_minus_269121"
-)
-reember_add_paper_experiment_test(
-  re-EMBER_paper_small_010
-  "small/small_010_1614064_minus_129914"
+set_tests_properties(re-EMBER_paper_small_batch PROPERTIES
+  LABELS "paper_experiment;cli"
+  TIMEOUT 120
+  RUN_SERIAL TRUE
 )
