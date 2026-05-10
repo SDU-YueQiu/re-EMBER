@@ -40,6 +40,36 @@ build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\mo
 
 `.obj` 输出默认保留 n 边面；`.stl` 输出会在 I/O 边界三角化。
 
+## CLI 参数
+
+- `--lhs <file.obj|file.stl>` 和 `--rhs <file.obj|file.stl>` 分别指定左右操作数。
+- `--op union|intersection|difference` 选择布尔运算类型。
+- `--out <result.obj|result.stl>` 指定输出文件。
+- `--scale <positive_integer>` 手动覆盖共享量化尺度。
+- `--leaf-threshold <positive_integer>` 控制细分到叶子时的停止阈值。
+- `--threads <positive_integer>` 指定求解线程数；设为 `1` 可强制串行。
+- `--timings-out <metrics.txt>` 会把单次运行的计时和求解摘要写到文件里。
+- `--assume-lhs-nsi`、`--assume-lhs-nnc`、`--assume-rhs-nsi`、`--assume-rhs-nnc` 用于声明输入假设以加速运行；同一侧的 `NNC` 依赖 `NSI`。
+
+## 性能脚本
+
+`tools/profile-re-ember.ps1` 负责计时运行、Tracy 采样和报告生成。常用参数如下：
+
+- `-Lhs` / `-Rhs` 和 `-Op` 用于跑一个明确的布尔任务。
+- `-InputRoot` 用于从目录树批量跑多个 case。
+- `-Out` 指定单个任务的输出文件。
+- `-ExecutablePath` 直接复用已有的 `re-EMBER.exe`，不重新构建。
+- `-Configuration` 选择 profiling 构建类型。
+- `-Iterations`、`-TimeoutSeconds`、`-BuildTimeoutSeconds`、`-ReportTimeoutSeconds` 控制运行超时。
+- `-LeafThreshold` 和 `-Threads` 会传给求解器。
+- `-NoTracy` 跳过 Tracy 采样，使用 `build\profile_notracy\`。
+- `-EnableMathTracy` 额外打开底层 `math256` Tracy 区间，并使用 `build\profile_tracy_math\`。
+- `-SkipBuild` 复用已有的 profiling 构建树。
+- `-UnwrapZoneFilter` 会导出指定热点 zone 的逐事件 CSV。
+- `-WorkloadPriority`、`-UsePCores` 和 `-WorkloadAffinityMask` 控制被计时进程的调度方式。
+
+脚本会在 `build\performance\run_<timestamp>\` 下生成 `summary.txt`、`timings.csv`、`manifest.json`、`profile.log`、`report.md`、`tracy_zones.csv`、`tracy_zones_self.csv`，以及可选的 `tracy_unwrap\*.csv`。
+
 ## 备注
 
 - `build\Debug\re-EMBER_tests.exe` 可以运行仓库测试。
