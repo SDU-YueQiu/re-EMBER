@@ -10,6 +10,8 @@
 
 namespace ember
 {
+struct BoolSolveMetrics;
+
 /// 由若干 `Segment256` 组成的传播路径。
 typedef std::vector<Segment256> Path;
 
@@ -92,7 +94,8 @@ traceStatus tracePathWNVTrusted(
     const refPoint &refpoint,
     const Path &path,
     const std::vector<Polygon256> &polygons,
-    WNV &targetWNV);
+    WNV &targetWNV,
+    BoolSolveMetrics *solveMetrics = nullptr);
 
 /**
  * @brief 在调用方已验证输入的前提下，允许 subdivision 裁剪边的单点横穿继续传播 WNV。
@@ -104,7 +107,8 @@ traceStatus tracePathWNVAllowSubdivisionClipCrossingTrusted(
     const refPoint &refpoint,
     const Path &path,
     const std::vector<Polygon256> &polygons,
-    WNV &targetWNV);
+    WNV &targetWNV,
+    BoolSolveMetrics *solveMetrics = nullptr);
 
 /**
  * @brief 在调用方已验证多边形集合和路径的前提下传播到曲面目标点。
@@ -118,7 +122,8 @@ traceStatus tracePathWNVToSurfacePointTrusted(
     const std::vector<Polygon256> &polygons,
     const Plane3i &referencePlane,
     WNV &frontWNV,
-    WNV &backWNV);
+    WNV &backWNV,
+    BoolSolveMetrics *solveMetrics = nullptr);
 }
 }
 
