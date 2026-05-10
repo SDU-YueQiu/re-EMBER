@@ -1709,6 +1709,33 @@ function Add-MarkdownTable {
     }
 }
 
+function New-WorkloadSummaryRow {
+    param(
+        [string]$Name,
+        [object[]]$Rows
+    )
+
+    return [pscustomobject]@{
+        workload = $Name
+        avg_read_ms = Measure-AverageProperty $Rows "read_ms"
+        avg_prepare_ms = Measure-AverageProperty $Rows "prepare_ms"
+        avg_elapsed_ms = Measure-AverageProperty $Rows "elapsed_ms"
+        avg_solve_ms = Measure-AverageProperty $Rows "solve_ms"
+        avg_export_ms = Measure-AverageProperty $Rows "export_ms"
+        avg_nodes = Measure-AverageProperty $Rows "node_count"
+        avg_leaves = Measure-AverageProperty $Rows "leaf_node_count"
+        avg_centroid_points = Measure-AverageProperty $Rows "leaf_classification_centroid_point_count"
+        avg_inset_point_attempts = Measure-AverageProperty $Rows "leaf_classification_inset_point_attempt_count"
+        avg_leaf_traces = Measure-AverageProperty $Rows "leaf_classification_trace_attempt_count"
+        avg_leaf_candidates = Measure-AverageProperty $Rows "leaf_classification_candidate_generated_count"
+        avg_unique_candidates = Measure-AverageProperty $Rows "leaf_classification_candidate_unique_count"
+        avg_repair_attempts = Measure-AverageProperty $Rows "leaf_classification_candidate_repair_attempt_count"
+        avg_repair_successes = Measure-AverageProperty $Rows "leaf_classification_candidate_repair_success_count"
+        avg_child_ref_candidates = Measure-AverageProperty $Rows "child_reference_candidate_count"
+        avg_results = Measure-AverageProperty $Rows "result_fragment_count"
+    }
+}
+
 function New-StrategySummaryRow {
     param(
         [object[]]$TimingRows,
@@ -1792,28 +1819,40 @@ function Write-Reports {
     }
     $reportLines.Add("")
 
+    $workloadGroups = @($TimingRows | Group-Object workload)
     $workloadRows = New-Object System.Collections.Generic.List[object]
-    foreach ($group in ($TimingRows | Group-Object workload)) {
+    foreach ($group in $workloadGroups) {
         $rows = @($group.Group)
-        $workloadRows.Add([pscustomobject]@{
-            workload = $group.Name
-            avg_read_ms = Measure-AverageProperty $rows "read_ms"
-            avg_prepare_ms = Measure-AverageProperty $rows "prepare_ms"
-            avg_elapsed_ms = Measure-AverageProperty $rows "elapsed_ms"
-            avg_solve_ms = Measure-AverageProperty $rows "solve_ms"
-            avg_export_ms = Measure-AverageProperty $rows "export_ms"
-            avg_nodes = Measure-AverageProperty $rows "node_count"
-            avg_leaves = Measure-AverageProperty $rows "leaf_node_count"
-            avg_centroid_points = Measure-AverageProperty $rows "leaf_classification_centroid_point_count"
-            avg_inset_point_attempts = Measure-AverageProperty $rows "leaf_classification_inset_point_attempt_count"
-            avg_leaf_traces = Measure-AverageProperty $rows "leaf_classification_trace_attempt_count"
-            avg_leaf_candidates = Measure-AverageProperty $rows "leaf_classification_candidate_generated_count"
-            avg_unique_candidates = Measure-AverageProperty $rows "leaf_classification_candidate_unique_count"
-            avg_repair_attempts = Measure-AverageProperty $rows "leaf_classification_candidate_repair_attempt_count"
-            avg_repair_successes = Measure-AverageProperty $rows "leaf_classification_candidate_repair_success_count"
-            avg_child_ref_candidates = Measure-AverageProperty $rows "child_reference_candidate_count"
-            avg_results = Measure-AverageProperty $rows "result_fragment_count"
-        })
+        $workloadRows.Add((New-WorkloadSummaryRow $group.Name $rows))
+    }
+
+    $overallWorkloadRow = $null
+    $overallTimingSummary = $null
+    if ($workloadGroups.Count -gt 1) {
+        $overallWorkloadRow = New-WorkloadSummaryRow "__overall__" $TimingRows
+        $overallTimingSummary = [pscustomobject]@{
+            workload_count = $workloadGroups.Count
+            sample_count = $TimingRows.Count
+            avg_read_ms = $overallWorkloadRow.avg_read_ms
+            avg_prepare_ms = $overallWorkloadRow.avg_prepare_ms
+            avg_elapsed_ms = $overallWorkloadRow.avg_elapsed_ms
+            avg_solve_ms = $overallWorkloadRow.avg_solve_ms
+            avg_export_ms = $overallWorkloadRow.avg_export_ms
+        }
+    }
+
+    if ($overallTimingSummary) {
+        $reportLines.Add("## Overall Average Time")
+        Add-MarkdownTable -Lines $reportLines -Headers @(
+            "workload_count",
+            "sample_count",
+            "avg_read_ms",
+            "avg_prepare_ms",
+            "avg_elapsed_ms",
+            "avg_solve_ms",
+            "avg_export_ms"
+        ) -Rows @($overallTimingSummary)
+        $reportLines.Add("")
     }
 
     $reportLines.Add("## Workload Scale")
@@ -1975,6 +2014,15 @@ function Write-Reports {
         $summaryLines.Add(("tracy_unwrap_root={0}" -f $UnwrapRoot))
     }
     $summaryLines.Add(("report={0}" -f $reportPath))
+    if ($overallTimingSummary) {
+        $summaryLines.Add(("overall_workload_count={0}" -f $overallTimingSummary.workload_count))
+        $summaryLines.Add(("overall_sample_count={0}" -f $overallTimingSummary.sample_count))
+        $summaryLines.Add(("overall_avg_read_ms={0}" -f $overallTimingSummary.avg_read_ms))
+        $summaryLines.Add(("overall_avg_prepare_ms={0}" -f $overallTimingSummary.avg_prepare_ms))
+        $summaryLines.Add(("overall_avg_elapsed_ms={0}" -f $overallTimingSummary.avg_elapsed_ms))
+        $summaryLines.Add(("overall_avg_solve_ms={0}" -f $overallTimingSummary.avg_solve_ms))
+        $summaryLines.Add(("overall_avg_export_ms={0}" -f $overallTimingSummary.avg_export_ms))
+    }
     foreach ($row in $workloadRows) {
         $summaryLines.Add(("workload={0}" -f $row.workload))
         $summaryLines.Add(("  avg_read_ms={0}" -f $row.avg_read_ms))
