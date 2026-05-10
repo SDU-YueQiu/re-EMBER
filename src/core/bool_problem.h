@@ -68,6 +68,17 @@ struct BoolSolveMetrics
     std::size_t childReferenceCandidateTriedCount = 0; ///< 子参考点传播阶段实际尝试追踪的候选数。
     std::size_t childReferenceFastCandidateTriedCount = 0; ///< 子参考点快速候选阶段实际尝试追踪的候选数。
     std::size_t childReferenceExhaustiveCandidateTriedCount = 0; ///< 子参考点穷举候选阶段实际尝试追踪的候选数。
+    std::size_t tracePathStartPointOnBoundaryCount = 0; ///< WNV 追踪中起点落在多边形边界上的次数。
+    std::size_t tracePathEndPointOnBoundaryCount = 0; ///< WNV 追踪中终点落在多边形边界上的次数。
+    std::size_t tracePathEndpointOnBoundaryContactCount = 0; ///< WNV 追踪中命中端点边界接触的次数。
+    std::size_t tracePathEdgeOverlapCount = 0; ///< WNV 追踪中命中边重叠的次数。
+    std::size_t tracePathBoundaryHitRejectedRegularEdgeCount = 0; ///< WNV 追踪中命中原始边而被拒绝的次数。
+    std::size_t tracePathBoundaryHitRejectedSubdivisionClipEdgeCount = 0; ///< WNV 追踪中命中 subdivision 裁剪边而被拒绝的次数。
+    std::size_t tracePathBoundaryHitRejectedMixedEdgeCount = 0; ///< WNV 追踪中命中原始边与裁剪边混合边界而被拒绝的次数。
+    std::size_t tracePathBoundaryHitRejectedUnknownCount = 0; ///< WNV 追踪中命中边界但无法归类边来源而被拒绝的次数。
+    std::size_t tracePathBoundaryHitAllowedSubdivisionClipEdgeCount = 0; ///< WNV 追踪中允许通过 subdivision 裁剪边的次数。
+    std::size_t tracePathNonStrictIntersectionCount = 0; ///< WNV 追踪中交点不在严格内部而被拒绝的次数。
+    std::size_t tracePathBoundaryContactWithoutIntersectionCount = 0; ///< WNV 追踪中存在边界接触但没有唯一交点的次数。
     std::size_t singleOperandAssumptionStopCount = 0; ///< NSI/NNC 单操作数假设提前停止细分的次数。
     std::size_t singleOperandAssumptionFallbackCount = 0; ///< 保留兼容的历史计数；当前实现不再在单操作数快路径中回退细分。
     std::size_t singleOperandLeafBspSkipCount = 0;  ///< 单操作数叶子跳过局部 BSP 的次数。

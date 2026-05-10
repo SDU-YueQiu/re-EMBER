@@ -19,3 +19,5 @@ ctest --test-dir build -C Debug --output-on-failure --timeout 120
 `re-EMBER_tests` 依赖 `re-EMBER`，因此上面的构建命令会同时生成 CLI。paper 聚合 test 会复用当前构建树里的 `re-EMBER.exe`，并把测试输出、逐 case metrics、OBJ 和汇总报告写入最新的 `build/performance/run_<timestamp>/`。当前默认 10 个 small pair 在本工作树中应全部通过；如果新增或修改算法导致聚合 test 失败，应先修复默认集合，再考虑继续从论文实验集追加更多 pair。
 
 排查叶片分类性能时，优先查看 `timings.csv` 中逐 case 的 `leaf_classification_candidate_generated_count`、`leaf_classification_candidate_unique_count`、`leaf_classification_candidate_duplicate_skip_count`、`leaf_classification_candidate_repair_attempt_count` 和三个阶段的 `leaf_classification_*_input_invalid_count`。这些字段能区分候选枚举放大、重复路径、局部修复和真实 trace 失败。
+
+如果要专门分析 `PATH_INVALID` 的几何来源，查看同批 `timing_*.metrics.txt` 里的 `trace_path_*` 计数即可；这些字段会区分起终点落边界、边重叠、边界命中以及原始边/`SubdivisionClip` 边等主要失败来源。统一放开 `SubdivisionClip` 边界横穿之后，重点看 `trace_path_boundary_hit_allowed_subdivision_clip_edge_count`、`trace_path_boundary_hit_rejected_regular_edge_count` 和 `leaf_classification_trace_attempt_count` 的联动变化。
