@@ -242,7 +242,86 @@ flowchart TD
 - 子参考点 trace 用的是 `AllowSubdivisionClipCrossingTrusted` 版本，允许穿过 subdivision 裁剪边界。
 - 一旦 trace 返回的不是 `PATH_INVALID` 而是更硬的失败状态，会记为 `hardFailure`，不再继续穷举。
 
-## 7. 叶子阶段：局部 BSP 编排
+## 7. 追踪内核流程
+
+上面几节已经说明 trace 是在哪些阶段被调用，但这里更重要的不是逐个 `if` 分支，而是它在算法上到底在做什么。当前实现里关键有两条 trace 路径：
+
+- 子参考点传播使用 `tracePathWNVAllowSubdivisionClipCrossingTrusted()`，目标是把父参考点的体点 `WNV` 传播到 child 内的新体点。
+- 叶片分类使用 `tracePathWNVToSurfacePointTrusted()`，目标是把局部参考点传播到待分类片段上的曲面点，并求出该曲面点两侧的 `frontWNV/backWNV`。
+
+### 7.1 体点到体点的 WNV 传播
+
+这一步的核心思想是：把每个 polygon 看成一个携带 `WNTV` 的定向屏障，路径 trace 不是“沿线走一步步更新状态”，而是统计这条路径对所有屏障的有符号穿越，并把这些穿越量累加到参考点已有的 `WNV` 上。
+
+其中最关键的局部量就是 `pcs/pce`：
+
+- `pcs` 是当前 segment 起点相对当前 polygon 的侧别。
+- `pce` 是当前 segment 终点相对当前 polygon 的侧别。
+- 它们本质上是在判断“这一段是否跨过了当前 polygon 的支撑平面”，不是新的全局状态。
+
+从算法角度看，trace 对每个 polygon 的处理可以概括成 4 步：
+
+1. 先看当前段的两端是否分居 polygon 支撑平面的两侧。
+2. 如果没有跨越严格侧别变化，则这段不可能贡献该 polygon 的绕数变化。
+3. 如果看起来发生了跨越，再进一步确认命中的到底是 polygon 严格内部，还是边界擦碰、共边、端点贴边这类退化接触。
+4. 只有“严格内部穿越”才会把该 polygon 的 `WNTV` 计入 WNV；方向由 `pcs -> pce` 的符号变化决定。
+
+因此 `sigma = (pcs - pce) / 2` 的作用可以直接理解为“这次穿越的方向符号”：
+
+- 从前侧穿到后侧时，累加一次 `+WNTV`
+- 从后侧穿到前侧时，累加一次 `-WNTV`
+
+而所有落在 polygon 本身、边界擦碰、沿边重叠这类情况都会被视为路径不可靠，因为它们会让“是否真正完成了一次穿越”变得不再唯一。
+
+```mermaid
+flowchart TD
+    A["参考点 WNV + 候选路径"] --> B["遍历所有 polygons"]
+    B --> C["对当前 segment 取起终点侧别 pcs/pce"]
+    C --> D{"是否发生严格侧别跨越?"}
+    D -->|否| E["该 polygon 对这一段无贡献"]
+    D -->|是| F["检查命中是否落在 polygon 严格内部"]
+    F --> G{"是有效穿越?"}
+    G -->|否| H["视为退化接触; 当前路径无效"]
+    G -->|是| I["按 pcs->pce 方向累加 +/- WNTV"]
+    E --> J{"继续下一个 segment/polygon"}
+    I --> J
+    J -->|全部完成| K["得到 targetWNV"]
+```
+
+`AllowSubdivisionClipCrossingTrusted` 的特殊性也可以这样理解：它不是“允许更多退化情况”，而只是允许一种非常特定的命中被继续当作有效穿越，即 subdivision 裁剪边界带来的人工边界接触。除此之外，trace 仍然要求路径远离真正的几何歧义。
+
+### 7.2 参考点到目标点的 front/back WNV 追踪
+
+这条路径和上面的参考点传播共享同一个核心思想：仍然是在累计“沿路径穿过了哪些 polygon，各自方向是什么”。差别只在于终点现在不再是体内点，而是落在待分类 fragment 的支撑平面上，所以最后我们要的不是一个单独 `WNV`，而是该曲面点两侧的一对 `frontWNV/backWNV`。
+
+可以把它理解成两段：
+
+1. 先把路径末端之前发生的普通穿越都累加进一个“到达曲面前的 WNV”。
+2. 再单独处理“最后落到目标曲面上的那一次穿越”，因为这一次正好决定曲面两侧的 WNV 差值。
+
+这里 `pcs/pce` 的含义没有变，仍然只是当前段两端相对当前 polygon 的侧别。真正新增的是 `surfaceDelta` 这个概念：
+
+- `surfaceWNV` 表示到达目标曲面之前、尚未跨过目标面的那一侧 WNV。
+- `surfaceDelta` 表示最后贴着目标曲面发生的那一次跃迁量。
+
+于是最后就不是“求一个终点 WNV”，而是“根据路径是从哪一侧撞上目标曲面，把 `surfaceDelta` 分配给 front 或 back”：
+
+- 如果路径最后从前侧撞到曲面，那么 `frontWNV` 保持 `surfaceWNV`，`backWNV = surfaceWNV + surfaceDelta`
+- 如果路径最后从后侧撞到曲面，则反过来分配
+
+这就是叶片分类后续能做布尔判断的原因：布尔边界不是看“曲面上这个点本身的状态”，而是看这张面前后两侧的 inside/outside 是否发生切换。
+
+```mermaid
+flowchart TD
+    A["局部参考点 + 到目标曲面的路径"] --> B["累计普通 interior crossings"]
+    B --> C["把最后贴到目标曲面的跃迁记为 surfaceDelta"]
+    C --> D["根据最后接近方向区分 front/back"]
+    D --> E["得到 frontWNV 与 backWNV"]
+```
+
+这里要记住的不是某个局部分支，而是整体语义：叶片分类阶段的 trace，本质上是在求“穿过这张 fragment 时布尔指示函数会不会发生跳变”。
+
+## 8. 叶子阶段：局部 BSP 编排
 
 当前叶子节点并不是直接分类原始多边形，而是先得到叶片片段 `leafFragments_`。
 
@@ -271,7 +350,7 @@ flowchart TD
     F --> G["leafFragments_"]
 ```
 
-## 8. 叶片分类流程
+## 9. 叶片分类流程
 
 `classifyLeafFragmentsAndCollectResults()` 会对叶片片段求出其支撑平面两侧的 `frontWNV/backWNV`，再用布尔指示函数决定是否输出。若当前叶子满足 NSI/NNC 单操作数快路径，并且 `leafFragments_` 实际直接别名到原始 `polygons_`，则不会逐片复用分类结果，而是只真实分类一个代表面，再把该结果直接作用到整批多边形。
 
@@ -302,7 +381,7 @@ flowchart TD
     L --> M["继续下一个 fragment"]
 ```
 
-### 8.1 单个叶片片段的候选顺序
+### 9.1 单个叶片片段的候选顺序
 
 `classifyLeafFragment()` 的真实策略是两层嵌套：
 
@@ -338,7 +417,7 @@ flowchart TD
 
 换平面候选有两层去重：先用起点三平面、目标三平面和替换顺序组成 `PlaneReplacementBuildSignature`，在真正构造路径前过滤重复构造；再用路径端点的齐次点序列作为 trace 级签名，避免同一条路径重复进入 WNV trace。当前签名集合用哈希缓存维护，避免在大量 inset / bridge rescue 目标上反复线性比较。
 
-### 8.2 目标点与路径候选来源
+### 9.2 目标点与路径候选来源
 
 当前实现中的目标点生成来自 `path_candidate_details.h`：
 
@@ -353,7 +432,7 @@ flowchart TD
 - `direct inset cap`：inset fallback 会先尝试前 3 个目标点，只有仍未分类成功时才扩展剩余目标，避免在常见成功 case 上枚举完整换平面集合。
 - 候选诊断字段包括 `leafClassificationCandidateGeneratedCount`、`leafClassificationCandidateUniqueCount`、`leafClassificationCandidateDuplicateSkipCount`、`leafClassificationCandidateRejectedCount`、`leafClassificationCandidateRepairAttemptCount` 和 `leafClassificationCandidateRepairSuccessCount`；trace 状态按 `CentroidAxis`、`InsetReplacement`、`BridgeRescue` 三个阶段分别统计。
 
-## 9. 结果筛选与朝向
+## 10. 结果筛选与朝向
 
 分类完成后，并不是所有叶片片段都会进入最终结果。普通路径通过 `appendResultFragmentFromClassification()` 逐片筛选；NSI/NNC 单操作数 bulk fast path 则直接对整批 `polygons_` 做输出、翻转或丢弃，不再逐片追加。
 
@@ -375,7 +454,7 @@ flowchart TD
     E -->|否| G["丢弃该片段"]
 ```
 
-## 10. 诊断出口
+## 11. 诊断出口
 
 当前公开给外部观察求解过程的主要接口不是递归节点对象，而是：
 
