@@ -4,6 +4,7 @@
  */
 #include "WNV_tracing.h"
 #include "algorithm/tracing_geometry.h"
+#include "core/bool_problem.h"
 #include "core/perf_tracing.h"
 
 #include <utility>
@@ -17,6 +18,111 @@ enum class BoundaryPolicy
     RejectAll,
     AllowSubdivisionClipCrossing
 };
+
+enum class TracePathInvalidReason
+{
+    StartPointOnBoundary,
+    EndPointOnBoundary,
+    EndpointOnBoundaryContact,
+    EdgeOverlap,
+    NonStrictIntersection,
+    BoundaryContactWithoutIntersection
+};
+
+enum class BoundaryHitRejectedKind
+{
+    RegularEdge,
+    SubdivisionClipEdge,
+    MixedEdge,
+    Unknown
+};
+
+void recordTracePathInvalid(
+    BoolSolveMetrics *solveMetrics,
+    TracePathInvalidReason reason) noexcept
+{
+    if (solveMetrics == nullptr)
+        return;
+
+    switch (reason)
+    {
+    case TracePathInvalidReason::StartPointOnBoundary:
+        ++solveMetrics->tracePathStartPointOnBoundaryCount;
+        break;
+    case TracePathInvalidReason::EndPointOnBoundary:
+        ++solveMetrics->tracePathEndPointOnBoundaryCount;
+        break;
+    case TracePathInvalidReason::EndpointOnBoundaryContact:
+        ++solveMetrics->tracePathEndpointOnBoundaryContactCount;
+        break;
+    case TracePathInvalidReason::EdgeOverlap:
+        ++solveMetrics->tracePathEdgeOverlapCount;
+        break;
+    case TracePathInvalidReason::NonStrictIntersection:
+        ++solveMetrics->tracePathNonStrictIntersectionCount;
+        break;
+    case TracePathInvalidReason::BoundaryContactWithoutIntersection:
+        ++solveMetrics->tracePathBoundaryContactWithoutIntersectionCount;
+        break;
+    }
+}
+
+BoundaryHitRejectedKind classifyBoundaryHitRejectedKind(
+    const detail::PolygonBoundaryContact &boundaryContact,
+    const Polygon256 &poly) noexcept
+{
+    if (boundaryContact.edgeIndices.empty())
+        return BoundaryHitRejectedKind::Unknown;
+
+    bool hasRegularEdge = false;
+    bool hasSubdivisionClipEdge = false;
+    for (const std::size_t edgeIndex : boundaryContact.edgeIndices)
+    {
+        if (poly.edgeProvenance(edgeIndex) == PolygonEdgeProvenance::SubdivisionClip)
+            hasSubdivisionClipEdge = true;
+        else
+            hasRegularEdge = true;
+    }
+
+    if (hasRegularEdge && hasSubdivisionClipEdge)
+        return BoundaryHitRejectedKind::MixedEdge;
+    if (hasRegularEdge)
+        return BoundaryHitRejectedKind::RegularEdge;
+    if (hasSubdivisionClipEdge)
+        return BoundaryHitRejectedKind::SubdivisionClipEdge;
+    return BoundaryHitRejectedKind::Unknown;
+}
+
+void recordBoundaryHitRejected(
+    BoolSolveMetrics *solveMetrics,
+    const detail::PolygonBoundaryContact &boundaryContact,
+    const Polygon256 &poly) noexcept
+{
+    if (solveMetrics == nullptr)
+        return;
+
+    switch (classifyBoundaryHitRejectedKind(boundaryContact, poly))
+    {
+    case BoundaryHitRejectedKind::RegularEdge:
+        ++solveMetrics->tracePathBoundaryHitRejectedRegularEdgeCount;
+        break;
+    case BoundaryHitRejectedKind::SubdivisionClipEdge:
+        ++solveMetrics->tracePathBoundaryHitRejectedSubdivisionClipEdgeCount;
+        break;
+    case BoundaryHitRejectedKind::MixedEdge:
+        ++solveMetrics->tracePathBoundaryHitRejectedMixedEdgeCount;
+        break;
+    case BoundaryHitRejectedKind::Unknown:
+        ++solveMetrics->tracePathBoundaryHitRejectedUnknownCount;
+        break;
+    }
+}
+
+void recordBoundaryHitAllowed(BoolSolveMetrics *solveMetrics) noexcept
+{
+    if (solveMetrics != nullptr)
+        ++solveMetrics->tracePathBoundaryHitAllowedSubdivisionClipEdgeCount;
+}
 
 void addScaledWNTV(WNV &accumulator, const WNV &delta, int scale)
 {
@@ -54,7 +160,8 @@ traceStatus tracePathWNVImpl(
     WNV &targetWNV,
     bool validatePolygons,
     bool validatePath,
-    BoundaryPolicy boundaryPolicy)
+    BoundaryPolicy boundaryPolicy,
+    BoolSolveMetrics *solveMetrics)
 {
     REEMBER_PROFILE_ZONE("tracePathWNVImpl");
 
@@ -110,7 +217,10 @@ traceStatus tracePathWNVImpl(
             pcs = poly.classify(pathStartPoint);
         }
         if (pcs == 0)
+        {
+            recordTracePathInvalid(solveMetrics, TracePathInvalidReason::StartPointOnBoundary);
             return PATH_INVALID;
+        }
 
         for (const Segment256 &seg : path)
         {
@@ -122,7 +232,10 @@ traceStatus tracePathWNVImpl(
             }
 
             if (pce == 0)
+            {
+                recordTracePathInvalid(solveMetrics, TracePathInvalidReason::EndPointOnBoundary);
                 return PATH_INVALID;
+            }
             if (isSameStrictSide(pcs, pce))
             {
                 pcs = pce;
@@ -141,9 +254,16 @@ traceStatus tracePathWNVImpl(
                 boundaryContact =
                     detail::classifySegmentPolygonBoundaryContactUnchecked(seg, poly);
             }
-            if (boundaryContact.type == detail::PolygonBoundaryContactType::EndpointOnBoundary ||
-                    boundaryContact.type == detail::PolygonBoundaryContactType::EdgeOverlap)
+            if (boundaryContact.type == detail::PolygonBoundaryContactType::EndpointOnBoundary)
+            {
+                recordTracePathInvalid(solveMetrics, TracePathInvalidReason::EndpointOnBoundaryContact);
                 return PATH_INVALID;
+            }
+            if (boundaryContact.type == detail::PolygonBoundaryContactType::EdgeOverlap)
+            {
+                recordTracePathInvalid(solveMetrics, TracePathInvalidReason::EdgeOverlap);
+                return PATH_INVALID;
+            }
 
             PlanePoint3i intersectPoint;
             bool hasIntersection = false;
@@ -167,16 +287,28 @@ traceStatus tracePathWNVImpl(
                                 pce,
                                 boundaryContact,
                                 poly))
+                    {
+                        recordBoundaryHitRejected(solveMetrics, boundaryContact, poly);
                         return PATH_INVALID;
+                    }
+                    recordBoundaryHitAllowed(solveMetrics);
                 }
                 else if (hitLocation != detail::PolygonSurfaceLocation::StrictInterior)
+                {
+                    recordTracePathInvalid(solveMetrics, TracePathInvalidReason::NonStrictIntersection);
                     return PATH_INVALID;
+                }
 
                 const int sigma = (pcs - pce) / 2;
                 addScaledWNTV(propagatedWNV, poly.WNTV, sigma);
             }
             else if (boundaryContact.type != detail::PolygonBoundaryContactType::None)
+            {
+                recordTracePathInvalid(
+                    solveMetrics,
+                    TracePathInvalidReason::BoundaryContactWithoutIntersection);
                 return PATH_INVALID;
+            }
 
             pcs = pce;
         }
@@ -194,7 +326,8 @@ traceStatus tracePathWNVToSurfacePointImpl(
     WNV &frontWNV,
     WNV &backWNV,
     bool validatePolygons,
-    bool validatePath)
+    bool validatePath,
+    BoolSolveMetrics *solveMetrics)
 {
     REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl");
 
@@ -251,7 +384,10 @@ traceStatus tracePathWNVToSurfacePointImpl(
             pcs = poly.classify(pathStartPoint);
         }
         if (pcs == 0)
+        {
+            recordTracePathInvalid(solveMetrics, TracePathInvalidReason::StartPointOnBoundary);
             return PATH_INVALID;
+        }
 
         for (std::size_t segmentIndex = 0; segmentIndex < path.size(); ++segmentIndex)
         {
@@ -265,7 +401,10 @@ traceStatus tracePathWNVToSurfacePointImpl(
             const bool isLastSegment = (segmentIndex + 1 == path.size());
 
             if (!isLastSegment && pce == 0)
+            {
+                recordTracePathInvalid(solveMetrics, TracePathInvalidReason::EndPointOnBoundary);
                 return PATH_INVALID;
+            }
             if (isSameStrictSide(pcs, pce))
             {
                 pcs = pce;
@@ -292,7 +431,31 @@ traceStatus tracePathWNVToSurfacePointImpl(
                         detail::classifyPolygonSurfacePointUnchecked(poly, intersectPoint);
                 }
                 if (hitLocation == detail::PolygonSurfaceLocation::Boundary)
-                    return PATH_INVALID;
+                {
+                    const detail::PolygonBoundaryContact boundaryContact =
+                        detail::classifySegmentPolygonBoundaryContactUnchecked(seg, poly);
+                    if (!canTreatSubdivisionClipBoundaryHitAsCrossing(
+                                BoundaryPolicy::AllowSubdivisionClipCrossing,
+                                pcs,
+                                pce,
+                                boundaryContact,
+                                poly))
+                    {
+                        recordBoundaryHitRejected(solveMetrics, boundaryContact, poly);
+                        return PATH_INVALID;
+                    }
+
+                    recordBoundaryHitAllowed(solveMetrics);
+                    if (isLastSegment && pce == 0)
+                        addScaledWNTV(surfaceDelta, poly.WNTV, pcs);
+                    else
+                    {
+                        const int sigma = (pcs - pce) / 2;
+                        addScaledWNTV(surfaceWNV, poly.WNTV, sigma);
+                    }
+                    pcs = pce;
+                    continue;
+                }
                 if (hitLocation == detail::PolygonSurfaceLocation::StrictInterior)
                 {
                     if (isLastSegment && pce == 0)
@@ -308,7 +471,12 @@ traceStatus tracePathWNVToSurfacePointImpl(
             }
 
             if (detail::isSegmentTouchPolygonEdgeUnchecked(seg, poly))
+            {
+                recordTracePathInvalid(
+                    solveMetrics,
+                    TracePathInvalidReason::BoundaryContactWithoutIntersection);
                 return PATH_INVALID;
+            }
 
             pcs = pce;
         }
@@ -338,25 +506,43 @@ traceStatus tracePathWNV(const refPoint &refpoint, const Path &path, const std::
 {
     REEMBER_PROFILE_ZONE("tracePathWNV");
 
-    return tracePathWNVImpl(refpoint, path, polygons, targetWNV, true, true, BoundaryPolicy::RejectAll);
+    return tracePathWNVImpl(
+        refpoint,
+        path,
+        polygons,
+        targetWNV,
+        true,
+        true,
+        BoundaryPolicy::AllowSubdivisionClipCrossing,
+        nullptr);
 }
 
 traceStatus detail::tracePathWNVTrusted(
     const refPoint &refpoint,
     const Path &path,
     const std::vector<Polygon256> &polygons,
-    WNV &targetWNV)
+    WNV &targetWNV,
+    BoolSolveMetrics *solveMetrics)
 {
     REEMBER_PROFILE_ZONE("tracePathWNVTrusted");
 
-    return tracePathWNVImpl(refpoint, path, polygons, targetWNV, false, false, BoundaryPolicy::RejectAll);
+    return tracePathWNVImpl(
+        refpoint,
+        path,
+        polygons,
+        targetWNV,
+        false,
+        false,
+        BoundaryPolicy::AllowSubdivisionClipCrossing,
+        solveMetrics);
 }
 
 traceStatus detail::tracePathWNVAllowSubdivisionClipCrossingTrusted(
     const refPoint &refpoint,
     const Path &path,
     const std::vector<Polygon256> &polygons,
-    WNV &targetWNV)
+    WNV &targetWNV,
+    BoolSolveMetrics *solveMetrics)
 {
     REEMBER_PROFILE_ZONE("tracePathWNVAllowSubdivisionClipCrossingTrusted");
 
@@ -367,7 +553,8 @@ traceStatus detail::tracePathWNVAllowSubdivisionClipCrossingTrusted(
                targetWNV,
                false,
                false,
-               BoundaryPolicy::AllowSubdivisionClipCrossing);
+               BoundaryPolicy::AllowSubdivisionClipCrossing,
+               solveMetrics);
 }
 
 traceStatus tracePathWNVToSurfacePoint(
@@ -380,7 +567,16 @@ traceStatus tracePathWNVToSurfacePoint(
 {
     REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePoint");
 
-    return tracePathWNVToSurfacePointImpl(refpoint, path, polygons, referencePlane, frontWNV, backWNV, true, true);
+    return tracePathWNVToSurfacePointImpl(
+        refpoint,
+        path,
+        polygons,
+        referencePlane,
+        frontWNV,
+        backWNV,
+        true,
+        true,
+        nullptr);
 }
 
 traceStatus detail::tracePathWNVToSurfacePointTrusted(
@@ -389,11 +585,21 @@ traceStatus detail::tracePathWNVToSurfacePointTrusted(
     const std::vector<Polygon256> &polygons,
     const Plane3i &referencePlane,
     WNV &frontWNV,
-    WNV &backWNV)
+    WNV &backWNV,
+    BoolSolveMetrics *solveMetrics)
 {
     REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointTrusted");
 
-    return tracePathWNVToSurfacePointImpl(refpoint, path, polygons, referencePlane, frontWNV, backWNV, false, false);
+    return tracePathWNVToSurfacePointImpl(
+        refpoint,
+        path,
+        polygons,
+        referencePlane,
+        frontWNV,
+        backWNV,
+        false,
+        false,
+        solveMetrics);
 }
 }
 

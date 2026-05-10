@@ -215,7 +215,7 @@ flowchart TD
 1. 先尝试直接复用父参考点。
 2. 如果不能复用，再枚举 fast AABB path candidates。
 3. fast 阶段没有成功且没有 hard failure，才进入 exhaustive candidates。
-4. 用 `tracePathWNVAllowSubdivisionClipCrossingTrusted()` 沿候选路径传播 WNV。
+4. 用当前统一允许 `SubdivisionClip` 边界横穿的 tracing 入口沿候选路径传播 WNV。
 5. 找到成功候选后立即停止。
 
 不能直接复用的条件主要是：
@@ -239,7 +239,7 @@ flowchart TD
 
 这里还有两个实现细节：
 
-- 子参考点 trace 用的是 `AllowSubdivisionClipCrossingTrusted` 版本，允许穿过 subdivision 裁剪边界。
+- 当前 `tracePathWNV*` / `tracePathWNVToSurfacePoint*` 都允许穿过由 `SubdivisionClip` 产生、且满足严格对穿条件的边界。
 - 一旦 trace 返回的不是 `PATH_INVALID` 而是更硬的失败状态，会记为 `hardFailure`，不再继续穷举。
 
 ## 7. 追踪内核流程

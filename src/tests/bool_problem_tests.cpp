@@ -847,7 +847,13 @@ void runBoolProblemTests()
                    ember::refPoint(artificialLeft, ember::WNV{0, 0}),
                    artificialCrossing,
                    polygons,
-                   targetWNV) == ember::PATH_INVALID);
+                   targetWNV) == ember::SUCCESS);
+        assert(targetWNV == ember::WNV({-1, 0}));
+        assert(ember::detail::tracePathWNVTrusted(
+                   ember::refPoint(artificialLeft, ember::WNV{0, 0}),
+                   artificialCrossing,
+                   polygons,
+                   targetWNV) == ember::SUCCESS);
         assert(ember::detail::tracePathWNVAllowSubdivisionClipCrossingTrusted(
                    ember::refPoint(artificialLeft, ember::WNV{0, 0}),
                    artificialCrossing,
@@ -900,6 +906,53 @@ void runBoolProblemTests()
         const ember::detail::PolygonBoundaryContact overlapContact =
             ember::detail::classifySegmentPolygonBoundaryContactUnchecked(edgeOverlapPath.front(), clippedSurface);
         assert(overlapContact.type == ember::detail::PolygonBoundaryContactType::EdgeOverlap);
+    }
+
+    {
+        Polygon256 clippedSurface = makeFaceYZ(0, 0, 4, 0, 4, 1);
+        clippedSurface.WNTV = {1, 0};
+        Polygon256 frontPolygon;
+        Polygon256 backPolygon;
+        assert(ember::detail::clipLeafGeometryByPlaneTrusted(
+                   clippedSurface,
+                   Plane3i::fromPointNormal(Vec3i(0, 2, 0), Vec3i(0, 1, 0)),
+                   frontPolygon,
+                   backPolygon,
+                   ember::PolygonEdgeProvenance::SubdivisionClip));
+
+        const std::vector<Polygon256> polygons{backPolygon};
+        ember::WNV frontWNV;
+        ember::WNV backWNV;
+
+        const PlanePoint3i clipStart = ember::makeIntegerPoint(-1, 2, 2);
+        const PlanePoint3i clipTurn = ember::makeIntegerPoint(1, 2, 2);
+        const PlanePoint3i surfaceTurn = ember::makeIntegerPoint(1, 1, 2);
+        const PlanePoint3i surfaceTarget = ember::makeIntegerPoint(0, 1, 2);
+        const ember::Path clipSurfacePath = makeAxisPath({clipStart, clipTurn, surfaceTurn, surfaceTarget});
+        const ember::detail::PolygonBoundaryContact clipContact =
+            ember::detail::classifySegmentPolygonBoundaryContactUnchecked(clipSurfacePath.front(), backPolygon);
+        assert(clipContact.type == ember::detail::PolygonBoundaryContactType::BoundaryPointHit);
+        assert(clipContact.edgeIndices.size() == 1u);
+        assert(backPolygon.edgeProvenance(clipContact.edgeIndices.front()) == ember::PolygonEdgeProvenance::SubdivisionClip);
+
+        assert(ember::tracePathWNVToSurfacePoint(
+                   ember::refPoint(clipStart, ember::WNV{0, 0}),
+                   clipSurfacePath,
+                   polygons,
+                   backPolygon.plane,
+                   frontWNV,
+                   backWNV) == ember::SUCCESS);
+        assert(frontWNV == ember::WNV({-1, 0}));
+        assert(backWNV == ember::WNV({0, 0}));
+        assert(ember::detail::tracePathWNVToSurfacePointTrusted(
+                   ember::refPoint(clipStart, ember::WNV{0, 0}),
+                   clipSurfacePath,
+                   polygons,
+                   backPolygon.plane,
+                   frontWNV,
+                   backWNV) == ember::SUCCESS);
+        assert(frontWNV == ember::WNV({-1, 0}));
+        assert(backWNV == ember::WNV({0, 0}));
     }
 
     {

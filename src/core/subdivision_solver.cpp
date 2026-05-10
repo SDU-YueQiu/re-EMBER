@@ -81,6 +81,17 @@ void accumulateSolveMetrics(BoolSolveMetrics &target, const BoolSolveMetrics &so
     target.childReferenceCandidateTriedCount += source.childReferenceCandidateTriedCount;
     target.childReferenceFastCandidateTriedCount += source.childReferenceFastCandidateTriedCount;
     target.childReferenceExhaustiveCandidateTriedCount += source.childReferenceExhaustiveCandidateTriedCount;
+    target.tracePathStartPointOnBoundaryCount += source.tracePathStartPointOnBoundaryCount;
+    target.tracePathEndPointOnBoundaryCount += source.tracePathEndPointOnBoundaryCount;
+    target.tracePathEndpointOnBoundaryContactCount += source.tracePathEndpointOnBoundaryContactCount;
+    target.tracePathEdgeOverlapCount += source.tracePathEdgeOverlapCount;
+    target.tracePathBoundaryHitRejectedRegularEdgeCount += source.tracePathBoundaryHitRejectedRegularEdgeCount;
+    target.tracePathBoundaryHitRejectedSubdivisionClipEdgeCount += source.tracePathBoundaryHitRejectedSubdivisionClipEdgeCount;
+    target.tracePathBoundaryHitRejectedMixedEdgeCount += source.tracePathBoundaryHitRejectedMixedEdgeCount;
+    target.tracePathBoundaryHitRejectedUnknownCount += source.tracePathBoundaryHitRejectedUnknownCount;
+    target.tracePathBoundaryHitAllowedSubdivisionClipEdgeCount += source.tracePathBoundaryHitAllowedSubdivisionClipEdgeCount;
+    target.tracePathNonStrictIntersectionCount += source.tracePathNonStrictIntersectionCount;
+    target.tracePathBoundaryContactWithoutIntersectionCount += source.tracePathBoundaryContactWithoutIntersectionCount;
     target.singleOperandAssumptionStopCount += source.singleOperandAssumptionStopCount;
     target.singleOperandAssumptionFallbackCount += source.singleOperandAssumptionFallbackCount;
     target.singleOperandLeafBspSkipCount += source.singleOperandLeafBspSkipCount;
@@ -801,7 +812,8 @@ bool tryTraceChildReferenceCandidate(
                      sourceRef,
                      searchState.candidatePath,
                      nodePolygons,
-                     propagatedWNV);
+                     propagatedWNV,
+                     &solveMetrics);
     }
     if (status == SUCCESS)
     {
