@@ -213,14 +213,14 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 
 每次运行会生成一个 `build\performance\run_<timestamp>\` 目录。最常用的文件是：
 
-- `summary.txt`：每个 workload 的总体摘要。
+- `summary.txt`：每个 workload 的总体摘要；多 workload 运行还会额外写入 `overall_avg_*` 总平均时间。
 - `timings.csv`：逐次迭代的结构化表格。
 - `timing_*.metrics.txt`：单个 workload 的时间和高层统计。
 - `tracy_traces\*.tracy`：Tracy 原始捕获。
 - `tracy_zones.csv`：`tracy-csvexport` 导出的 inclusive zone 进入次数和耗时统计。
 - `tracy_zones_self.csv`：`tracy-csvexport -e` 导出的 self-time zone 统计。
 - `tracy_unwrap\*.csv`：按 `-UnwrapZoneFilter` 选出的逐事件 zone 明细。
-- `report.md`：问题规模、pipeline inclusive 时间、策略交叉校验和按 workload 的 self hot zones。
+- `report.md`：问题规模、多 workload 的 overall 平均时间、pipeline inclusive 时间、策略交叉校验和按 workload 的 self hot zones。
 - `profile.log`：脚本实际执行的命令与日志。
 
 ### 怎么读结果
@@ -266,6 +266,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 - `tracy_zones.csv` 是 inclusive time，适合看完整 pipeline 或父阶段总耗时。
 - `tracy_zones_self.csv` 是 self time，适合找真正热点；`solveRecursive` 这类父 zone 要优先看 self 视角。
 - `report.md` 默认先用 inclusive 看 pipeline，再用 self 看每个 workload 的热点。
+- 当一次运行包含多个 workload 时，先看 `report.md` 里的 `Overall Average Time`，或 `summary.txt` 里的 `overall_avg_elapsed_ms` / `overall_avg_solve_ms`，再下钻到单个 workload。
 - 领域规模仍以 `timings.csv` / `metrics.txt` 中的 `BoolSolveMetrics` 为准；`report.md` 会把关键策略的 `metric_count` 和 `zone_count` 做交叉校验。
 
 ## 已知限制
