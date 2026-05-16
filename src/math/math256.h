@@ -45,13 +45,29 @@ inline Integer absMagnitude(Integer value) noexcept
 }
 
 /**
+ * @brief 判断整数幅值是否为 1。
+ */
+inline bool hasUnitMagnitude(const Integer& value) noexcept
+{
+    return value == 1 || value == -1;
+}
+
+/**
  * @brief 计算两个整数幅值的最大公约数。
  */
 inline Integer gcdMagnitude(Integer lhs, Integer rhs) noexcept
 {
     REEMBER_PROFILE_MATH_ZONE("math256::gcdMagnitude");
+    if (hasUnitMagnitude(lhs) || hasUnitMagnitude(rhs))
+        return 1;
+
     lhs = absMagnitude(lhs);
     rhs = absMagnitude(rhs);
+    if (isZero(lhs))
+        return rhs;
+    if (isZero(rhs) || lhs == rhs)
+        return lhs;
+
     while (!isZero(rhs))
     {
         const Integer remainder = lhs % rhs;
@@ -67,6 +83,9 @@ inline Integer gcdMagnitude(Integer lhs, Integer rhs) noexcept
 inline Integer gcdMagnitude(const Integer& a, const Integer& b, const Integer& c, const Integer& d) noexcept
 {
     REEMBER_PROFILE_MATH_ZONE("math256::gcdMagnitude4");
+    if (hasUnitMagnitude(a) || hasUnitMagnitude(b) || hasUnitMagnitude(c) || hasUnitMagnitude(d))
+        return 1;
+
     return gcdMagnitude(gcdMagnitude(a, b), gcdMagnitude(c, d));
 }
 
