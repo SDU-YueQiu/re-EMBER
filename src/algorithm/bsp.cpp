@@ -8,6 +8,7 @@
 #include "geometry/polygon_ops.h"
 
 #include <stdexcept>
+#include <utility>
 
 namespace ember
 {
@@ -41,6 +42,11 @@ BSPNode::BSPNode() noexcept
 
 BSPNode::BSPNode(const Polygon256 &polygon) noexcept
     : isLeaf(true), disabled(false), splitPlane(), leafGeometry(polygon), front(), back()
+{
+}
+
+BSPNode::BSPNode(Polygon256 &&polygon) noexcept
+    : isLeaf(true), disabled(false), splitPlane(), leafGeometry(std::move(polygon)), front(), back()
 {
 }
 
@@ -122,6 +128,13 @@ std::vector<Polygon256> BSPTree::collectLeafGeometries() const
     return leafGeometries;
 }
 
+void BSPTree::extractLeafGeometriesInto(std::vector<Polygon256> &outLeafGeometries)
+{
+    REEMBER_PROFILE_ZONE("BSPTree::extractLeafGeometriesInto");
+
+    extractLeafGeometriesRecursive(root.get(), outLeafGeometries);
+}
+
 void BSPTree::addSegmentRecursive(BSPNode &node, const Plane3i &v0, const Plane3i &v1, const Plane3i &insertPlane)
 {
     REEMBER_PROFILE_ZONE("BSPTree::addSegmentRecursive");
@@ -138,8 +151,8 @@ void BSPTree::addSegmentRecursive(BSPNode &node, const Plane3i &v0, const Plane3
         node.isLeaf = false;
         node.splitPlane = insertPlane;
         node.leafGeometry = Polygon256();
-        node.front = std::make_unique<BSPNode>(frontGeometry);
-        node.back = std::make_unique<BSPNode>(backGeometry);
+        node.front = std::make_unique<BSPNode>(std::move(frontGeometry));
+        node.back = std::make_unique<BSPNode>(std::move(backGeometry));
         node.front->disabled = node.disabled;
         node.back->disabled = node.disabled;
         return;
@@ -253,6 +266,23 @@ void BSPTree::collectLeafGeometriesRecursive(const BSPNode *node, std::vector<Po
 
     collectLeafGeometriesRecursive(node->front.get(), outLeafGeometries);
     collectLeafGeometriesRecursive(node->back.get(), outLeafGeometries);
+}
+
+void BSPTree::extractLeafGeometriesRecursive(BSPNode *node, std::vector<Polygon256> &outLeafGeometries)
+{
+    if (!node)
+        return;
+
+    if (node->isLeaf)
+    {
+        // TODO：如果后续并行化，需要重新处理这里的收集写入。
+        if (!node->disabled)
+            outLeafGeometries.push_back(std::move(node->leafGeometry));
+        return;
+    }
+
+    extractLeafGeometriesRecursive(node->front.get(), outLeafGeometries);
+    extractLeafGeometriesRecursive(node->back.get(), outLeafGeometries);
 }
 }
 
