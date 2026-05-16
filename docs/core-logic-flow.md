@@ -339,7 +339,7 @@ flowchart TD
 `buildLeafArrangement()` 的实现还有一个小分叉：
 
 - `polygonCount < 8` 时，直接对每个 base polygon 插入其它 polygon。
-- `polygonCount >= 8` 时，先缓存 pair relation，再驱动 BSP，以减少重复关系构造。
+- `polygonCount >= 8` 时，先缓存 pair relation 邻接表，再驱动 BSP；没有邻接关系的 base polygon 直接作为 leaf fragment 输出。
 
 ```mermaid
 flowchart TD
