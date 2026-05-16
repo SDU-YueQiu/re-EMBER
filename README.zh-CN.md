@@ -47,9 +47,11 @@ build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\mo
 - `--out <result.obj|result.stl>` 指定输出文件。
 - `--scale <positive_integer>` 手动覆盖共享量化尺度。
 - `--leaf-threshold <positive_integer>` 控制细分到叶子时的停止阈值。
-- `--threads <positive_integer>` 指定求解线程数；设为 `1` 可强制串行。
+- `--threads <positive_integer>` 指定应用层 task arena 大小和求解线程数；设为 `1` 可强制串行。
 - `--timings-out <metrics.txt>` 会把单次运行的计时和求解摘要写到文件里。
 - `--assume-lhs-nsi`、`--assume-lhs-nnc`、`--assume-rhs-nsi`、`--assume-rhs-nnc` 用于声明输入假设以加速运行；同一侧的 `NNC` 依赖 `NSI`。
+
+应用层并行与求解器共用 `--threads` 限制：外层并行调度左右操作数，内层对顶点 AABB、顶点量化、面到多边形构造和导出片段恢复做静态分块。
 
 ## 性能脚本
 
@@ -61,7 +63,7 @@ build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\mo
 - `-ExecutablePath` 直接复用已有的 `re-EMBER.exe`，不重新构建。
 - `-Configuration` 选择 profiling 构建类型。
 - `-Iterations`、`-TimeoutSeconds`、`-BuildTimeoutSeconds`、`-ReportTimeoutSeconds` 控制运行超时。
-- `-LeafThreshold` 和 `-Threads` 会传给求解器。
+- `-LeafThreshold` 会传给求解器；`-Threads` 同时设置应用层 task arena 大小和求解线程数。
 - `-NoTracy` 跳过 Tracy 采样，使用 `build\profile_notracy\`。
 - `-EnableMathTracy` 额外打开底层 `math256` Tracy 区间，并使用 `build\profile_tracy_math\`。
 - `-SkipBuild` 复用已有的 profiling 构建树。
@@ -73,5 +75,5 @@ build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\mo
 ## 备注
 
 - `build\Debug\re-EMBER_tests.exe` 可以运行仓库测试。
-- `--threads 1` 可强制串行，方便排查问题。
+- `--threads 1` 可让应用层准备和求解都强制串行，方便排查问题。
 - `--timings-out <file>` 会输出单次运行的计时摘要。

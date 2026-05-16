@@ -47,9 +47,11 @@ build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\mo
 - `--out <result.obj|result.stl>` sets the output file.
 - `--scale <positive_integer>` overrides the shared quantization scale.
 - `--leaf-threshold <positive_integer>` controls when subdivision stops at a leaf.
-- `--threads <positive_integer>` sets the solver thread count; use `1` to force serial execution.
+- `--threads <positive_integer>` sets the application-layer task arena size and solver thread count; use `1` to force serial execution.
 - `--timings-out <metrics.txt>` writes the timing and solve summary for a single run.
 - `--assume-lhs-nsi`, `--assume-lhs-nnc`, `--assume-rhs-nsi`, and `--assume-rhs-nnc` declare input assumptions for faster runs. `NNC` requires `NSI` for the same side.
+
+Application-layer parallelism uses the same `--threads` limit for coarse left/right operand work and fine-grained static partitions over vertex AABB building, vertex quantization, face-to-polygon construction, and export fragment recovery.
 
 ## Performance script
 
@@ -61,7 +63,7 @@ build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\mo
 - `-ExecutablePath` reuses an existing `re-EMBER.exe` instead of rebuilding.
 - `-Configuration` chooses the profiling build type.
 - `-Iterations`, `-TimeoutSeconds`, `-BuildTimeoutSeconds`, and `-ReportTimeoutSeconds` control runtime limits.
-- `-LeafThreshold` and `-Threads` are passed through to the solver.
+- `-LeafThreshold` is passed through to the solver; `-Threads` sets the application-layer task arena size and solver thread count.
 - `-NoTracy` skips Tracy capture and uses `build\profile_notracy\`.
 - `-EnableMathTracy` also enables low-level `math256` Tracy zones and uses `build\profile_tracy_math\`.
 - `-SkipBuild` reuses an already prepared profiling tree.
@@ -73,5 +75,5 @@ The script writes `build\performance\run_<timestamp>\` with `summary.txt`, `timi
 ## Notes
 
 - `build\Debug\re-EMBER_tests.exe` runs the repository tests.
-- `--threads 1` forces a serial run when you need to debug.
+- `--threads 1` forces a serial run across application-layer preparation and solving when you need to debug.
 - `--timings-out <file>` writes the timing summary for a single run.

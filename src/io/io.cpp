@@ -10,6 +10,9 @@
 
 #include <stl_reader/stl_reader.h>
 #include <tiny_obj_loader.h>
+#include <oneapi/tbb/blocked_range.h>
+#include <oneapi/tbb/parallel_for.h>
+#include <oneapi/tbb/partitioner.h>
 
 #include <algorithm>
 #include <array>
@@ -19,6 +22,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <iterator>
 #include <limits>
 #include <sstream>
 #include <string>
@@ -33,7 +37,8 @@ bool failIo(std::string &outError, const std::string &message)
 {
     outError = message;
     return false;
-}
+
+}
 
 // 论文中给出的输入整数坐标安全范围：每个笛卡尔坐标使用 26-bit 有符号整数。
 long long kInputCoordinateLimit = (1LL << 25) - 1;
@@ -250,6 +255,32 @@ void appendScaledVertexIntervalToAABB(
     mergeAABB(box, vertexBox);
 }
 
+template <typename Function>
+void parallelForStatic(std::size_t count, Function &&function)
+{
+    // 输入/输出阶段的单元成本主要跟顶点、面或片段数量线性相关，静态分块能保持顺序语义稳定。
+    oneapi::tbb::parallel_for(
+        oneapi::tbb::blocked_range<std::size_t>(0, count),
+        [&](const oneapi::tbb::blocked_range<std::size_t> &range)
+    {
+        for (std::size_t index = range.begin(); index != range.end(); ++index)
+            function(index);
+    },
+        oneapi::tbb::static_partitioner());
+}
+
+struct VertexQuantizeResult
+{
+    Vec3i vertex;
+    std::string error;
+};
+
+struct VertexAabbResult
+{
+    AABB3i box;
+    std::string error;
+};
+
 // 量化后重复顶点会让某些边退化成零长度，先在面级别提前拦截。
 bool hasDuplicateFaceVertex(const std::vector<Vec3i> &faceVertices) noexcept
 {
@@ -412,6 +443,57 @@ bool appendTriangulatedNonCoplanarFace(
     return true;
 }
 
+struct FacePolygonBuildResult
+{
+    std::vector<Polygon256> polygons;
+    std::string error;
+};
+
+void buildPolygonsFromQuantizedFace(
+    const std::vector<Vec3i> &quantizedVertices,
+    const std::vector<std::size_t> &face,
+    std::size_t faceIndex,
+    const PolygonSoupBuildOptions &options,
+    FacePolygonBuildResult &outResult)
+{
+    outResult = FacePolygonBuildResult();
+
+    std::vector<Vec3i> faceVertices;
+    faceVertices.reserve(face.size());
+    for (const std::size_t vertexIndex : face)
+    {
+        if (vertexIndex >= quantizedVertices.size())
+        {
+            outResult.error =
+                "Mesh face " + std::to_string(faceIndex) +
+                " references an out-of-range quantized vertex.";
+            return;
+        }
+
+        faceVertices.push_back(quantizedVertices[vertexIndex]);
+    }
+
+    Polygon256 polygon;
+    PolygonFaceBuildFailure failure = PolygonFaceBuildFailure::None;
+    std::string faceError;
+    if (buildPolygonFromQuantizedFace(faceVertices, faceIndex, polygon, failure, faceError))
+    {
+        outResult.polygons.push_back(std::move(polygon));
+        return;
+    }
+
+    if (options.triangulateNonCoplanarFaces &&
+            failure == PolygonFaceBuildFailure::NonCoplanarAfterQuantization &&
+            faceVertices.size() > 3u)
+    {
+        if (!appendTriangulatedNonCoplanarFace(faceVertices, faceIndex, outResult.polygons, faceError))
+            outResult.error = faceError;
+        return;
+    }
+
+    outResult.error = faceError;
+}
+
 ObjVertex homogeneousPointToObjVertex(const PlanePoint3i &vertex, std::uint64_t coordinateScale)
 {
     const long double w = integerToLongDouble(vertex.x.w);
@@ -470,6 +552,12 @@ struct RecoveredPolygonSoupData
     std::vector<std::vector<std::size_t>> faces;
 };
 
+struct RecoveredPolygonBuildResult
+{
+    std::vector<PlanePoint3i> orderedVertices;
+    std::string error;
+};
+
 bool recoverPolygonSoupData(
     const std::vector<Polygon256> &fragments,
     RecoveredPolygonSoupData &outData,
@@ -479,22 +567,35 @@ bool recoverPolygonSoupData(
     outData.faces.clear();
     outError.clear();
 
+    std::vector<RecoveredPolygonBuildResult> recoveredPolygons(fragments.size());
+    parallelForStatic(fragments.size(), [&](std::size_t polygonIndex)
+    {
+        std::string polygonError;
+        if (!recoverOrderedPolygonVertices(
+                    fragments[polygonIndex],
+                    recoveredPolygons[polygonIndex].orderedVertices,
+                    polygonError))
+        {
+            recoveredPolygons[polygonIndex].error =
+                "Failed to recover polygon " + std::to_string(polygonIndex) + ": " + polygonError;
+        }
+    });
+
+    for (const RecoveredPolygonBuildResult &result : recoveredPolygons)
+    {
+        if (!result.error.empty())
+            return failIo(outError, result.error);
+    }
+
     std::unordered_map<std::string, std::size_t> vertexIndexByKey;
     outData.faces.reserve(fragments.size());
     vertexIndexByKey.reserve(fragments.size() * 4);
 
-    for (std::size_t polygonIndex = 0; polygonIndex < fragments.size(); ++polygonIndex)
+    for (const RecoveredPolygonBuildResult &result : recoveredPolygons)
     {
-        std::vector<PlanePoint3i> orderedVertices;
-        if (!recoverOrderedPolygonVertices(fragments[polygonIndex], orderedVertices, outError))
-        {
-            outError = "Failed to recover polygon " + std::to_string(polygonIndex) + ": " + outError;
-            return false;
-        }
-
         std::vector<std::size_t> face;
-        face.reserve(orderedVertices.size());
-        for (const PlanePoint3i &vertex : orderedVertices)
+        face.reserve(result.orderedVertices.size());
+        for (const PlanePoint3i &vertex : result.orderedVertices)
         {
             const std::string key = makeHomogeneousPointKey(vertex.x);
             const auto [entry, inserted] = vertexIndexByKey.emplace(key, outData.uniqueVertices.size());
@@ -531,14 +632,28 @@ bool buildStlTrianglesFromPolygonSoup(
     outTriangles.clear();
     outError.clear();
 
-    for (std::size_t polygonIndex = 0; polygonIndex < fragments.size(); ++polygonIndex)
+    std::vector<RecoveredPolygonBuildResult> recoveredPolygons(fragments.size());
+    parallelForStatic(fragments.size(), [&](std::size_t polygonIndex)
     {
-        std::vector<PlanePoint3i> orderedVertices;
-        if (!recoverOrderedPolygonVertices(fragments[polygonIndex], orderedVertices, outError))
+        std::string polygonError;
+        if (!recoverOrderedPolygonVertices(
+                    fragments[polygonIndex],
+                    recoveredPolygons[polygonIndex].orderedVertices,
+                    polygonError))
         {
-            outError = "Failed to recover polygon " + std::to_string(polygonIndex) + ": " + outError;
-            return false;
+            recoveredPolygons[polygonIndex].error =
+                "Failed to recover polygon " + std::to_string(polygonIndex) + ": " + polygonError;
         }
+    });
+
+    std::size_t triangleCount = 0;
+    for (std::size_t polygonIndex = 0; polygonIndex < recoveredPolygons.size(); ++polygonIndex)
+    {
+        const RecoveredPolygonBuildResult &result = recoveredPolygons[polygonIndex];
+        if (!result.error.empty())
+            return failIo(outError, result.error);
+
+        const std::vector<PlanePoint3i> &orderedVertices = result.orderedVertices;
         if (orderedVertices.size() < 3u)
         {
             outError =
@@ -547,6 +662,13 @@ bool buildStlTrianglesFromPolygonSoup(
             return false;
         }
 
+        triangleCount += orderedVertices.size() - 2u;
+    }
+
+    outTriangles.reserve(triangleCount);
+    for (const RecoveredPolygonBuildResult &result : recoveredPolygons)
+    {
+        const std::vector<PlanePoint3i> &orderedVertices = result.orderedVertices;
         const ObjVertex anchor =
             homogeneousPointToObjVertex(orderedVertices[0], coordinateScale);
         for (std::size_t i = 1; i + 1 < orderedVertices.size(); ++i)
@@ -568,7 +690,8 @@ bool readObjMesh(const std::string &path, ObjMeshData &outMesh, std::string &out
     outError.clear();
 
     tinyobj::ObjReaderConfig config;
-    config.triangulate = false;
+
+    config.triangulate = false;
 
     tinyobj::ObjReader reader;
     if (!reader.ParseFromFile(path, config))
@@ -608,14 +731,16 @@ bool readObjMesh(const std::string &path, ObjMeshData &outMesh, std::string &out
                 return failIo(
                            outError,
                            "OBJ face index data is incomplete in shape " + std::to_string(shapeIndex) + ".");
-            }
+
+            }
 
             if (faceVertexCount < 3u)
             {
                 return failIo(
                            outError,
                            "OBJ face has fewer than three vertices in shape " + std::to_string(shapeIndex) + ".");
-            }
+
+            }
 
             // tinyobjloader 已处理标准 OBJ 索引形式，包括相对索引；
             // 本层只保留项目边界需要的几何位置索引。
@@ -629,7 +754,8 @@ bool readObjMesh(const std::string &path, ObjMeshData &outMesh, std::string &out
                     return failIo(
                                outError,
                                "OBJ face contains a missing position index in shape " + std::to_string(shapeIndex) + ".");
-                }
+
+                }
 
                 const std::size_t vertexIndex = static_cast<std::size_t>(index.vertex_index);
                 if (vertexIndex >= outMesh.vertices.size())
@@ -732,7 +858,8 @@ bool chooseSharedScale(
 
         outScale = *options.explicitScale;
         return true;
-    }
+
+    }
 
     // 自动模式下，为全部输入挑选同一个 10^k，使量化后所有坐标仍落在安全范围内。
     long double maxAbsCoordinate = 0.0L;
@@ -767,7 +894,8 @@ bool chooseSharedScale(
 
     outScale = scale;
     return true;
-}
+
+}
 
 bool computeScaledMeshAABB(
     const ObjMeshData &mesh,
@@ -783,7 +911,8 @@ bool computeScaledMeshAABB(
     if (mesh.vertices.empty())
         return failIo(outError, "Cannot compute an AABB for a mesh without vertices.");
 
-    for (std::size_t vertexIndex = 0; vertexIndex < mesh.vertices.size(); ++vertexIndex)
+    std::vector<VertexAabbResult> vertexResults(mesh.vertices.size());
+    parallelForStatic(mesh.vertices.size(), [&](std::size_t vertexIndex)
     {
         const ObjVertex &vertex = mesh.vertices[vertexIndex];
         Integer xMin;
@@ -792,17 +921,36 @@ bool computeScaledMeshAABB(
         Integer yMax;
         Integer zMin;
         Integer zMax;
-        if (!computeScaledCoordinateInterval(vertex.x, sharedScale, xMin, xMax, outError) ||
-                !computeScaledCoordinateInterval(vertex.y, sharedScale, yMin, yMax, outError) ||
-                !computeScaledCoordinateInterval(vertex.z, sharedScale, zMin, zMax, outError))
+        std::string vertexError;
+        if (!computeScaledCoordinateInterval(vertex.x, sharedScale, xMin, xMax, vertexError) ||
+                !computeScaledCoordinateInterval(vertex.y, sharedScale, yMin, yMax, vertexError) ||
+                !computeScaledCoordinateInterval(vertex.z, sharedScale, zMin, zMax, vertexError))
         {
-            outError = "Failed to compute scaled AABB for mesh vertex " +
-                       std::to_string(vertexIndex) + ": " + outError;
-            outAABB = AABB3i();
-            return false;
+            vertexResults[vertexIndex].error =
+                "Failed to compute scaled AABB for mesh vertex " +
+                std::to_string(vertexIndex) + ": " + vertexError;
+            return;
         }
 
-        appendScaledVertexIntervalToAABB(outAABB, xMin, xMax, yMin, yMax, zMin, zMax);
+        appendScaledVertexIntervalToAABB(
+            vertexResults[vertexIndex].box,
+            xMin,
+            xMax,
+            yMin,
+            yMax,
+            zMin,
+            zMax);
+    });
+
+    for (const VertexAabbResult &result : vertexResults)
+    {
+        if (!result.error.empty())
+        {
+            outAABB = AABB3i();
+            return failIo(outError, result.error);
+        }
+
+        mergeAABB(outAABB, result.box);
     }
 
     return isValidAABB(outAABB);
@@ -830,67 +978,60 @@ bool buildPolygonSoup(
     if (sharedScale == 0)
         return failIo(outError, "Shared scale must be a positive integer.");
 
-    std::vector<Vec3i> quantizedVertices;
-    quantizedVertices.reserve(mesh.vertices.size());
-    for (std::size_t i = 0; i < mesh.vertices.size(); ++i)
+    std::vector<VertexQuantizeResult> quantizedResults(mesh.vertices.size());
+    parallelForStatic(mesh.vertices.size(), [&](std::size_t i)
     {
         // 顶点先整体量化，后续所有面都复用同一批整数顶点。
-        Vec3i quantizedVertex;
-        if (!quantizeVertex(mesh.vertices[i], sharedScale, quantizedVertex, outError))
+        std::string vertexError;
+        if (!quantizeVertex(mesh.vertices[i], sharedScale, quantizedResults[i].vertex, vertexError))
         {
-            outError = "Failed to quantize mesh vertex " + std::to_string(i) + ": " + outError;
-            return false;
-        }
+            quantizedResults[i].error =
+                "Failed to quantize mesh vertex " + std::to_string(i) + ": " + vertexError;
+        }
+    });
 
-        quantizedVertices.push_back(quantizedVertex);
+    std::vector<Vec3i> quantizedVertices(mesh.vertices.size());
+    for (std::size_t i = 0; i < quantizedResults.size(); ++i)
+    {
+        if (!quantizedResults[i].error.empty())
+            return failIo(outError, quantizedResults[i].error);
+
+        quantizedVertices[i] = quantizedResults[i].vertex;
     }
 
-    outPolygons.reserve(mesh.faces.size());
-    std::size_t triangulatedNonCoplanarFaceCount = 0;
-    for (std::size_t faceIndex = 0; faceIndex < mesh.faces.size(); ++faceIndex)
+    std::vector<FacePolygonBuildResult> faceResults(mesh.faces.size());
+    parallelForStatic(mesh.faces.size(), [&](std::size_t faceIndex)
     {
         // 每个输入面都必须在量化后独立满足：无重复点、可定支撑平面、全体共面、严格凸。
-        const std::vector<std::size_t> &face = mesh.faces[faceIndex];
+        buildPolygonsFromQuantizedFace(
+            quantizedVertices,
+            mesh.faces[faceIndex],
+            faceIndex,
+            options,
+            faceResults[faceIndex]);
+    });
 
-        std::vector<Vec3i> faceVertices;
-        faceVertices.reserve(face.size());
-        for (const std::size_t vertexIndex : face)
-        {
-            if (vertexIndex >= quantizedVertices.size())
-            {
-                return failIo(
-                           outError,
-                           "Mesh face " + std::to_string(faceIndex) +
-                           " references an out-of-range quantized vertex.");
-            }
+    std::size_t polygonCount = 0;
+    for (const FacePolygonBuildResult &result : faceResults)
+    {
+        if (!result.error.empty())
+            return failIo(outError, result.error);
 
-            faceVertices.push_back(quantizedVertices[vertexIndex]);
-        }
+        polygonCount += result.polygons.size();
+    }
 
-        Polygon256 polygon;
-        PolygonFaceBuildFailure failure = PolygonFaceBuildFailure::None;
-        std::string faceError;
-        if (buildPolygonFromQuantizedFace(faceVertices, faceIndex, polygon, failure, faceError))
-        {
-            outPolygons.push_back(std::move(polygon));
-            continue;
-        }
-
-        if (options.triangulateNonCoplanarFaces &&
-                failure == PolygonFaceBuildFailure::NonCoplanarAfterQuantization &&
-                faceVertices.size() > 3u)
-        {
-            if (!appendTriangulatedNonCoplanarFace(faceVertices, faceIndex, outPolygons, faceError))
-                return failIo(outError, faceError);
-            ++triangulatedNonCoplanarFaceCount;
-            continue;
-        }
-
-        return failIo(outError, faceError);
+    outPolygons.reserve(polygonCount);
+    for (FacePolygonBuildResult &result : faceResults)
+    {
+        outPolygons.insert(
+            outPolygons.end(),
+            std::make_move_iterator(result.polygons.begin()),
+            std::make_move_iterator(result.polygons.end()));
     }
 
     return true;
-}
+
+}
 
 bool writePolygonSoupObj(
     const std::vector<Polygon256> &fragments,
@@ -912,7 +1053,8 @@ bool writePolygonSoupObj(
     {
         outError = "Failed to prepare polygon soup OBJ export: " + outError;
         return false;
-    }
+
+    }
 
     std::ofstream output(path, std::ios::trunc);
     if (!output)
@@ -920,7 +1062,8 @@ bool writePolygonSoupObj(
         return failIo(
                    outError,
                    "Failed to open OBJ output file for writing: " + path);
-    }
+
+    }
 
     // 默认保持多边形集合形态：写顶点，再逐面写 OBJ n 边面。
     output << "# Ember exact polygon soup export\n";
@@ -937,7 +1080,8 @@ bool writePolygonSoupObj(
 
     outFaceCount = recovered.faces.size();
     return true;
-}
+
+}
 
 bool writePolygonSoupStl(
     const std::vector<Polygon256> &fragments,
@@ -1045,7 +1189,8 @@ bool buildObjMeshFromPolygonSoup(
     {
         outError = "Failed to prepare OBJ mesh from polygon soup: " + outError;
         return false;
-    }
+
+    }
 
     outMesh.vertices.reserve(recovered.uniqueVertices.size());
     for (const PlanePoint3i &vertex : recovered.uniqueVertices)
