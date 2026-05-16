@@ -52,28 +52,6 @@ LeafPairRelation buildLeafPairRelation(const Polygon256 &lhs, const Polygon256 &
         }
     }
 
-    Plane3i lhsSplitPlane;
-    Plane3i lhsV0;
-    Plane3i lhsV1;
-    Plane3i rhsSplitPlane;
-    Plane3i rhsV0;
-    Plane3i rhsV1;
-    {
-        REEMBER_PROFILE_ZONE("buildLeafPairRelation::singleDirectionFallback");
-        if (detail::computePolygonIntersectionCarrierTrusted(lhs, rhs, lhsSplitPlane, lhsV0, lhsV1) &&
-                detail::computePolygonIntersectionCarrierTrusted(rhs, lhs, rhsSplitPlane, rhsV0, rhsV1))
-        {
-            relation.kind = LeafPairRelationKind::Segment;
-            relation.lhsCarrier.splitPlane = lhsSplitPlane;
-            relation.lhsCarrier.v0 = lhsV0;
-            relation.lhsCarrier.v1 = lhsV1;
-            relation.rhsCarrier.splitPlane = rhsSplitPlane;
-            relation.rhsCarrier.v0 = rhsV0;
-            relation.rhsCarrier.v1 = rhsV1;
-            return relation;
-        }
-    }
-
     {
         REEMBER_PROFILE_ZONE("buildLeafPairRelation::coplanarCheck");
         if (areCoplanarPolygons(lhs, rhs))
