@@ -49,9 +49,9 @@ flowchart TD
 `src/application/main.cpp` 的外层顺序比较固定：
 
 1. 解析 `--lhs --rhs --op --out --scale --leaf-threshold --threads`。
-2. 按扩展名读取左右输入网格（OBJ/STL）。
+2. 按扩展名读取左右输入网格（OBJ/STL）；左右输入由应用层并行调度。
 3. 选择共享 `scale`，把左右输入放进同一个整数坐标系。
-4. 用 `computeScaledMeshAABB()` 对输入网格浮点顶点执行 `floor(coord * scale)` / `ceil(coord * scale)`，得到左右输入 AABB。
+4. 用 `computeScaledMeshAABB()` 对输入网格浮点顶点执行 `floor(coord * scale)` / `ceil(coord * scale)`，得到左右输入 AABB；左右 AABB 与 polygon soup 构建在应用层并行执行。
 5. 合并左右输入 AABB，并扩展一圈 margin 作为根场景 AABB。
 6. 调用 `buildPolygonSoup()` 把输入面片转换为 `Polygon256` 集合。
 7. 构造 `BoolProblem`，设置布尔运算、输入假设、总线程数和左右操作数。
@@ -60,8 +60,9 @@ flowchart TD
 
 这里有几个实现细节值得单独记住：
 
+- 应用层并行不是只拆左右输入：`computeScaledMeshAABB()` 按顶点静态分块，`buildPolygonSoup()` 按顶点量化和输入面构造静态分块，导出阶段按结果片段恢复有序顶点；错误检查和最终合并仍按原始顺序串行执行。
 - `setOperands()` 会给左操作数写入基础 `WNTV={1,0}`，给右操作数写入 `WNTV={0,1}`。
-- `setThreadCount(0)` 表示自动并发度；`setThreadCount(1)` 表示强制串行；`N>1` 表示总参与线程数为 `N`。
+- CLI 的 `--threads` 会同时设置应用层 `task_arena` 大小和 `BoolProblem::setThreadCount()`；`0` 表示自动并发度，`1` 表示全流程强制串行，`N>1` 表示总参与线程数为 `N`。
 - `BoolProblem` 不再暴露直接注入任意 `WNTV` polygon 集合的公开入口，公开输入边界固定为二元操作数。
 - 根场景 AABB 来自共享 `scale` 后的输入网格浮点顶点上/下取整，不再由 `SubdivisionSolver` 从 256 位多边形顶点反推。
 - STL 输入由 vendored `third_party/stl_reader/stl_reader.h` 负责 ASCII/binary 识别和三角顶点去重；应用层构建 polygon soup 时仍会启用 `triangulateNonCoplanarFaces=true`。

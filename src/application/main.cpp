@@ -6,6 +6,10 @@
 #include "core/perf_tracing.h"
 #include "io/io.h"
 
+#include <oneapi/tbb/info.h>
+#include <oneapi/tbb/task_arena.h>
+#include <oneapi/tbb/task_group.h>
+
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -14,9 +18,11 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace
@@ -398,6 +404,42 @@ const char *toString(BoolOp op)
 
     return "unknown";
 }
+
+int toTaskArenaConcurrency(std::size_t threadCount) noexcept
+{
+    if (threadCount == 0)
+        return oneapi::tbb::info::default_concurrency();
+
+    const std::size_t maxInt = static_cast<std::size_t>(std::numeric_limits<int>::max());
+    return static_cast<int>(std::min(threadCount, maxInt));
+}
+
+template <typename LeftTask, typename RightTask>
+void runTwoApplicationTasks(std::size_t threadCount, LeftTask &&leftTask, RightTask &&rightTask)
+{
+    oneapi::tbb::task_arena arena(toTaskArenaConcurrency(threadCount));
+    arena.execute([&]()
+    {
+        if (threadCount == 1)
+        {
+            leftTask();
+            rightTask();
+            return;
+        }
+
+        oneapi::tbb::task_group tasks;
+        tasks.run(std::forward<LeftTask>(leftTask));
+        tasks.run(std::forward<RightTask>(rightTask));
+        tasks.wait();
+    });
+}
+
+template <typename Task>
+void runApplicationTask(std::size_t threadCount, Task &&task)
+{
+    oneapi::tbb::task_arena arena(toTaskArenaConcurrency(threadCount));
+    arena.execute(std::forward<Task>(task));
+}
 }
 
 int main(int argc, char **argv)
@@ -431,14 +473,28 @@ int main(int argc, char **argv)
         const Clock::time_point readStart = Clock::now();
         {
             REEMBER_PROFILE_ZONE("re-EMBER::read_obj");
-            if (!ember::readMesh(options.lhsPath, lhsMesh, error))
+            std::string lhsError;
+            std::string rhsError;
+            bool lhsRead = false;
+            bool rhsRead = false;
+            runTwoApplicationTasks(
+                options.threadCount,
+                [&]
             {
-                std::cerr << error << std::endl;
+                lhsRead = ember::readMesh(options.lhsPath, lhsMesh, lhsError);
+            },
+                [&]
+            {
+                rhsRead = ember::readMesh(options.rhsPath, rhsMesh, rhsError);
+            });
+            if (!lhsRead)
+            {
+                std::cerr << lhsError << std::endl;
                 return 1;
             }
-            if (!ember::readMesh(options.rhsPath, rhsMesh, error))
+            if (!rhsRead)
             {
-                std::cerr << error << std::endl;
+                std::cerr << rhsError << std::endl;
                 return 1;
             }
         }
@@ -466,32 +522,41 @@ int main(int argc, char **argv)
                 return 1;
             }
 
-            if (!ember::computeScaledMeshAABB(lhsMesh, sharedScale, lhsAABB, error))
+            ember::PolygonSoupBuildOptions buildOptions;
+            buildOptions.triangulateNonCoplanarFaces = true;
+
+            std::string lhsPrepareError;
+            std::string rhsPrepareError;
+            bool lhsPrepared = false;
+            bool rhsPrepared = false;
+            runTwoApplicationTasks(
+                options.threadCount,
+                [&]
             {
-                std::cerr << error << std::endl;
+                lhsPrepared =
+                    ember::computeScaledMeshAABB(lhsMesh, sharedScale, lhsAABB, lhsPrepareError) &&
+                    ember::buildPolygonSoup(lhsMesh, sharedScale, buildOptions, lhsPolygons, lhsPrepareError);
+            },
+                [&]
+            {
+                rhsPrepared =
+                    ember::computeScaledMeshAABB(rhsMesh, sharedScale, rhsAABB, rhsPrepareError) &&
+                    ember::buildPolygonSoup(rhsMesh, sharedScale, buildOptions, rhsPolygons, rhsPrepareError);
+            });
+            if (!lhsPrepared)
+            {
+                std::cerr << lhsPrepareError << std::endl;
                 return 1;
             }
-            if (!ember::computeScaledMeshAABB(rhsMesh, sharedScale, rhsAABB, error))
+            if (!rhsPrepared)
             {
-                std::cerr << error << std::endl;
+                std::cerr << rhsPrepareError << std::endl;
                 return 1;
             }
+
             ember::mergeAABB(sceneAABB, lhsAABB);
             ember::mergeAABB(sceneAABB, rhsAABB);
             ember::expandAABB(sceneAABB, 1);
-
-            ember::PolygonSoupBuildOptions buildOptions;
-            buildOptions.triangulateNonCoplanarFaces = true;
-            if (!ember::buildPolygonSoup(lhsMesh, sharedScale, buildOptions, lhsPolygons, error))
-            {
-                std::cerr << error << std::endl;
-                return 1;
-            }
-            if (!ember::buildPolygonSoup(rhsMesh, sharedScale, buildOptions, rhsPolygons, error))
-            {
-                std::cerr << error << std::endl;
-                return 1;
-            }
 
             timings.sharedScale = sharedScale;
             timings.lhsPolygonCount = lhsPolygons.size();
@@ -524,7 +589,17 @@ int main(int argc, char **argv)
         std::size_t exportedFaces = 0;
         {
             REEMBER_PROFILE_ZONE("re-EMBER::export_obj");
-            if (!ember::writePolygonSoupMesh(problem.resultFragments(), options.outputPath, exportedFaces, error, sharedScale))
+            bool exported = false;
+            runApplicationTask(options.threadCount, [&]
+            {
+                exported = ember::writePolygonSoupMesh(
+                    problem.resultFragments(),
+                    options.outputPath,
+                    exportedFaces,
+                    error,
+                    sharedScale);
+            });
+            if (!exported)
             {
                 std::cerr << error << std::endl;
                 return 1;
