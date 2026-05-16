@@ -20,6 +20,7 @@ struct BSPNode
 
     BSPNode() noexcept;
     explicit BSPNode(const Polygon256& polygon) noexcept;
+    explicit BSPNode(Polygon256&& polygon) noexcept;
 };
 
 class BSPTree
@@ -76,6 +77,14 @@ public:
     std::vector<Polygon256> collectLeafGeometries() const;
 
     /**
+     * @brief 将当前局部 BSP 的启用叶子几何移动追加到输出数组。
+     *
+     * @param[in,out] outLeafGeometries 接收叶片多边形的数组。
+     * @note 调用后当前树只应被销毁或重置，不应继续查询几何。
+     */
+    void extractLeafGeometriesInto(std::vector<Polygon256>& outLeafGeometries);
+
+    /**
      * @brief 直接向当前局部 BSP 插入一条已构造好的切分线段。
      *
      * @param[in] v0 线段第一个端点约束平面。
@@ -97,6 +106,7 @@ private:
     static void disableOverlapLeavesRecursive(BSPNode* node, const Polygon256& polygon);
     static bool containsRecursive(const BSPNode* node, const PlanePoint3i& point) noexcept;
     static void collectLeafGeometriesRecursive(const BSPNode* node, std::vector<Polygon256>& outLeafGeometries);
+    static void extractLeafGeometriesRecursive(BSPNode* node, std::vector<Polygon256>& outLeafGeometries);
     std::unique_ptr<BSPNode> root;
     Polygon256 basePolygon;
     std::size_t baseOrderKey = 0;
