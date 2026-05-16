@@ -125,6 +125,7 @@ void runMath256Tests()
         assert(polyAABB.yMax == Integer(2));
         assert(polyAABB.zMin == Integer(3));
         assert(polyAABB.zMax == Integer(3));
+        poly.WNTV = {1, 0};
 
         {
             const ember::Plane3i leftEdgeCarrier =
@@ -205,6 +206,10 @@ void runMath256Tests()
                    ember::PolygonEdgeProvenance::SubdivisionClip));
         assert(taggedFrontGeometry.isValid());
         assert(taggedBackGeometry.isValid());
+        assert(taggedFrontGeometry.WNTV == poly.WNTV);
+        assert(taggedBackGeometry.WNTV == poly.WNTV);
+        assert(taggedFrontGeometry.edgeProvenances.size() == taggedFrontGeometry.edgeCount());
+        assert(taggedBackGeometry.edgeProvenances.size() == taggedBackGeometry.edgeCount());
         std::size_t taggedFrontClipEdges = 0;
         for (const auto provenance : taggedFrontGeometry.edgeProvenances)
         {
