@@ -327,7 +327,6 @@ bool isTraceableSurfaceCandidatePath(
 bool buildAxisRepairPath(
     const PlanePoint3i &referencePoint,
     const PlanePoint3i &targetPoint,
-    const AABB3i &box,
     std::vector<Segment256> &outPath)
 {
     const std::array<Plane3i, 3> referenceCoordinatePlanes = {
@@ -359,7 +358,7 @@ bool buildAxisRepairPath(
     do
     {
         std::vector<Segment256> path;
-        if (detail::buildAxisAlignedCoordinatePath(referencePoint, targetPoint, box, changedAxes, path) &&
+        if (detail::buildAxisAlignedCoordinatePath(referencePoint, targetPoint, changedAxes, path) &&
                 isTraceableSurfaceCandidatePath(referencePoint, targetPoint, path))
         {
             outPath = std::move(path);
@@ -430,7 +429,6 @@ bool repairSurfaceCandidatePath(
     if (buildAxisRepairPath(
                 context.localReference.point,
                 candidate.targetPoint,
-                context.aabb,
                 outPath))
         return true;
 
@@ -799,6 +797,47 @@ bool attemptInsetPlaneReplacementCandidates(
     attemptStats.bridgeRescueTargets = planeReplacementTargets;
 
     bool allowFallback = true;
+    const auto tryAxisTargets =
+        [&](const std::vector<PlanePoint3i> &targets, const char *label)
+    {
+        enumerateLeafClassificationAxisPathCandidatesFromPoints(
+            context.localReference.point,
+            targets,
+            context.aabb,
+            [&](LeafClassificationPathCandidate candidate)
+        {
+            REEMBER_PROFILE_ZONE("LeafClassification::insetAxisPathCandidate");
+
+            if constexpr (kLeafClassificationDebug)
+                attemptStats.debugLog << label << " "
+                                      << formatPathForDebug(candidate.path);
+            const LeafClassificationTraceResult traceResult =
+                prepareAndTraceLeafClassificationCandidate(
+                    context,
+                    fragmentIndex,
+                    fragment,
+                    attemptStats,
+                    LeafClassificationTraceStage::InsetReplacement,
+                    LeafClassificationCandidateKind::AxisPath,
+                    std::move(candidate));
+            if (!traceResult.traced)
+                return true;
+
+            const traceStatus status = traceResult.status;
+            if constexpr (kLeafClassificationDebug)
+                attemptStats.debugLog << " status=" << traceStatusName(status) << "\n";
+            if (status == SUCCESS)
+                return false;
+
+            if (!isRecoverableClassificationTraceStatus(status))
+            {
+                allowFallback = false;
+                return false;
+            }
+
+            return true;
+        });
+    };
     const auto tryPlaneReplacementTargets =
         [&](const std::vector<PlanePoint3i> &targets, const char *label)
     {
@@ -844,6 +883,10 @@ bool attemptInsetPlaneReplacementCandidates(
             return true;
         });
     };
+
+    tryAxisTargets(planeReplacementTargets, "inset_axis_candidate");
+    if (attemptStats.classified || !allowFallback)
+        return allowFallback;
 
     constexpr std::size_t kMaxDirectInsetTargets = 3;
     if (planeReplacementTargets.size() > kMaxDirectInsetTargets)

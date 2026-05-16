@@ -99,10 +99,10 @@ struct BoolSolveMetrics
     std::size_t leafClassificationCentroidAxisPathInvalidCount = 0; ///< 重心 axis 阶段返回 `PATH_INVALID` 的次数。
     std::size_t leafClassificationCentroidAxisInputInvalidCount = 0; ///< 重心 axis 阶段返回 `INPUT_INVALID` 的次数。
     std::size_t leafClassificationCentroidAxisFailCount = 0; ///< 重心 axis 阶段返回 `FAIL` 的次数。
-    std::size_t leafClassificationInsetReplacementSuccessCount = 0; ///< inset 换平面阶段 trace 成功次数。
-    std::size_t leafClassificationInsetReplacementPathInvalidCount = 0; ///< inset 换平面阶段返回 `PATH_INVALID` 的次数。
-    std::size_t leafClassificationInsetReplacementInputInvalidCount = 0; ///< inset 换平面阶段返回 `INPUT_INVALID` 的次数。
-    std::size_t leafClassificationInsetReplacementFailCount = 0; ///< inset 换平面阶段返回 `FAIL` 的次数。
+    std::size_t leafClassificationInsetReplacementSuccessCount = 0; ///< inset 兜底阶段 trace 成功次数。
+    std::size_t leafClassificationInsetReplacementPathInvalidCount = 0; ///< inset 兜底阶段返回 `PATH_INVALID` 的次数。
+    std::size_t leafClassificationInsetReplacementInputInvalidCount = 0; ///< inset 兜底阶段返回 `INPUT_INVALID` 的次数。
+    std::size_t leafClassificationInsetReplacementFailCount = 0; ///< inset 兜底阶段返回 `FAIL` 的次数。
     std::size_t leafClassificationBridgeRescueSuccessCount = 0; ///< bridge rescue 阶段 trace 成功次数。
     std::size_t leafClassificationBridgeRescuePathInvalidCount = 0; ///< bridge rescue 阶段返回 `PATH_INVALID` 的次数。
     std::size_t leafClassificationBridgeRescueInputInvalidCount = 0; ///< bridge rescue 阶段返回 `INPUT_INVALID` 的次数。

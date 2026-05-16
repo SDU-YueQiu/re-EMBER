@@ -547,7 +547,7 @@ inline std::size_t enumerateLeafClassificationAxisPathCandidatesFromPoints(
             continue;
 
         std::vector<Segment256> path;
-        if (!detail::buildAxisAlignedCoordinatePath(referencePoint, targetPoint, box, axisOrder, path))
+        if (!detail::buildAxisAlignedCoordinatePath(referencePoint, targetPoint, axisOrder, path))
             continue;
 
         ++emitted;
