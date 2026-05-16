@@ -744,12 +744,14 @@ struct LeafClassificationInsetPointSequence
 };
 
 /**
- * @brief 按论文 4.4 的随机 inset 兜底顺序生成严格内部点。
+ * @brief 按论文 4.4 的随机 inset 兜底顺序访问严格内部点。
  */
-inline LeafClassificationInsetPointSequence enumerateLeafClassificationInsetPointCandidates(
+template <typename CandidateVisitor>
+inline LeafClassificationInsetPointSequence visitLeafClassificationInsetPointCandidates(
     const Polygon256 &polygon,
     std::mt19937 &rng,
-    bool captureDebug = false)
+    bool captureDebug,
+    CandidateVisitor &&visitor)
 {
     LeafClassificationInsetPointSequence result;
     const std::size_t edgeCount = polygon.edgePlanes.size();
@@ -767,6 +769,18 @@ inline LeafClassificationInsetPointSequence enumerateLeafClassificationInsetPoin
     for (std::size_t i = 0; i < edgeCount; ++i)
         vertexOrder[i] = i;
     std::shuffle(vertexOrder.begin(), vertexOrder.end(), rng);
+    std::uniform_int_distribution<std::size_t> vertexDist(0u, edgeCount - 1u);
+    std::uniform_int_distribution<int> offsetDist(1, 8);
+    auto consumeRandomRetries =
+        [&](std::size_t firstRetry)
+    {
+        for (std::size_t retry = firstRetry; retry < edgeCount * 2u; ++retry)
+        {
+            (void)vertexDist(rng);
+            (void)offsetDist(rng);
+            (void)offsetDist(rng);
+        }
+    };
 
     auto tryAppendCandidate =
         [&](std::size_t vertexIndex, const Integer &offsetA, const Integer &offsetB)
@@ -786,7 +800,12 @@ inline LeafClassificationInsetPointSequence enumerateLeafClassificationInsetPoin
                     candidate,
                     reasonSink))
         {
-            appendUniqueStrictInteriorPoint(result.candidates, polygon, candidate);
+            if (appendUniqueStrictInteriorPoint(result.candidates, polygon, candidate))
+            {
+                const PlanePoint3i &uniqueCandidate = result.candidates.back();
+                if (!visitor(uniqueCandidate))
+                    return false;
+            }
         }
 
         if (captureDebug)
@@ -796,22 +815,49 @@ inline LeafClassificationInsetPointSequence enumerateLeafClassificationInsetPoin
                 " offsets=(" + integerToString(offsetA) + "," + integerToString(offsetB) + ")" +
                 " -> " + reason);
         }
+        return true;
     };
 
     for (const std::size_t vertexIndex : vertexOrder)
-        tryAppendCandidate(vertexIndex, Integer(1), Integer(1));
+    {
+        if (!tryAppendCandidate(vertexIndex, Integer(1), Integer(1)))
+        {
+            consumeRandomRetries(0u);
+            return result;
+        }
+    }
 
-    std::uniform_int_distribution<std::size_t> vertexDist(0u, edgeCount - 1u);
-    std::uniform_int_distribution<int> offsetDist(1, 8);
     for (std::size_t retry = 0; retry < edgeCount * 2u; ++retry)
     {
-        tryAppendCandidate(
-            vertexDist(rng),
-            Integer(offsetDist(rng)),
-            Integer(offsetDist(rng)));
+        if (!tryAppendCandidate(
+                    vertexDist(rng),
+                    Integer(offsetDist(rng)),
+                    Integer(offsetDist(rng))))
+        {
+            consumeRandomRetries(retry + 1u);
+            return result;
+        }
     }
 
     return result;
+}
+
+/**
+ * @brief 按论文 4.4 的随机 inset 兜底顺序生成严格内部点。
+ */
+inline LeafClassificationInsetPointSequence enumerateLeafClassificationInsetPointCandidates(
+    const Polygon256 &polygon,
+    std::mt19937 &rng,
+    bool captureDebug = false)
+{
+    return visitLeafClassificationInsetPointCandidates(
+               polygon,
+               rng,
+               captureDebug,
+               [](const PlanePoint3i &)
+    {
+        return true;
+    });
 }
 
 /**
