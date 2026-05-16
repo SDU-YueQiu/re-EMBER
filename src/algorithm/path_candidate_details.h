@@ -333,10 +333,14 @@ inline PlanePoint3i makePointFromHomogeneousCoordinates(const HomPoint4i &point)
     if (isZero(point.w))
         return PlanePoint3i();
 
+    const Plane3i xPlane = primitivePlane(Plane3i(point.w, 0, 0, -point.x));
+    const Plane3i yPlane = primitivePlane(Plane3i(0, point.w, 0, -point.y));
+    const Plane3i zPlane = primitivePlane(Plane3i(0, 0, point.w, -point.z));
     return PlanePoint3i(
-               primitivePlane(Plane3i(point.w, 0, 0, -point.x)),
-               primitivePlane(Plane3i(0, point.w, 0, -point.y)),
-               primitivePlane(Plane3i(0, 0, point.w, -point.z)));
+               xPlane,
+               yPlane,
+               zPlane,
+               primitiveHomPoint(point));
 }
 
 struct Vec3d
