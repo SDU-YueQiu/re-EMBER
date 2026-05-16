@@ -67,6 +67,59 @@ bool tryBuildIntersectionCarrierFromCuts(
 
     return true;
 }
+
+bool hasTrustedClippedPolygonStructure(const Polygon256& polygon)
+{
+    const std::size_t n = polygon.edgeCount();
+    if (n < 3u || polygon.edgeProvenances.size() != n)
+        return false;
+
+    for (std::size_t i = 0; i < n; ++i)
+    {
+        if (arePlaneNormalsParallel(polygon.plane, polygon.edgePlanes[i]))
+            return false;
+
+        const std::size_t prev = (i == 0) ? (n - 1u) : (i - 1u);
+        if (!hasUniqueIntersection(polygon.plane, polygon.edgePlanes[i], polygon.edgePlanes[prev]))
+            return false;
+    }
+
+    return true;
+}
+
+bool buildTrustedClippedPolygon(
+    const Polygon256& source,
+    std::vector<Plane3i> edges,
+    std::vector<PolygonEdgeProvenance> provenances,
+    Polygon256& outPolygon)
+{
+    // 裁剪已知来自有效凸多边形，且边顺序由裁剪遍历维护；这里只做结构检查，
+    // 避免在 BSP 热路径重复执行普通构造中的边法向重定向和完整凸性验证。
+    Polygon256 polygon;
+    polygon.plane = source.plane;
+    polygon.edgePlanes = std::move(edges);
+    for (Plane3i& edge : polygon.edgePlanes)
+        edge = primitivePlane(edge);
+    polygon.edgeProvenances = std::move(provenances);
+    polygon.WNTV = source.WNTV;
+
+    if (!hasTrustedClippedPolygonStructure(polygon))
+    {
+        outPolygon = Polygon256();
+        return false;
+    }
+
+#ifndef NDEBUG
+    if (!polygon.isValid())
+    {
+        outPolygon = Polygon256();
+        return false;
+    }
+#endif
+
+    outPolygon = std::move(polygon);
+    return true;
+}
 }
 
 bool computePolygonPlaneIntersection(
@@ -331,7 +384,12 @@ bool detail::clipLeafGeometryByPlaneTrustedWithSides(
     backEdges.reserve(n + 1u);
     backProvenances.reserve(n + 1u);
 
-    const Plane3i oppositePlane(-clipPlane.a, -clipPlane.b, -clipPlane.c, -clipPlane.d);// 取反后表示裁剪平面的另一侧。
+    const Plane3i trustedClipPlane = primitivePlane(clipPlane);
+    const Plane3i oppositePlane = primitivePlane(Plane3i(
+        -trustedClipPlane.a,
+        -trustedClipPlane.b,
+        -trustedClipPlane.c,
+        -trustedClipPlane.d));// 取反后表示裁剪平面的另一侧。
 
     for (std::size_t i = 0; i < n; ++i)
     {
@@ -384,7 +442,7 @@ bool detail::clipLeafGeometryByPlaneTrustedWithSides(
         {
             backEdges.push_back(segmentEdge);
             backProvenances.push_back(segmentEdgeProvenance);
-            backEdges.push_back(clipPlane);
+            backEdges.push_back(trustedClipPlane);
             backProvenances.push_back(insertedEdgeProvenance);
             if (eSide == 1) // (s,e) == (-1, 1)
             {
@@ -394,19 +452,18 @@ bool detail::clipLeafGeometryByPlaneTrustedWithSides(
         }
     }
 
-    Polygon256 orientedFront(
-        source.plane,
+    Polygon256 orientedFront;
+    Polygon256 orientedBack;
+    const bool frontValid = buildTrustedClippedPolygon(
+        source,
         std::move(frontEdges),
-        std::move(frontProvenances));
-    orientedFront.WNTV = source.WNTV;
-    Polygon256 orientedBack(
-        source.plane,
+        std::move(frontProvenances),
+        orientedFront);
+    const bool backValid = buildTrustedClippedPolygon(
+        source,
         std::move(backEdges),
-        std::move(backProvenances));
-    orientedBack.WNTV = source.WNTV;
-
-    const bool frontValid = orientedFront.isValid();
-    const bool backValid = orientedBack.isValid();
+        std::move(backProvenances),
+        orientedBack);
     bool ret = backValid && frontValid;
     if (!ret) {
         std::ostringstream message;
