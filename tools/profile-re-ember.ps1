@@ -1,4 +1,4 @@
-# Capture re-EMBER CLI workloads with Tracy and write reports under build\performance.
+﻿# Capture re-EMBER CLI workloads with Tracy and write reports under build\performance.
 param(
     [string]$Lhs,
     [string]$Rhs,
@@ -1330,11 +1330,12 @@ function New-TimingRow {
     return [pscustomobject]@{
         workload = $Workload.Name
         iteration = $Iteration
-        elapsed_ms = $Result.ElapsedMs
+        process_elapsed_ms = $Result.ElapsedMs
         read_ms = [math]::Round((Get-Metric $metrics "read_ms"), 3)
         prepare_ms = [math]::Round((Get-Metric $metrics "prepare_ms"), 3)
         solve_ms = [math]::Round((Get-Metric $metrics "solve_ms"), 3)
         export_ms = [math]::Round((Get-Metric $metrics "export_ms"), 3)
+        end_to_end_ms = [math]::Round((Get-Metric $metrics "end_to_end_ms"), 3)
         lhs_input_faces = [math]::Round((Get-Metric $metrics "lhs_input_faces"), 0)
         rhs_input_faces = [math]::Round((Get-Metric $metrics "rhs_input_faces"), 0)
         shared_scale = [math]::Round((Get-Metric $metrics "shared_scale"), 0)
@@ -1719,7 +1720,8 @@ function New-WorkloadSummaryRow {
         workload = $Name
         avg_read_ms = Measure-AverageProperty $Rows "read_ms"
         avg_prepare_ms = Measure-AverageProperty $Rows "prepare_ms"
-        avg_elapsed_ms = Measure-AverageProperty $Rows "elapsed_ms"
+        avg_end_to_end_ms = Measure-AverageProperty $Rows "end_to_end_ms"
+        avg_process_elapsed_ms = Measure-AverageProperty $Rows "process_elapsed_ms"
         avg_solve_ms = Measure-AverageProperty $Rows "solve_ms"
         avg_export_ms = Measure-AverageProperty $Rows "export_ms"
         avg_nodes = Measure-AverageProperty $Rows "node_count"
@@ -1798,7 +1800,7 @@ function Write-Reports {
     $selfAggregates = @(Get-ZoneAggregates $SelfZoneRows)
     $selfWorkloadAggregates = @(Get-WorkloadZoneAggregates $SelfZoneRows)
     $reportLines = New-Object System.Collections.Generic.List[string]
-    $reportLines.Add("# re-EMBER Tracy Performance Report")
+    $reportLines.Add("# re-EMBER 性能报告")
     $reportLines.Add("")
     $reportLines.Add(("run={0}" -f $RunStamp))
     $reportLines.Add(("mode={0}" -f $script:RunMode))
@@ -1835,32 +1837,49 @@ function Write-Reports {
             sample_count = $TimingRows.Count
             avg_read_ms = $overallWorkloadRow.avg_read_ms
             avg_prepare_ms = $overallWorkloadRow.avg_prepare_ms
-            avg_elapsed_ms = $overallWorkloadRow.avg_elapsed_ms
+            avg_end_to_end_ms = $overallWorkloadRow.avg_end_to_end_ms
+            avg_process_elapsed_ms = $overallWorkloadRow.avg_process_elapsed_ms
             avg_solve_ms = $overallWorkloadRow.avg_solve_ms
             avg_export_ms = $overallWorkloadRow.avg_export_ms
         }
     }
 
+    $reportLines.Add("## 计时字段说明")
+    $reportLines.Add("")
+    $reportLines.Add("- avg_read_ms：从开始读取输入到左右网格都完成读取的墙钟时间。")
+    $reportLines.Add("- avg_prepare_ms：共享缩放、AABB、polygon soup 构建，以及 BoolProblem 输入装配的墙钟时间。")
+    $reportLines.Add("- avg_solve_ms：真正执行布尔求解的墙钟时间。")
+    $reportLines.Add("- avg_export_ms：把结果片段导出为目标文件的墙钟时间。")
+    $reportLines.Add("- avg_end_to_end_ms：CLI 流水线从开始读输入到完成导出输出的总墙钟时间。")
+    $reportLines.Add("- avg_process_elapsed_ms：整个 re-EMBER.exe 进程的总墙钟时间，除流水线阶段外，还包含启动、参数解析、Tracy 连接等待、指标写出、标准输出和退出等额外开销。")
+    $reportLines.Add("")
+
     if ($overallTimingSummary) {
-        $reportLines.Add("## Overall Average Time")
+        $reportLines.Add("## 总体平均计时")
+        $reportLines.Add("")
         Add-MarkdownTable -Lines $reportLines -Headers @(
             "workload_count",
             "sample_count",
             "avg_read_ms",
             "avg_prepare_ms",
-            "avg_elapsed_ms",
+            "avg_end_to_end_ms",
+            "avg_process_elapsed_ms",
             "avg_solve_ms",
             "avg_export_ms"
         ) -Rows @($overallTimingSummary)
         $reportLines.Add("")
     }
 
-    $reportLines.Add("## Workload Scale")
+    $reportLines.Add("## 负载概览")
+    $reportLines.Add("")
+    $reportLines.Add("下表把每个 workload 的阶段时间、端到端时间、进程总时间，以及主要工作量指标放在一起，方便先看哪一组最慢、哪一组规模最大。")
+    $reportLines.Add("")
     Add-MarkdownTable -Lines $reportLines -Headers @(
         "workload",
         "avg_read_ms",
         "avg_prepare_ms",
-        "avg_elapsed_ms",
+        "avg_end_to_end_ms",
+        "avg_process_elapsed_ms",
         "avg_solve_ms",
         "avg_export_ms",
         "avg_nodes",
@@ -1877,8 +1896,11 @@ function Write-Reports {
     ) -Rows ($workloadRows.ToArray())
     $reportLines.Add("")
 
-    $reportLines.Add("## Pipeline Inclusive Time")
+    $reportLines.Add("## 流水线 Inclusive 时间")
     if ($InclusiveZoneRows.Count -gt 0) {
+        $reportLines.Add("")
+        $reportLines.Add("这一节是 Tracy inclusive 时间汇总。某个 zone 的时间包含它内部子 zone 的耗时，适合看阶段级别的总开销归属。")
+        $reportLines.Add("")
         $pipelineZoneNames = @(
             "re-EMBER::read_obj",
             "re-EMBER::prepare_polygons",
@@ -1904,12 +1926,15 @@ function Write-Reports {
         Add-MarkdownTable -Lines $reportLines -Headers @("name", "counts", "total_ms", "mean_us", "max_ms") -Rows ($pipelineRows.ToArray())
     }
     else {
-        $reportLines.Add("No Tracy inclusive zone data was captured because -NoTracy was used.")
+        $reportLines.Add("当前运行使用了 -NoTracy，因此没有生成 Tracy inclusive zone 数据。")
     }
     $reportLines.Add("")
 
-    $reportLines.Add("## Strategy/Optimization Summary")
+    $reportLines.Add("## 策略与优化计数对照")
     if ($InclusiveZoneRows.Count -gt 0) {
+        $reportLines.Add("")
+        $reportLines.Add("这一节把 metrics 里的计数和 Tracy zone 的进入次数做交叉对照。status=ok 表示两边数量一致，status=mismatch 表示统计口径或埋点边界不一致。")
+        $reportLines.Add("")
         $strategyRows = New-Object System.Collections.Generic.List[object]
         $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "invalid_or_empty_discard" "invalid_or_empty_discard_count" @("SubdivisionSolver::discardInvalidOrEmptyNode")))
         $strategyRows.Add((New-StrategySummaryRow $TimingRows $inclusiveAggregates $selfAggregates "constant_discard" "constant_discard_count" @("SubdivisionSolver::discardChildConstantIndicator")))
@@ -1948,19 +1973,22 @@ function Write-Reports {
         $mismatchRows = @($strategyRows | Where-Object { $_.status -ne "ok" })
         if ($mismatchRows.Count -gt 0) {
             $reportLines.Add("")
-            $reportLines.Add("Mismatch rows:")
+            $reportLines.Add("计数不一致的条目：")
             foreach ($row in $mismatchRows) {
                 $reportLines.Add(("- {0}: metrics={1}, zone={2}" -f $row.item, $row.metric_count, $row.zone_count))
             }
         }
     }
     else {
-        $reportLines.Add("No Tracy zone data was captured because -NoTracy was used; strategy timing cross-checks are unavailable.")
+        $reportLines.Add("当前运行使用了 -NoTracy，因此没有 Tracy zone 数据，无法做策略计数对照。")
     }
     $reportLines.Add("")
 
-    $reportLines.Add("## Per-Workload Self Hot Zones")
+    $reportLines.Add("## 各 Workload 的 Self 热点")
     if ($SelfZoneRows.Count -gt 0) {
+        $reportLines.Add("")
+        $reportLines.Add("这一节是 Tracy self time 汇总。self time 不包含子 zone 耗时，更适合定位真正的热点函数。")
+        $reportLines.Add("")
         foreach ($workloadGroup in ($selfWorkloadAggregates | Group-Object workload)) {
             $reportLines.Add(("### {0}" -f $workloadGroup.Name))
             Add-MarkdownTable -Lines $reportLines -Headers @("name", "counts", "total_ms", "mean_us", "max_ms") -Rows @($workloadGroup.Group | Sort-Object total_ms -Descending | Select-Object -First 12)
@@ -1968,12 +1996,14 @@ function Write-Reports {
         }
     }
     else {
-        $reportLines.Add("No Tracy self-time zone data was captured because -NoTracy was used.")
+        $reportLines.Add("当前运行使用了 `-NoTracy`，因此没有 Tracy self time 数据。")
         $reportLines.Add("")
     }
 
     if ($UnwrapExports.Count -gt 0) {
-        $reportLines.Add("### Unwrap Exports")
+        $reportLines.Add("### Unwrap 导出")
+        $reportLines.Add("")
+        $reportLines.Add("这一节列出按 -UnwrapZoneFilter 导出的逐事件明细文件。")
         Add-MarkdownTable -Lines $reportLines -Headers @("workload", "iteration", "zone_filter", "event_count", "path") -Rows @($UnwrapExports | Sort-Object workload, iteration, zone_filter)
         $reportLines.Add("")
     }
@@ -2019,7 +2049,8 @@ function Write-Reports {
         $summaryLines.Add(("overall_sample_count={0}" -f $overallTimingSummary.sample_count))
         $summaryLines.Add(("overall_avg_read_ms={0}" -f $overallTimingSummary.avg_read_ms))
         $summaryLines.Add(("overall_avg_prepare_ms={0}" -f $overallTimingSummary.avg_prepare_ms))
-        $summaryLines.Add(("overall_avg_elapsed_ms={0}" -f $overallTimingSummary.avg_elapsed_ms))
+        $summaryLines.Add(("overall_avg_end_to_end_ms={0}" -f $overallTimingSummary.avg_end_to_end_ms))
+        $summaryLines.Add(("overall_avg_process_elapsed_ms={0}" -f $overallTimingSummary.avg_process_elapsed_ms))
         $summaryLines.Add(("overall_avg_solve_ms={0}" -f $overallTimingSummary.avg_solve_ms))
         $summaryLines.Add(("overall_avg_export_ms={0}" -f $overallTimingSummary.avg_export_ms))
     }
@@ -2027,7 +2058,8 @@ function Write-Reports {
         $summaryLines.Add(("workload={0}" -f $row.workload))
         $summaryLines.Add(("  avg_read_ms={0}" -f $row.avg_read_ms))
         $summaryLines.Add(("  avg_prepare_ms={0}" -f $row.avg_prepare_ms))
-        $summaryLines.Add(("  avg_elapsed_ms={0}" -f $row.avg_elapsed_ms))
+        $summaryLines.Add(("  avg_end_to_end_ms={0}" -f $row.avg_end_to_end_ms))
+        $summaryLines.Add(("  avg_process_elapsed_ms={0}" -f $row.avg_process_elapsed_ms))
         $summaryLines.Add(("  avg_solve_ms={0}" -f $row.avg_solve_ms))
         $summaryLines.Add(("  avg_export_ms={0}" -f $row.avg_export_ms))
         $summaryLines.Add(("  avg_nodes={0}" -f $row.avg_nodes))
