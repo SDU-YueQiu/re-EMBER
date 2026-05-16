@@ -127,6 +127,18 @@ struct PlanePoint3i
     {
     }
 
+    /**
+     * @brief 使用调用方已知的三平面交点构造点值。
+     *
+     * @note 该入口只用于内部 trusted 路径；调用方必须保证 `xVal`
+     *       是 `pVal/qVal/rVal` 的 primitive 齐次交点。
+     */
+    PlanePoint3i(const Plane3i &pVal, const Plane3i &qVal, const Plane3i &rVal, const HomPoint4i &xVal) noexcept
+        : p(pVal), q(qVal), r(rVal), x(xVal)
+    {
+
+    }
+
     PlanePoint3i() noexcept = default;
 
     bool hasUniqueIntersection() const noexcept
