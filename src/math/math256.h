@@ -319,6 +319,21 @@ inline Integer determinant3x3(
     const Integer& a33) noexcept
 {
     REEMBER_PROFILE_MATH_ZONE("math256::determinant3x3");
+    const bool zero11 = isZero(a11);
+    const bool zero12 = isZero(a12);
+    const bool zero13 = isZero(a13);
+    if (zero11 || zero12 || zero13)
+    {
+        Integer value = 0;
+        if (!zero11)
+            value += a11 * (a22 * a33 - a23 * a32);
+        if (!zero12)
+            value -= a12 * (a21 * a33 - a23 * a31);
+        if (!zero13)
+            value += a13 * (a21 * a32 - a22 * a31);
+        return value;
+    }
+
     return a11 * (a22 * a33 - a23 * a32)
            - a12 * (a21 * a33 - a23 * a31)
            + a13 * (a21 * a32 - a22 * a31);
