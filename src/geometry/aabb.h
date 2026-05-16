@@ -262,10 +262,14 @@ inline void expandAABB(AABB3i &box, const Integer &margin) noexcept
 
 inline PlanePoint3i makeIntegerPoint(const Integer &x, const Integer &y, const Integer &z) noexcept
 {
+    const Plane3i xPlane(1, 0, 0, -x);
+    const Plane3i yPlane(0, 1, 0, -y);
+    const Plane3i zPlane(0, 0, 1, -z);
     return PlanePoint3i(
-               Plane3i(1, 0, 0, -x),
-               Plane3i(0, 1, 0, -y),
-               Plane3i(0, 0, 1, -z));
+               xPlane,
+               yPlane,
+               zPlane,
+               HomPoint4i(x, y, z, 1));
 }
 
 inline PlanePoint3i getAABBCornerPoint(const AABB3i &box, bool useXMax, bool useYMax, bool useZMax) noexcept
