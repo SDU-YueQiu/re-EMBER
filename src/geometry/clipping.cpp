@@ -21,9 +21,9 @@ bool tryBuildIntersectionCarrierFromCuts(
     const Plane3i& incomingCut1,
     detail::IntersectionCarrier& outCarrier)
 {
-    const PlanePoint3i incomingPoint0(target.plane, incoming.plane, incomingCut0);
-    const PlanePoint3i incomingPoint1(target.plane, incoming.plane, incomingCut1);
-    if (!incomingPoint0.hasUniqueIntersection() || !incomingPoint1.hasUniqueIntersection())
+    const HomPoint4i incomingPoint0 = intersectHomogeneousUnnormalized(target.plane, incoming.plane, incomingCut0);
+    const HomPoint4i incomingPoint1 = intersectHomogeneousUnnormalized(target.plane, incoming.plane, incomingCut1);
+    if (isZero(incomingPoint0.w) || isZero(incomingPoint1.w))
         return false;
 
     const int side00 = incomingPoint0.classify(targetCut0);
@@ -168,18 +168,18 @@ bool computePolygonPlaneIntersection(
         return false;
 
     std::array<Plane3i, 2> intersectionCarriers;
-    std::array<PlanePoint3i, 2> intersectionPoints;
+    std::array<HomPoint4i, 2> intersectionPoints;
     std::size_t intersectionCount = 0;
 
     auto appendIntersectionCarrier = [&](const Plane3i& carrier) -> bool
     {
-        const PlanePoint3i point(source.plane, target, carrier);
-        if (!point.hasUniqueIntersection())
+        const HomPoint4i point = intersectHomogeneousUnnormalized(source.plane, target, carrier);
+        if (isZero(point.w))
             return true;
 
         for (std::size_t existingIndex = 0; existingIndex < intersectionCount; ++existingIndex)
         {
-            if (areSameHomPoint(intersectionPoints[existingIndex].x, point.x))
+            if (areSameHomPoint(intersectionPoints[existingIndex], point))
                 return true;
         }
 
@@ -232,7 +232,7 @@ bool computePolygonPlaneIntersection(
     }
 
     if (intersectionCount != 2u ||
-            areSameHomPoint(intersectionPoints[0].x, intersectionPoints[1].x))
+            areSameHomPoint(intersectionPoints[0], intersectionPoints[1]))
         return false;
 
     p0 = intersectionCarriers[0];
