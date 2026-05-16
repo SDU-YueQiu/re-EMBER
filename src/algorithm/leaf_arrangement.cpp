@@ -84,11 +84,7 @@ std::vector<Polygon256> buildLeafArrangement(const std::vector<Polygon256> &poly
                 tree.insertTrusted(polygons[j], j);
             }
 
-            std::vector<Polygon256> localFragments = tree.collectLeafGeometries();
-            fragments.insert(
-                fragments.end(),
-                std::make_move_iterator(localFragments.begin()),
-                std::make_move_iterator(localFragments.end()));
+            tree.extractLeafGeometriesInto(fragments);
         }
         return fragments;
     }
@@ -127,11 +123,7 @@ std::vector<Polygon256> buildLeafArrangement(const std::vector<Polygon256> &poly
                 tree.insertCoplanarPolygonTrusted(polygons[j], j);
         }
 
-        std::vector<Polygon256> localFragments = tree.collectLeafGeometries();
-        fragments.insert(
-            fragments.end(),
-            std::make_move_iterator(localFragments.begin()),
-            std::make_move_iterator(localFragments.end()));
+        tree.extractLeafGeometriesInto(fragments);
     }
     return fragments;
 }
