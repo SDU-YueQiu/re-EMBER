@@ -33,6 +33,24 @@ bool isLeafCoveredByPolygon(const Polygon256 &leaf, const Polygon256 &polygon)
 
     return true;
 }
+
+int classifyPlaneTripleIntersectionAgainstPlane(
+    const Plane3i &p,
+    const Plane3i &q,
+    const Plane3i &r,
+    const Plane3i &s) noexcept
+{
+    // 只需要侧别时，直接使用未约分齐次交点；sign(dot) * sign(w) 对非零比例缩放不变。
+    const Integer x = determinant3x3(-p.d, p.b, p.c, -q.d, q.b, q.c, -r.d, r.b, r.c);
+    const Integer y = determinant3x3(p.a, -p.d, p.c, q.a, -q.d, q.c, r.a, -r.d, r.c);
+    const Integer z = determinant3x3(p.a, p.b, -p.d, q.a, q.b, -q.d, r.a, r.b, -r.d);
+    const Integer w = determinant3x3(p.a, p.b, p.c, q.a, q.b, q.c, r.a, r.b, r.c);
+    if (isZero(w))
+        return 0;
+
+    const Integer dotValue = x * s.a + y * s.b + z * s.c + w * s.d;
+    return signum(dotValue) * signum(w);
+}
 }
 
 BSPNode::BSPNode() noexcept
@@ -161,11 +179,14 @@ void BSPTree::addSegmentRecursive(BSPNode &node, const Plane3i &v0, const Plane3
     if (!node.front || !node.back)
         throw std::runtime_error("BSPTree invariant violation: non-leaf node is missing a child.");
 
-    PlanePoint3i p0(basePolygon.plane, v0, insertPlane);
-    PlanePoint3i p1(basePolygon.plane, v1, insertPlane);
-
-    int side0 = p0.classify(node.splitPlane);
-    int side1 = p1.classify(node.splitPlane);
+    const int side0 = classifyPlaneTripleIntersectionAgainstPlane(basePolygon.plane, v0, insertPlane, node.splitPlane);
+    const int side1 = classifyPlaneTripleIntersectionAgainstPlane(basePolygon.plane, v1, insertPlane, node.splitPlane);
+#ifndef NDEBUG
+    const PlanePoint3i p0(basePolygon.plane, v0, insertPlane);
+    const PlanePoint3i p1(basePolygon.plane, v1, insertPlane);
+    if (side0 != p0.classify(node.splitPlane) || side1 != p1.classify(node.splitPlane))
+        throw std::runtime_error("BSPTree optimized endpoint classification disagrees with PlanePoint3i.");
+#endif
 
     if (side0 == 0 && side1 == 0)
         return;
