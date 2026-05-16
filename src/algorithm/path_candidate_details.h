@@ -954,7 +954,6 @@ inline bool buildAxisAlignedSegmentFromCoordinatePlanes(
 inline bool buildAxisAlignedCoordinatePath(
     const PlanePoint3i &startPoint,
     const PlanePoint3i &targetPoint,
-    const AABB3i &box,
     const std::vector<SplitAxis3i> &axisOrder,
     std::vector<Segment256> &outPath)
 {
@@ -981,7 +980,7 @@ inline bool buildAxisAlignedCoordinatePath(
         currentCoordinatePlanes[axisIndex] = targetCoordinatePlanes[axisIndex];
 
         const PlanePoint3i nextPoint = makePointFromPlanes(currentCoordinatePlanes);
-        if (!nextPoint.hasUniqueIntersection() || !isPointInsideOrOnAABB(nextPoint, box))
+        if (!nextPoint.hasUniqueIntersection())
         {
             outPath.clear();
             return false;

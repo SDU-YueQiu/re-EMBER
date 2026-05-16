@@ -389,7 +389,7 @@ flowchart TD
 当前实现的外层顺序已经直接固定为三段：
 
 1. `centroid heuristic + axis-aligned path`
-2. `randomized inset fallback + plane-replacement path`
+2. `randomized inset fallback + axis-aligned quick probe + plane-replacement path`
 3. `AABB interior bridge rescue`
 
 其中第二段内部还有一个小的目标点扩展策略：
@@ -405,13 +405,16 @@ flowchart TD
     D -->|是| E["返回 Success"]
     D -->|否| F["固定 seed=42 的随机 inset 构点"]
     F --> G["先试前 3 个目标点, 必要时扩展剩余目标点"]
-    G --> H["plane-replacement 路径候选校验/去重/局部修复"]
+    G --> H["对全部 inset 目标点先试 axis-aligned 路径"]
     H --> I{"已成功?"}
     I -->|是| E
-    I -->|否| J["AABB 内 bridge rescue"]
+    I -->|否| J["plane-replacement 路径候选校验/去重/局部修复"]
     J --> K{"已成功?"}
     K -->|是| E
-    K -->|否| L["返回 Failure"]
+    K -->|否| M["AABB 内 bridge rescue"]
+    M --> N{"已成功?"}
+    N -->|是| E
+    N -->|否| L["返回 Failure"]
 ```
 
 当前实现不会因为 `PATH_INVALID` 回退到递归细分；无论是普通叶节点还是入口单操作数快路径，一旦叶分类穷尽候选仍失败，就按叶节点失败处理。候选进入 trace 前会先验证路径非空、从局部参考点连续连接、终点落在待分类片段支撑平面上；不满足这些结构条件时只在当前候选上尝试局部重建，不把 `INPUT_INVALID` 当成普通 `PATH_INVALID` 推动全局穷举。
@@ -427,10 +430,10 @@ flowchart TD
 
 当前实现中的路径层级来自 `path_candidates.h`：
 
-- `axis-aligned path`：对 centroid heuristic 命中的目标点按固定 `X -> Y -> Z` 次序构造 1 到 3 段坐标轴路径。
+- `axis-aligned path`：对 centroid heuristic 命中的目标点，以及 inset fallback 生成的全部目标点，按固定 `X -> Y -> Z` 次序构造 1 到 3 段坐标轴路径。
 - `plane-replacement path`：对 inset fallback 命中的目标点枚举定义平面与替换顺序，先尝试完全落在 AABB 内的换平面端点序列，再实体化为 1 到 3 段路径；如果中间点越界，则退回原始换平面路径裁剪和 AABB 内桥接。
 - `bridge rescue`：当直接路径候选都不可用时，先桥接到 AABB 内部参考点，再对同一批目标点尝试 axis / plane-replacement 路径。
-- `direct inset cap`：inset fallback 会先尝试前 3 个目标点，只有仍未分类成功时才扩展剩余目标，避免在常见成功 case 上枚举完整换平面集合。
+- `direct inset cap`：inset fallback 会对全部目标点先试一次 axis-aligned quick probe；若仍未成功，plane-replacement 阶段先尝试前 3 个目标点，只有仍未分类成功时才扩展剩余目标，避免在常见成功 case 上枚举完整换平面集合。
 - 候选诊断字段包括 `leafClassificationCandidateGeneratedCount`、`leafClassificationCandidateUniqueCount`、`leafClassificationCandidateDuplicateSkipCount`、`leafClassificationCandidateRejectedCount`、`leafClassificationCandidateRepairAttemptCount` 和 `leafClassificationCandidateRepairSuccessCount`；trace 状态按 `CentroidAxis`、`InsetReplacement`、`BridgeRescue` 三个阶段分别统计。
 
 ## 10. 结果筛选与朝向
