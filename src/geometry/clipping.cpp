@@ -98,8 +98,6 @@ bool buildTrustedClippedPolygon(
     Polygon256 polygon;
     polygon.plane = source.plane;
     polygon.edgePlanes = std::move(edges);
-    for (Plane3i& edge : polygon.edgePlanes)
-        edge = primitivePlane(edge);
     polygon.edgeProvenances = std::move(provenances);
     polygon.WNTV = source.WNTV;
 
