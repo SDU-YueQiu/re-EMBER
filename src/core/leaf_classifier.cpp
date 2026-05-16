@@ -758,44 +758,6 @@ bool attemptInsetPlaneReplacementCandidates(
 {
     REEMBER_PROFILE_ZONE("LeafClassification::attemptInsetPlaneReplacementCandidates");
 
-    const detail::LeafClassificationInsetPointSequence insetPoints =
-        detail::enumerateLeafClassificationInsetPointCandidates(fragment, context.leafRng, kLeafClassificationDebug);
-    attemptStats.insetPointAttemptCount += insetPoints.attemptCount;
-    attemptStats.insetPointCandidateCount += insetPoints.candidates.size();
-    if constexpr (kLeafClassificationDebug)
-    {
-        attemptStats.debugLog << "inset_attempts=" << insetPoints.attemptCount
-                              << " inset_candidates=" << insetPoints.candidates.size() << "\n";
-        for (const std::string &line : insetPoints.debugLines)
-            attemptStats.debugLog << "  inset " << line << "\n";
-    }
-    context.solveMetrics.leafClassificationInsetPointAttemptCount += insetPoints.attemptCount;
-    std::vector<PlanePoint3i> planeReplacementTargets = insetPoints.candidates;
-    if (planeReplacementTargets.empty())
-    {
-        if constexpr (kLeafClassificationDebug)
-            attemptStats.debugLog << "exact_fallback_point_generation=1\n";
-        detail::appendHomogeneousVertexAverageInteriorPointCandidate(fragment, planeReplacementTargets);
-        if (planeReplacementTargets.empty())
-            detail::appendEqualizedEdgeInteriorPointCandidates(fragment, planeReplacementTargets);
-        if (planeReplacementTargets.empty())
-        {
-            if (!attemptStats.centroidPointFound)
-                return true;
-
-            if constexpr (kLeafClassificationDebug)
-                attemptStats.debugLog << "reusing_centroid_target_for_plane_replacement=1\n";
-            planeReplacementTargets.push_back(attemptStats.centroidTargetPoint);
-        }
-    }
-
-    if constexpr (kLeafClassificationDebug)
-    {
-        for (const PlanePoint3i &candidatePoint : planeReplacementTargets)
-            attemptStats.debugLog << "  inset_candidate_point=" << detail::formatPlanePointForDebug(candidatePoint) << "\n";
-    }
-    attemptStats.bridgeRescueTargets = planeReplacementTargets;
-
     bool allowFallback = true;
     const auto tryAxisTargets =
         [&](const std::vector<PlanePoint3i> &targets, const char *label)
@@ -838,6 +800,61 @@ bool attemptInsetPlaneReplacementCandidates(
             return true;
         });
     };
+
+    const detail::LeafClassificationInsetPointSequence insetPoints =
+        detail::visitLeafClassificationInsetPointCandidates(
+            fragment,
+            context.leafRng,
+            kLeafClassificationDebug,
+            [&](const PlanePoint3i &candidatePoint)
+    {
+        const std::vector<PlanePoint3i> target{candidatePoint};
+        tryAxisTargets(target, "inset_axis_candidate");
+        return !attemptStats.classified && allowFallback;
+    });
+    attemptStats.insetPointAttemptCount += insetPoints.attemptCount;
+    attemptStats.insetPointCandidateCount += insetPoints.candidates.size();
+    if constexpr (kLeafClassificationDebug)
+    {
+        attemptStats.debugLog << "inset_attempts=" << insetPoints.attemptCount
+                              << " inset_candidates=" << insetPoints.candidates.size() << "\n";
+        for (const std::string &line : insetPoints.debugLines)
+            attemptStats.debugLog << "  inset " << line << "\n";
+    }
+    context.solveMetrics.leafClassificationInsetPointAttemptCount += insetPoints.attemptCount;
+    std::vector<PlanePoint3i> planeReplacementTargets = insetPoints.candidates;
+    if (attemptStats.classified || !allowFallback)
+        return allowFallback;
+
+    if (planeReplacementTargets.empty())
+    {
+        if constexpr (kLeafClassificationDebug)
+            attemptStats.debugLog << "exact_fallback_point_generation=1\n";
+        detail::appendHomogeneousVertexAverageInteriorPointCandidate(fragment, planeReplacementTargets);
+        if (planeReplacementTargets.empty())
+            detail::appendEqualizedEdgeInteriorPointCandidates(fragment, planeReplacementTargets);
+        if (planeReplacementTargets.empty())
+        {
+            if (!attemptStats.centroidPointFound)
+                return true;
+
+            if constexpr (kLeafClassificationDebug)
+                attemptStats.debugLog << "reusing_centroid_target_for_plane_replacement=1\n";
+            planeReplacementTargets.push_back(attemptStats.centroidTargetPoint);
+        }
+
+        tryAxisTargets(planeReplacementTargets, "inset_axis_candidate");
+        if (attemptStats.classified || !allowFallback)
+            return allowFallback;
+    }
+
+    if constexpr (kLeafClassificationDebug)
+    {
+        for (const PlanePoint3i &candidatePoint : planeReplacementTargets)
+            attemptStats.debugLog << "  inset_candidate_point=" << detail::formatPlanePointForDebug(candidatePoint) << "\n";
+    }
+    attemptStats.bridgeRescueTargets = planeReplacementTargets;
+
     const auto tryPlaneReplacementTargets =
         [&](const std::vector<PlanePoint3i> &targets, const char *label)
     {
@@ -883,10 +900,6 @@ bool attemptInsetPlaneReplacementCandidates(
             return true;
         });
     };
-
-    tryAxisTargets(planeReplacementTargets, "inset_axis_candidate");
-    if (attemptStats.classified || !allowFallback)
-        return allowFallback;
 
     constexpr std::size_t kMaxDirectInsetTargets = 3;
     if (planeReplacementTargets.size() > kMaxDirectInsetTargets)
