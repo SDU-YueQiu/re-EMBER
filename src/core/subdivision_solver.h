@@ -90,7 +90,7 @@ public:
     /**
      * @brief 从当前子树收集到的结果片段移动到 out 中。
      */
-    void extractResultFragments(std::vector<Polygon256>& out) noexcept;
+    void extractResultFragments(std::vector<Polygon256>& out);
 
     /**
      * @brief 提取从当前子树收集到的叶子诊断信息。
@@ -288,11 +288,13 @@ private:
     std::vector<Polygon256> leafFragments_;
     std::vector<ClassifiedFragment> classifiedFragments_;
     std::vector<Polygon256> resultFragments_;
+    std::vector<std::vector<Polygon256>> resultFragmentChunks_;
     std::vector<BoolLeafSummary> leafSummaries_;
     BoolSolveMetrics solveMetrics_;
     std::size_t polygonCount_ = 0;
     std::size_t leafFragmentCount_ = 0;
     std::size_t classifiedFragmentCount_ = 0;
+    std::size_t resultFragmentCount_ = 0;
     bool leafFragmentsAliasPolygons_ = false;
     std::unique_ptr<SubdivisionSolver> leftChild_;
     std::unique_ptr<SubdivisionSolver> rightChild_;

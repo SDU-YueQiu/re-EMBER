@@ -52,6 +52,23 @@ void appendMovedVector(std::vector<T> &destination, std::vector<T> &source)
     source.clear();
 }
 
+void flattenResultChunks(
+    std::vector<Polygon256> &out,
+    std::vector<std::vector<Polygon256>> &chunks,
+    std::size_t totalCount)
+{
+    out.clear();
+    out.reserve(totalCount);
+    for (std::vector<Polygon256> &chunk : chunks)
+    {
+        out.insert(
+            out.end(),
+            std::make_move_iterator(chunk.begin()),
+            std::make_move_iterator(chunk.end()));
+    }
+    chunks.clear();
+}
+
 void accumulateSolveMetrics(BoolSolveMetrics &target, const BoolSolveMetrics &source) noexcept
 {
     target.effectiveThreadCount = std::max(target.effectiveThreadCount, source.effectiveThreadCount);
@@ -1037,8 +1054,15 @@ bool SubdivisionSolver::isDiscarded() const noexcept
     return discarded_;
 }
 
-void SubdivisionSolver::extractResultFragments(std::vector<Polygon256>& out) noexcept
+void SubdivisionSolver::extractResultFragments(std::vector<Polygon256>& out)
 {
+    if (!resultFragmentChunks_.empty())
+    {
+        flattenResultChunks(out, resultFragmentChunks_, resultFragmentCount_);
+        resultFragments_.clear();
+        return;
+    }
+
     out.swap(resultFragments_);
 }
 
@@ -1073,7 +1097,7 @@ void SubdivisionSolver::finalizeNodeMetrics(bool isLeafNode) noexcept
     solveMetrics_.totalPolygonCount += polygonCount_;
     solveMetrics_.leafFragmentCount += leafFragmentCount_;
     solveMetrics_.classifiedFragmentCount += classifiedFragmentCount_;
-    solveMetrics_.resultFragmentCount = resultFragments_.size();
+    solveMetrics_.resultFragmentCount = resultFragmentCount_;
 }
 
 void SubdivisionSolver::finalizeLeafNode()
@@ -1082,6 +1106,8 @@ void SubdivisionSolver::finalizeLeafNode()
     if (!discarded_)
         leafSummaries_.push_back(BoolLeafSummary{depth_, polygonCount_, aabb_, false});
 
+    resultFragmentChunks_.clear();
+    resultFragmentCount_ = resultFragments_.size();
     finalizeNodeMetrics(true);
     solved_ = true;
 }
@@ -1130,23 +1156,32 @@ void SubdivisionSolver::mergeSolvedChildren()
     REEMBER_PROFILE_ZONE("SubdivisionSolver::mergeSolvedChildren");
 
     resultFragments_.clear();
+    resultFragmentChunks_.clear();
     leafSummaries_.clear();
+    resultFragmentCount_ = 0;
 
     const bool leftDiscarded = !leftChild_ || leftChild_->discarded_;
     const bool rightDiscarded = !rightChild_ || rightChild_->discarded_;
+    auto appendChildOutputs = [this](SubdivisionSolver &child)
+    {
+        if (!child.resultFragmentChunks_.empty())
+            appendMovedVector(resultFragmentChunks_, child.resultFragmentChunks_);
+        else if (!child.resultFragments_.empty())
+            resultFragmentChunks_.push_back(std::move(child.resultFragments_));
+
+        resultFragmentCount_ += child.resultFragmentCount_;
+        appendMovedVector(leafSummaries_, child.leafSummaries_);
+        accumulateSolveMetrics(solveMetrics_, child.solveMetrics_);
+    };
 
     if (leftChild_)
     {
-        appendMovedVector(resultFragments_, leftChild_->resultFragments_);
-        appendMovedVector(leafSummaries_, leftChild_->leafSummaries_);
-        accumulateSolveMetrics(solveMetrics_, leftChild_->solveMetrics_);
+        appendChildOutputs(*leftChild_);
         leftChild_.reset();
     }
     if (rightChild_)
     {
-        appendMovedVector(resultFragments_, rightChild_->resultFragments_);
-        appendMovedVector(leafSummaries_, rightChild_->leafSummaries_);
-        accumulateSolveMetrics(solveMetrics_, rightChild_->solveMetrics_);
+        appendChildOutputs(*rightChild_);
         rightChild_.reset();
     }
 
