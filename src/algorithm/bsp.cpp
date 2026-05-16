@@ -41,15 +41,12 @@ int classifyPlaneTripleIntersectionAgainstPlane(
     const Plane3i &s) noexcept
 {
     // 只需要侧别时，直接使用未约分齐次交点；sign(dot) * sign(w) 对非零比例缩放不变。
-    const Integer x = determinant3x3(-p.d, p.b, p.c, -q.d, q.b, q.c, -r.d, r.b, r.c);
-    const Integer y = determinant3x3(p.a, -p.d, p.c, q.a, -q.d, q.c, r.a, -r.d, r.c);
-    const Integer z = determinant3x3(p.a, p.b, -p.d, q.a, q.b, -q.d, r.a, r.b, -r.d);
-    const Integer w = determinant3x3(p.a, p.b, p.c, q.a, q.b, q.c, r.a, r.b, r.c);
-    if (isZero(w))
+    const HomPoint4i point = intersectHomogeneousUnnormalized(p, q, r);
+    if (isZero(point.w))
         return 0;
 
-    const Integer dotValue = x * s.a + y * s.b + z * s.c + w * s.d;
-    return signum(dotValue) * signum(w);
+    const Integer dotValue = point.x * s.a + point.y * s.b + point.z * s.c + point.w * s.d;
+    return signum(dotValue) * signum(point.w);
 }
 }
 

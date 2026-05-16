@@ -89,14 +89,27 @@ inline bool hasUniqueIntersection(const Plane3i &p, const Plane3i &q, const Plan
     return !isZero(normalDeterminant(p, q, r));
 }
 
+// 该函数一次性展开同一组三平面的四个齐次坐标行列式，避免重复计算 2x2 minor。
+inline HomPoint4i intersectHomogeneousUnnormalized(const Plane3i &p, const Plane3i &q, const Plane3i &r) noexcept
+{
+    const Integer bc = q.b * r.c - q.c * r.b;
+    const Integer ac = q.a * r.c - q.c * r.a;
+    const Integer ab = q.a * r.b - q.b * r.a;
+    const Integer dc = q.d * r.c - q.c * r.d;
+    const Integer db = q.d * r.b - q.b * r.d;
+    const Integer da = q.d * r.a - q.a * r.d;
+
+    return HomPoint4i(
+               -p.d * bc + p.b * dc - p.c * db,
+               -p.a * dc + p.d * ac + p.c * da,
+               p.a * db - p.b * da - p.d * ab,
+               p.a * bc - p.b * ac + p.c * ab);
+}
+
 // 该函数不做退化检查，调用前应使用 `hasUniqueIntersection()` 确认三平面有唯一交点。
 inline HomPoint4i intersectHomogeneous(const Plane3i &p, const Plane3i &q, const Plane3i &r) noexcept
 {
-    const Integer x = determinant3x3(-p.d, p.b, p.c, -q.d, q.b, q.c, -r.d, r.b, r.c);
-    const Integer y = determinant3x3(p.a, -p.d, p.c, q.a, -q.d, q.c, r.a, -r.d, r.c);
-    const Integer z = determinant3x3(p.a, p.b, -p.d, q.a, q.b, -q.d, r.a, r.b, -r.d);
-    const Integer w = determinant3x3(p.a, p.b, p.c, q.a, q.b, q.c, r.a, r.b, r.c);
-    return primitiveHomPoint(HomPoint4i(x, y, z, w));
+    return primitiveHomPoint(intersectHomogeneousUnnormalized(p, q, r));
 }
 
 inline Integer HomPoint4i::dotPlane(const Plane3i &s) const noexcept
