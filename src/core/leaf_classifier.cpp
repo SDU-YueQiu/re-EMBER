@@ -358,7 +358,13 @@ bool buildAxisRepairPath(
     do
     {
         std::vector<Segment256> path;
-        if (detail::buildAxisAlignedCoordinatePath(referencePoint, targetPoint, changedAxes, path) &&
+        if (detail::buildAxisAlignedCoordinatePath(
+                    referencePoint,
+                    targetPoint,
+                    referenceCoordinatePlanes,
+                    targetCoordinatePlanes,
+                    changedAxes,
+                    path) &&
                 isTraceableSurfaceCandidatePath(referencePoint, targetPoint, path))
         {
             outPath = std::move(path);

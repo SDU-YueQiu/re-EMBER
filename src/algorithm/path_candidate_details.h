@@ -1000,27 +1000,24 @@ inline bool buildAxisAlignedSegmentFromCoordinatePlanes(
 inline bool buildAxisAlignedCoordinatePath(
     const PlanePoint3i &startPoint,
     const PlanePoint3i &targetPoint,
+    const std::array<Plane3i, 3> &startCoordinatePlanes,
+    const std::array<Plane3i, 3> &targetCoordinatePlanes,
     const std::vector<SplitAxis3i> &axisOrder,
     std::vector<Segment256> &outPath)
 {
     REEMBER_PROFILE_ZONE("buildAxisAlignedCoordinatePath");
 
-    std::array<Plane3i, 3> currentCoordinatePlanes = {
-        makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::X),
-        makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::Y),
-        makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::Z)
-    };
-    const std::array<Plane3i, 3> targetCoordinatePlanes = {
-        makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::X),
-        makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Y),
-        makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Z)
-    };
-
+    std::array<Plane3i, 3> currentCoordinatePlanes = startCoordinatePlanes;
     PlanePoint3i currentPoint = startPoint;
+    std::array<Segment256, 3> segmentBuffer;
+    std::size_t segmentCount = 0;
     outPath.clear();
     for (const SplitAxis3i axis : axisOrder)
     {
         REEMBER_PROFILE_ZONE("buildAxisAlignedCoordinatePath::axisStep");
+        if (segmentCount == segmentBuffer.size())
+            return false;
+
         const int axisIndex = axisOrderKey(axis);
         const std::array<Plane3i, 3> startCoordinatePlanes = currentCoordinatePlanes;
         currentCoordinatePlanes[axisIndex] = targetCoordinatePlanes[axisIndex];
@@ -1039,11 +1036,45 @@ inline bool buildAxisAlignedCoordinatePath(
             return false;
         }
 
-        outPath.push_back(std::move(segment));
+        segmentBuffer[segmentCount++] = std::move(segment);
         currentPoint = nextPoint;
     }
 
-    return areSamePlanePoint(currentPoint, targetPoint);
+    if (!areSamePlanePoint(currentPoint, targetPoint))
+        return false;
+
+    outPath.reserve(segmentCount);
+    for (std::size_t i = 0; i < segmentCount; ++i)
+        outPath.push_back(std::move(segmentBuffer[i]));
+    return true;
+}
+
+/**
+ * @brief 按坐标轴顺序构造 1 到 3 段轴对齐路径。
+ */
+inline bool buildAxisAlignedCoordinatePath(
+    const PlanePoint3i &startPoint,
+    const PlanePoint3i &targetPoint,
+    const std::vector<SplitAxis3i> &axisOrder,
+    std::vector<Segment256> &outPath)
+{
+    const std::array<Plane3i, 3> startCoordinatePlanes = {
+        makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::X),
+        makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::Y),
+        makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::Z)
+    };
+    const std::array<Plane3i, 3> targetCoordinatePlanes = {
+        makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::X),
+        makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Y),
+        makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Z)
+    };
+    return buildAxisAlignedCoordinatePath(
+               startPoint,
+               targetPoint,
+               startCoordinatePlanes,
+               targetCoordinatePlanes,
+               axisOrder,
+               outPath);
 }
 
 /**

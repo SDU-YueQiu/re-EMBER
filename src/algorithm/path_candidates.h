@@ -527,27 +527,37 @@ inline std::size_t enumerateLeafClassificationAxisPathCandidatesFromPoints(
     if (!referencePoint.hasUniqueIntersection() || !isValidAABB(box))
         return emitted;
 
+    const std::array<Plane3i, 3> referenceCoordinatePlanes = {
+        detail::makeCoordinatePlaneFromPoint(referencePoint, SplitAxis3i::X),
+        detail::makeCoordinatePlaneFromPoint(referencePoint, SplitAxis3i::Y),
+        detail::makeCoordinatePlaneFromPoint(referencePoint, SplitAxis3i::Z)
+    };
     for (const PlanePoint3i &targetPoint : targetPoints)
     {
         std::vector<SplitAxis3i> axisOrder;
         axisOrder.reserve(3);
-        const Plane3i referenceXPlane = detail::makeCoordinatePlaneFromPoint(referencePoint, SplitAxis3i::X);
-        const Plane3i referenceYPlane = detail::makeCoordinatePlaneFromPoint(referencePoint, SplitAxis3i::Y);
-        const Plane3i referenceZPlane = detail::makeCoordinatePlaneFromPoint(referencePoint, SplitAxis3i::Z);
-        const Plane3i targetXPlane = detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::X);
-        const Plane3i targetYPlane = detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Y);
-        const Plane3i targetZPlane = detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Z);
-        if (!detail::areSamePlaneEquation(referenceXPlane, targetXPlane))
+        const std::array<Plane3i, 3> targetCoordinatePlanes = {
+            detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::X),
+            detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Y),
+            detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Z)
+        };
+        if (!detail::areSamePlaneEquation(referenceCoordinatePlanes[0], targetCoordinatePlanes[0]))
             axisOrder.push_back(SplitAxis3i::X);
-        if (!detail::areSamePlaneEquation(referenceYPlane, targetYPlane))
+        if (!detail::areSamePlaneEquation(referenceCoordinatePlanes[1], targetCoordinatePlanes[1]))
             axisOrder.push_back(SplitAxis3i::Y);
-        if (!detail::areSamePlaneEquation(referenceZPlane, targetZPlane))
+        if (!detail::areSamePlaneEquation(referenceCoordinatePlanes[2], targetCoordinatePlanes[2]))
             axisOrder.push_back(SplitAxis3i::Z);
         if (axisOrder.empty())
             continue;
 
         std::vector<Segment256> path;
-        if (!detail::buildAxisAlignedCoordinatePath(referencePoint, targetPoint, axisOrder, path))
+        if (!detail::buildAxisAlignedCoordinatePath(
+                    referencePoint,
+                    targetPoint,
+                    referenceCoordinatePlanes,
+                    targetCoordinatePlanes,
+                    axisOrder,
+                    path))
             continue;
 
         ++emitted;
