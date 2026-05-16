@@ -37,6 +37,40 @@ enum class BoundaryHitRejectedKind
     Unknown
 };
 
+bool buildPathAABB(const Path &path, AABB3i &outBox) noexcept
+{
+    outBox = AABB3i();
+    for (const Segment256 &segment : path)
+    {
+        const PlanePoint3i &startPoint = segment.getStartPointRef();
+        const PlanePoint3i &endPoint = segment.getEndPointRef();
+        if (!startPoint.hasUniqueIntersection() || isZero(startPoint.x.w) ||
+                !endPoint.hasUniqueIntersection() || isZero(endPoint.x.w))
+        {
+            outBox = AABB3i();
+            return false;
+        }
+
+        appendPointToAABB(outBox, startPoint);
+        appendPointToAABB(outBox, endPoint);
+    }
+
+    return isValidAABB(outBox);
+}
+
+bool canSkipPolygonForPathAABB(const Polygon256 &polygon, const AABB3i &pathBox) noexcept
+{
+    if (!isValidAABB(pathBox))
+        return false;
+
+    const AABB3i &polygonBox = polygon.aabb();
+    if (!isValidAABB(polygonBox))
+        return false;
+
+    return !doAABBsOverlap(pathBox, polygonBox) ||
+           !doesPlaneIntersectAABB(polygon.plane, pathBox);
+}
+
 void recordTracePathInvalid(
     BoolSolveMetrics *solveMetrics,
     TracePathInvalidReason reason) noexcept
@@ -191,6 +225,9 @@ traceStatus tracePathWNVImpl(
         return SUCCESS;
     }
 
+    AABB3i pathBox;
+    const bool hasPathBox = buildPathAABB(path, pathBox);
+
     const PlanePoint3i &pathStartPoint = path.front().getStartPointRef();
     if (validatePath && !areSamePlanePoint(pathStartPoint, refpoint.point))
         return INPUT_INVALID;
@@ -210,6 +247,8 @@ traceStatus tracePathWNVImpl(
     for (const Polygon256 &poly : polygons)
     {
         REEMBER_PROFILE_ZONE("tracePathWNVImpl::polygon");
+        if (hasPathBox && canSkipPolygonForPathAABB(poly, pathBox))
+            continue;
 
         int pcs = 0;
         {
@@ -371,12 +410,17 @@ traceStatus tracePathWNVToSurfacePointImpl(
     if (!targetPoint.hasUniqueIntersection() || targetPoint.classify(referencePlane) != 0)
         return INPUT_INVALID;
 
+    AABB3i pathBox;
+    const bool hasPathBox = buildPathAABB(path, pathBox);
+
     WNV surfaceWNV = refpoint.wnv;
     WNV surfaceDelta(refpoint.wnv.size(), 0);
 
     for (const Polygon256 &poly : polygons)
     {
         REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::polygon");
+        if (hasPathBox && canSkipPolygonForPathAABB(poly, pathBox))
+            continue;
 
         int pcs = 0;
         {
