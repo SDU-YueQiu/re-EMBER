@@ -52,6 +52,7 @@ struct CliTimings
     double prepareMs = 0.0;
     double solveMs = 0.0;
     double exportMs = 0.0;
+    double endToEndMs = 0.0;
     std::size_t lhsInputFaces = 0;
     std::size_t rhsInputFaces = 0;
     std::uint64_t sharedScale = 0;
@@ -143,6 +144,7 @@ bool writeTimingMetrics(const std::string &path, const CliTimings &timings, std:
            << "prepare_ms=" << timings.prepareMs << '\n'
            << "solve_ms=" << timings.solveMs << '\n'
            << "export_ms=" << timings.exportMs << '\n'
+           << "end_to_end_ms=" << timings.endToEndMs << '\n'
            << "lhs_input_faces=" << timings.lhsInputFaces << '\n'
            << "rhs_input_faces=" << timings.rhsInputFaces << '\n'
            << "shared_scale=" << timings.sharedScale << '\n'
@@ -607,6 +609,7 @@ int main(int argc, char **argv)
         }
         const Clock::time_point exportEnd = Clock::now();
         timings.exportMs = elapsedMilliseconds(exportStart, exportEnd);
+        timings.endToEndMs = elapsedMilliseconds(readStart, exportEnd);
         timings.exportedFaces = exportedFaces;
 
         if (!options.timingsOutputPath.empty() &&
@@ -623,6 +626,7 @@ int main(int argc, char **argv)
                 << " scale=" << sharedScale
                 << " lhs_polygons=" << lhsPolygons.size()
                 << " rhs_polygons=" << rhsPolygons.size()
+                << " end_to_end_ms=" << timings.endToEndMs
                 << " threads=" << timings.solveMetrics.effectiveThreadCount
                 << " node_count=" << timings.solveMetrics.nodeCount
                 << " leaf_nodes=" << timings.solveMetrics.leafNodeCount
