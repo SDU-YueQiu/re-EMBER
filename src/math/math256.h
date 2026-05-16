@@ -68,13 +68,9 @@ inline Integer gcdMagnitude(Integer lhs, Integer rhs) noexcept
     if (isZero(rhs) || lhs == rhs)
         return lhs;
 
-    while (!isZero(rhs))
-    {
-        const Integer remainder = lhs % rhs;
-        lhs = rhs;
-        rhs = remainder;
-    }
-    return lhs;
+    Integer result = 0;
+    boost::multiprecision::backends::eval_gcd(result.backend(), lhs.backend(), rhs.backend());
+    return result;
 }
 
 /**
