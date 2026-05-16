@@ -8,7 +8,7 @@
 #include "core/perf_tracing.h"
 #include "geometry/polygon_ops.h"
 
-#include <iterator>
+#include <algorithm>
 
 namespace ember
 {
@@ -26,6 +26,14 @@ struct LeafPairRelation
     LeafPairRelationKind kind = LeafPairRelationKind::None;
     detail::IntersectionCarrier lhsCarrier;
     detail::IntersectionCarrier rhsCarrier;
+};
+
+struct LeafArrangementInsertion
+{
+    std::size_t baseIndex = 0;
+    LeafPairRelationKind kind = LeafPairRelationKind::None;
+    std::size_t polygonIndex = 0;
+    detail::IntersectionCarrier carrier;
 };
 
 LeafPairRelation buildLeafPairRelation(const Polygon256 &lhs, const Polygon256 &rhs)
@@ -89,38 +97,84 @@ std::vector<Polygon256> buildLeafArrangement(const std::vector<Polygon256> &poly
         return fragments;
     }
 
-    std::vector<std::vector<LeafPairRelation>> pairRelations(
-        polygonCount,
-        std::vector<LeafPairRelation>(polygonCount));
+    std::vector<LeafArrangementInsertion> adjacency;
+    adjacency.reserve(polygonCount * 4u);
     {
-        REEMBER_PROFILE_ZONE("buildLeafArrangement::pairRelationMatrix");
+        REEMBER_PROFILE_ZONE("buildLeafArrangement::pairRelationAdjacency");
         for (std::size_t i = 0; i < polygonCount; ++i)
         {
             for (std::size_t j = i + 1; j < polygonCount; ++j)
-                pairRelations[i][j] = buildLeafPairRelation(polygons[i], polygons[j]);
+            {
+                const LeafPairRelation relation = buildLeafPairRelation(polygons[i], polygons[j]);
+                if (relation.kind == LeafPairRelationKind::Segment)
+                {
+                    adjacency.push_back(LeafArrangementInsertion{
+                        i,
+                        LeafPairRelationKind::Segment,
+                        j,
+                        relation.lhsCarrier});
+                    adjacency.push_back(LeafArrangementInsertion{
+                        j,
+                        LeafPairRelationKind::Segment,
+                        i,
+                        relation.rhsCarrier});
+                }
+                else if (relation.kind == LeafPairRelationKind::Coplanar)
+                {
+                    adjacency.push_back(LeafArrangementInsertion{
+                        i,
+                        LeafPairRelationKind::Coplanar,
+                        j,
+                        detail::IntersectionCarrier{}});
+                    adjacency.push_back(LeafArrangementInsertion{
+                        j,
+                        LeafPairRelationKind::Coplanar,
+                        i,
+                        detail::IntersectionCarrier{}});
+                }
+            }
         }
     }
+    std::sort(
+        adjacency.begin(),
+        adjacency.end(),
+        [](const LeafArrangementInsertion &lhs, const LeafArrangementInsertion &rhs)
+        {
+            if (lhs.baseIndex != rhs.baseIndex)
+                return lhs.baseIndex < rhs.baseIndex;
+            return lhs.polygonIndex < rhs.polygonIndex;
+        });
+
+    std::vector<std::size_t> adjacencyOffsets(polygonCount + 1u, 0u);
+    for (const LeafArrangementInsertion &insertion : adjacency)
+        ++adjacencyOffsets[insertion.baseIndex + 1u];
+    for (std::size_t i = 1; i < adjacencyOffsets.size(); ++i)
+        adjacencyOffsets[i] += adjacencyOffsets[i - 1u];
 
     for (std::size_t i = 0; i < polygonCount; ++i)
     {
         REEMBER_PROFILE_ZONE("buildLeafArrangement::basePolygon");
+        const std::size_t insertionBegin = adjacencyOffsets[i];
+        const std::size_t insertionEnd = adjacencyOffsets[i + 1u];
+        if (insertionBegin == insertionEnd)
+        {
+            fragments.push_back(polygons[i]);
+            continue;
+        }
+
         BSPTree tree;
         tree.setBasePolygon(polygons[i], i);
-        for (std::size_t j = 0; j < polygonCount; ++j)
+        for (std::size_t insertionIndex = insertionBegin; insertionIndex < insertionEnd; ++insertionIndex)
         {
-            if (i == j)
-                continue;
-
-            const LeafPairRelation &relation = (i < j) ? pairRelations[i][j] : pairRelations[j][i];
-            if (relation.kind == LeafPairRelationKind::Segment)
+            const LeafArrangementInsertion &insertion = adjacency[insertionIndex];
+            if (insertion.kind == LeafPairRelationKind::Segment)
             {
-                const detail::IntersectionCarrier &carrier = (i < j) ? relation.lhsCarrier : relation.rhsCarrier;
-                tree.addSegment(carrier.v0, carrier.v1, carrier.splitPlane);
+                tree.addSegment(insertion.carrier.v0, insertion.carrier.v1, insertion.carrier.splitPlane);
                 continue;
             }
 
-            if (relation.kind == LeafPairRelationKind::Coplanar)
-                tree.insertCoplanarPolygonTrusted(polygons[j], j);
+            if (insertion.kind == LeafPairRelationKind::Coplanar)
+                tree.insertCoplanarPolygonTrusted(polygons[insertion.polygonIndex], insertion.polygonIndex);
         }
 
         tree.extractLeafGeometriesInto(fragments);
