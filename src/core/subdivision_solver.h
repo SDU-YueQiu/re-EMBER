@@ -209,14 +209,6 @@ private:
     bool createChildrenFromSplit(const AABBSplit3i &split);
 
     /**
-     * @brief 将当前多边形集合裁剪为左右子节点 polygon soup。
-     */
-    bool buildSplitChildPolygonSoups(
-        const AABBSplit3i &split,
-        std::vector<Polygon256> &leftPolygons,
-        std::vector<Polygon256> &rightPolygons) const;
-
-    /**
      * @brief 判断某个子节点是否可被常量指示函数直接丢弃。
      */
     bool shouldCreateChildNode(
@@ -238,7 +230,7 @@ private:
      */
     bool makeChildReference(
         const AABB3i &childBox,
-        const std::vector<Polygon256> &childPolygons,
+        const std::vector<Plane3i> &childSupportPlanes,
         SubdivisionRefState &outReference);
 
     /**
@@ -246,7 +238,7 @@ private:
      */
     bool tryReuseChildReference(
         const AABB3i &childBox,
-        const std::vector<Polygon256> &childPolygons,
+        const std::vector<Plane3i> &childSupportPlanes,
         SubdivisionRefState &outReference);
 
     /**

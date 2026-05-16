@@ -122,13 +122,13 @@ void accumulateSolveMetrics(BoolSolveMetrics &target, const BoolSolveMetrics &so
     target.leafClassificationBridgeRescueFailCount += source.leafClassificationBridgeRescueFailCount;
 }
 
-bool isPointOnAnyPolygonSupportPlane(
+bool isPointOnAnySupportPlane(
     const PlanePoint3i &point,
-    const std::vector<Polygon256> &polygons) noexcept
+    const std::vector<Plane3i> &supportPlanes) noexcept
 {
-    for (const Polygon256 &polygon : polygons)
+    for (const Plane3i &supportPlane : supportPlanes)
     {
-        if (point.classify(polygon.plane) == 0)
+        if (point.classify(supportPlane) == 0)
             return true;
     }
 
@@ -183,23 +183,35 @@ Integer axisMidpoint(const AABB3i &box, SplitAxis3i axis) noexcept
     return floorDiv(axisMinimum(box, axis) + axisMaximum(box, axis), Integer(2));
 }
 
+void appendWntvToBinaryPolygonScan(BinaryPolygonScanSummary &summary, const WNV &wntv) noexcept
+{
+    if (detail::isLhsOperandWNTV(wntv))
+        summary.hasLhs = true;
+    else if (detail::isRhsOperandWNTV(wntv))
+        summary.hasRhs = true;
+}
+
+void finalizeBinaryPolygonScanSummary(BinaryPolygonScanSummary &summary) noexcept
+{
+    summary.isSingleOperand = summary.hasLhs != summary.hasRhs;
+    if (summary.isSingleOperand)
+        summary.singleOperand = summary.hasLhs ? BinarySingleOperand::Lhs : BinarySingleOperand::Rhs;
+    else
+        summary.singleOperand = BinarySingleOperand::None;
+}
+
 BinaryPolygonScanSummary scanBinaryPolygonSummary(const std::vector<Polygon256> &polygons) noexcept
 {
     BinaryPolygonScanSummary summary;
     for (const Polygon256 &polygon : polygons)
     {
-        if (detail::isLhsOperandWNTV(polygon.WNTV))
-            summary.hasLhs = true;
-        else if (detail::isRhsOperandWNTV(polygon.WNTV))
-            summary.hasRhs = true;
+        appendWntvToBinaryPolygonScan(summary, polygon.WNTV);
 
         if (summary.hasLhs && summary.hasRhs)
             break;
     }
 
-    summary.isSingleOperand = summary.hasLhs != summary.hasRhs;
-    if (summary.isSingleOperand)
-        summary.singleOperand = summary.hasLhs ? BinarySingleOperand::Lhs : BinarySingleOperand::Rhs;
+    finalizeBinaryPolygonScanSummary(summary);
     return summary;
 }
 
@@ -658,11 +670,50 @@ bool chooseSubdivisionSplit(
     return false;
 }
 
-bool appendSplitChildPolygons(
+enum class SplitChildSide
+{
+    Left,
+    Right
+};
+
+enum class SplitPolygonRouteKind
+{
+    LeftOriginal,
+    RightOriginal,
+    Split
+};
+
+struct SplitPolygonRoute
+{
+    std::size_t sourceIndex = 0;
+    SplitPolygonRouteKind kind = SplitPolygonRouteKind::LeftOriginal;
+    Polygon256 frontClipped;
+    Polygon256 backClipped;
+};
+
+struct SplitChildMetadata
+{
+    std::vector<Plane3i> supportPlanes;
+    BinaryPolygonScanSummary scan;
+};
+
+struct SplitChildPolygonPlan
+{
+    std::vector<SplitPolygonRoute> routes;
+    SplitChildMetadata left;
+    SplitChildMetadata right;
+};
+
+void appendChildMetadata(SplitChildMetadata &metadata, const Polygon256 &polygon)
+{
+    metadata.supportPlanes.push_back(polygon.plane);
+    appendWntvToBinaryPolygonScan(metadata.scan, polygon.WNTV);
+}
+
+bool classifySplitChildPolygonRoute(
     const Polygon256 &polygon,
     const AABBSplit3i &split,
-    std::vector<Polygon256> &leftPolygons,
-    std::vector<Polygon256> &rightPolygons)
+    SplitPolygonRoute &route)
 {
     REEMBER_PROFILE_ZONE("appendSplitChildPolygons");
 
@@ -674,13 +725,13 @@ bool appendSplitChildPolygons(
             if (axisMaximum(polygonBox, split.axis) <= split.coordinate)
             {
                 REEMBER_PROFILE_ZONE("appendSplitChildPolygons::routeLeft");
-                leftPolygons.push_back(polygon);
+                route.kind = SplitPolygonRouteKind::LeftOriginal;
                 return true;
             }
             if (axisMinimum(polygonBox, split.axis) >= split.coordinate)
             {
                 REEMBER_PROFILE_ZONE("appendSplitChildPolygons::routeRight");
-                rightPolygons.push_back(polygon);
+                route.kind = SplitPolygonRouteKind::RightOriginal;
                 return true;
             }
         }
@@ -709,33 +760,108 @@ bool appendSplitChildPolygons(
     if (!hasPositive)
     {
         REEMBER_PROFILE_ZONE("appendSplitChildPolygons::scanRouteLeft");
-        leftPolygons.push_back(polygon);
+        route.kind = SplitPolygonRouteKind::LeftOriginal;
         return true;
     }
     if (!hasNegative)
     {
         REEMBER_PROFILE_ZONE("appendSplitChildPolygons::scanRouteRight");
-        rightPolygons.push_back(polygon);
+        route.kind = SplitPolygonRouteKind::RightOriginal;
         return true;
     }
 
-    Polygon256 frontClipped;
-    Polygon256 backClipped;
     {
         REEMBER_PROFILE_ZONE("appendSplitChildPolygons::clip");
         if (!detail::clipLeafGeometryByPlaneTrustedWithSides(
                     polygon,
                     splitPlane,
                     vertexSides,
-                    frontClipped,
-                    backClipped,
+                    route.frontClipped,
+                    route.backClipped,
                     PolygonEdgeProvenance::SubdivisionClip))
             return false;
     }
 
-    leftPolygons.push_back(std::move(backClipped));
-    rightPolygons.push_back(std::move(frontClipped));
+    route.kind = SplitPolygonRouteKind::Split;
     return true;
+}
+
+bool buildSplitChildPolygonPlan(
+    const std::vector<Polygon256> &polygons,
+    const AABBSplit3i &split,
+    SplitChildPolygonPlan &plan)
+{
+    REEMBER_PROFILE_ZONE("SubdivisionSolver::buildSplitChildPolygonSoups");
+
+    plan.routes.clear();
+    plan.left = SplitChildMetadata();
+    plan.right = SplitChildMetadata();
+    plan.routes.reserve(polygons.size());
+    plan.left.supportPlanes.reserve(polygons.size());
+    plan.right.supportPlanes.reserve(polygons.size());
+
+    for (std::size_t i = 0; i < polygons.size(); ++i)
+    {
+        SplitPolygonRoute route;
+        route.sourceIndex = i;
+        if (!classifySplitChildPolygonRoute(polygons[i], split, route))
+            return false;
+
+        switch (route.kind)
+        {
+        case SplitPolygonRouteKind::LeftOriginal:
+            appendChildMetadata(plan.left, polygons[i]);
+            break;
+        case SplitPolygonRouteKind::RightOriginal:
+            appendChildMetadata(plan.right, polygons[i]);
+            break;
+        case SplitPolygonRouteKind::Split:
+            appendChildMetadata(plan.left, route.backClipped);
+            appendChildMetadata(plan.right, route.frontClipped);
+            break;
+        }
+
+        plan.routes.push_back(std::move(route));
+    }
+
+    finalizeBinaryPolygonScanSummary(plan.left.scan);
+    finalizeBinaryPolygonScanSummary(plan.right.scan);
+    return true;
+}
+
+void materializeSplitChildPolygons(
+    SplitChildSide side,
+    SplitChildPolygonPlan &plan,
+    std::vector<Polygon256> &sourcePolygons,
+    std::vector<Polygon256> &outPolygons)
+{
+    REEMBER_PROFILE_ZONE("SubdivisionSolver::materializeSplitChildPolygons");
+
+    const std::size_t childPolygonCount =
+        side == SplitChildSide::Left ? plan.left.supportPlanes.size() : plan.right.supportPlanes.size();
+    outPolygons.clear();
+    outPolygons.reserve(childPolygonCount);
+
+    for (SplitPolygonRoute &route : plan.routes)
+    {
+        if (route.kind == SplitPolygonRouteKind::LeftOriginal && side == SplitChildSide::Left)
+        {
+            outPolygons.push_back(std::move(sourcePolygons[route.sourceIndex]));
+            continue;
+        }
+        if (route.kind == SplitPolygonRouteKind::RightOriginal && side == SplitChildSide::Right)
+        {
+            outPolygons.push_back(std::move(sourcePolygons[route.sourceIndex]));
+            continue;
+        }
+        if (route.kind != SplitPolygonRouteKind::Split)
+            continue;
+
+        if (side == SplitChildSide::Left)
+            outPolygons.push_back(std::move(route.backClipped));
+        else
+            outPolygons.push_back(std::move(route.frontClipped));
+    }
 }
 
 bool isPointStrictlyInsideAABB(const PlanePoint3i &point, const AABB3i &box) noexcept
@@ -768,7 +894,7 @@ bool tryTraceChildReferenceCandidate(
     bool sourceReferenceIsStrictInterior,
     const refPoint &sourceRef,
     const std::vector<Polygon256> &nodePolygons,
-    const std::vector<Polygon256> &childPolygons,
+    const std::vector<Plane3i> &childSupportPlanes,
     ChildReferenceCandidatePhase candidatePhase,
     const detail::AABBPathCandidateSeed &candidateSeed,
     BoolSolveMetrics &solveMetrics,
@@ -787,7 +913,7 @@ bool tryTraceChildReferenceCandidate(
 
     ++solveMetrics.childReferenceCandidateCount;
 
-    if (isPointOnAnyPolygonSupportPlane(candidateSeed.targetPoint, childPolygons))
+    if (isPointOnAnySupportPlane(candidateSeed.targetPoint, childSupportPlanes))
         return true;
 
     if (!detail::buildAABBPathFromSeed(sourcePoint, candidateSeed, searchState.candidatePath))
@@ -1184,63 +1310,59 @@ bool SubdivisionSolver::createChildrenFromSplit(const AABBSplit3i &split)
 {
     REEMBER_PROFILE_ZONE("SubdivisionSolver::createChildrenFromSplit");
 
-    std::vector<Polygon256> leftPolygons;
-    std::vector<Polygon256> rightPolygons;
-    if (!buildSplitChildPolygonSoups(split, leftPolygons, rightPolygons))
+    SplitChildPolygonPlan splitPlan;
+    if (!buildSplitChildPolygonPlan(polygons_, split, splitPlan))
         return false;
 
-    if (leftPolygons.empty() && rightPolygons.empty())
+    const bool hasLeftPolygons = !splitPlan.left.supportPlanes.empty();
+    const bool hasRightPolygons = !splitPlan.right.supportPlanes.empty();
+    if (!hasLeftPolygons && !hasRightPolygons)
         return false;
 
-    if (!leftPolygons.empty())
+    bool createLeftChild = false;
+    bool createRightChild = false;
+    SubdivisionRefState leftReference;
+    SubdivisionRefState rightReference;
+
+    if (hasLeftPolygons)
     {
-        const BinaryPolygonScanSummary leftScan = scanBinaryPolygonSummary(leftPolygons);
-        SubdivisionRefState leftReference;
-        if (!makeChildReference(split.left, leftPolygons, leftReference))
+        if (!makeChildReference(split.left, splitPlan.left.supportPlanes, leftReference))
         {
             std::ostringstream message;
             message << "Failed to propagate left child reference depth=" << depth_
-                    << " candidate_polygons=" << leftPolygons.size()
+                    << " candidate_polygons=" << splitPlan.left.supportPlanes.size()
                     << ".";
             throw std::runtime_error(message.str());
         }
-        if (shouldCreateChildNode(leftScan, leftReference))
-            createChildSolver(leftChild_, split.left, std::move(leftPolygons), std::move(leftReference), leftScan);
+        createLeftChild = shouldCreateChildNode(splitPlan.left.scan, leftReference);
     }
 
-    if (!rightPolygons.empty())
+    if (hasRightPolygons)
     {
-        const BinaryPolygonScanSummary rightScan = scanBinaryPolygonSummary(rightPolygons);
-        SubdivisionRefState rightReference;
-        if (!makeChildReference(split.right, rightPolygons, rightReference))
+        if (!makeChildReference(split.right, splitPlan.right.supportPlanes, rightReference))
         {
             std::ostringstream message;
             message << "Failed to propagate right child reference depth=" << depth_
-                    << " candidate_polygons=" << rightPolygons.size()
+                    << " candidate_polygons=" << splitPlan.right.supportPlanes.size()
                     << ".";
             throw std::runtime_error(message.str());
         }
-        if (shouldCreateChildNode(rightScan, rightReference))
-            createChildSolver(rightChild_, split.right, std::move(rightPolygons), std::move(rightReference), rightScan);
+    }
+    if (hasRightPolygons)
+        createRightChild = shouldCreateChildNode(splitPlan.right.scan, rightReference);
+
+    if (createLeftChild)
+    {
+        std::vector<Polygon256> leftPolygons;
+        materializeSplitChildPolygons(SplitChildSide::Left, splitPlan, polygons_, leftPolygons);
+        createChildSolver(leftChild_, split.left, std::move(leftPolygons), std::move(leftReference), splitPlan.left.scan);
     }
 
-    return true;
-}
-
-bool SubdivisionSolver::buildSplitChildPolygonSoups(
-    const AABBSplit3i &split,
-    std::vector<Polygon256> &leftPolygons,
-    std::vector<Polygon256> &rightPolygons) const
-{
-    REEMBER_PROFILE_ZONE("SubdivisionSolver::buildSplitChildPolygonSoups");
-
-    leftPolygons.reserve(polygons_.size());
-    rightPolygons.reserve(polygons_.size());
-
-    for (const Polygon256 &polygon : polygons_)
+    if (createRightChild)
     {
-        if (!appendSplitChildPolygons(polygon, split, leftPolygons, rightPolygons))
-            return false;
+        std::vector<Polygon256> rightPolygons;
+        materializeSplitChildPolygons(SplitChildSide::Right, splitPlan, polygons_, rightPolygons);
+        createChildSolver(rightChild_, split.right, std::move(rightPolygons), std::move(rightReference), splitPlan.right.scan);
     }
 
     return true;
@@ -1282,12 +1404,12 @@ void SubdivisionSolver::createChildSolver(
 // 优先复用仍在子 AABB 内且不落在表面上的参考点，否则枚举 AABB 路径传播 WNV。
 bool SubdivisionSolver::makeChildReference(
     const AABB3i &childBox,
-    const std::vector<Polygon256> &childPolygons,
+    const std::vector<Plane3i> &childSupportPlanes,
     SubdivisionRefState &outReference)
 {
     REEMBER_PROFILE_ZONE("SubdivisionSolver::makeChildReference");
 
-    if (tryReuseChildReference(childBox, childPolygons, outReference))
+    if (tryReuseChildReference(childBox, childSupportPlanes, outReference))
         return true;
 
     const bool sourceReferenceIsStrictInterior = isPointStrictlyInsideAABB(reference_.point, childBox);
@@ -1299,7 +1421,7 @@ bool SubdivisionSolver::makeChildReference(
         [this,
          sourceReferenceIsStrictInterior,
          &sourceRef,
-         &childPolygons,
+         &childSupportPlanes,
          &searchState](ChildReferenceCandidatePhase candidatePhase, const detail::AABBPathCandidateSeed &candidateSeed)
     {
         return tryTraceChildReferenceCandidate(
@@ -1308,7 +1430,7 @@ bool SubdivisionSolver::makeChildReference(
                    sourceReferenceIsStrictInterior,
                    sourceRef,
                    polygons_,
-                   childPolygons,
+                   childSupportPlanes,
                    candidatePhase,
                    candidateSeed,
                    solveMetrics_,
@@ -1347,13 +1469,13 @@ bool SubdivisionSolver::makeChildReference(
 
 bool SubdivisionSolver::tryReuseChildReference(
     const AABB3i &childBox,
-    const std::vector<Polygon256> &childPolygons,
+    const std::vector<Plane3i> &childSupportPlanes,
     SubdivisionRefState &outReference)
 {
     REEMBER_PROFILE_ZONE("SubdivisionSolver::tryReuseChildReference");
 
     if (!isPointStrictlyInsideAABB(reference_.point, childBox) ||
-            isPointOnAnyPolygonSupportPlane(reference_.point, childPolygons))
+            isPointOnAnySupportPlane(reference_.point, childSupportPlanes))
         return false;
 
     {
