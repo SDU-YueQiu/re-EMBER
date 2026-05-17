@@ -582,23 +582,11 @@ bool computeEmberResult(SceneData &scene, const UiState &ui, ResultStats &outSta
         PolygonSoupExportOptions exportOptions;
         exportOptions.coordinateScale = scene.emberSharedScale;
         exportOptions.topologyMode = ember::app::toPolygonSoupTopologyMode(ui.emberOutputTopology);
-        bool converted = false;
-        if (ember::app::isNefOutputTopologyMode(ui.emberOutputTopology))
-        {
-            converted = ember::app::buildNefPostprocessedMeshFromPolygons(
-                            problem.resultFragments(),
-                            scene.emberSharedScale,
-                            scene.resultDisplayMesh,
-                            outError);
-        }
-        else
-        {
-            converted = ember::buildObjMeshFromPolygonSoup(
-                            problem.resultFragments(),
-                            scene.resultDisplayMesh,
-                            outError,
-                            exportOptions);
-        }
+        const bool converted = ember::buildObjMeshFromPolygonSoup(
+                                   problem.resultFragments(),
+                                   scene.resultDisplayMesh,
+                                   outError,
+                                   exportOptions);
         if (!converted)
         {
             outError = "Failed to convert the EMBER result polygon soup to an OBJ mesh: " + outError;
@@ -995,21 +983,11 @@ int main()
             changed = true;
         }
 
-        const char *topologyItems[] = {"raw", "conforming", "conforming-merge-convex", "nef"};
+        const char *topologyItems[] = {"raw"};
         int topologyIndex = 0;
-        if (proposed.emberOutputTopology == ember::app::AppOutputTopologyMode::Conforming)
-            topologyIndex = 1;
-        else if (proposed.emberOutputTopology == ember::app::AppOutputTopologyMode::ConformingMergeConvex)
-            topologyIndex = 2;
-        else if (proposed.emberOutputTopology == ember::app::AppOutputTopologyMode::Nef)
-            topologyIndex = 3;
-        if (ImGui::Combo("output topology", &topologyIndex, topologyItems, 4))
+        if (ImGui::Combo("output topology", &topologyIndex, topologyItems, 1))
         {
-            proposed.emberOutputTopology =
-                topologyIndex == 1 ? ember::app::AppOutputTopologyMode::Conforming :
-                topologyIndex == 2 ? ember::app::AppOutputTopologyMode::ConformingMergeConvex :
-                topologyIndex == 3 ? ember::app::AppOutputTopologyMode::Nef :
-                ember::app::AppOutputTopologyMode::Raw;
+            proposed.emberOutputTopology = ember::app::AppOutputTopologyMode::Raw;
             changed = true;
         }
 

@@ -6,9 +6,6 @@
 #include "core/perf_tracing.h"
 #include "io/io.h"
 #include "output_modes.h"
-#if defined(REEMBER_ENABLE_NEF_POSTPROCESS)
-#include "nef_postprocess.h"
-#endif
 
 #include <oneapi/tbb/info.h>
 #include <oneapi/tbb/task_arena.h>
@@ -75,7 +72,7 @@ void printUsage()
             << "--op union|intersection|difference --out <result.obj|result.stl> "
             << "[--scale <positive_integer>] [--leaf-threshold <positive_integer>] "
             << "[--threads <positive_integer>] "
-            << "[--output-topology raw|conforming|conforming-merge-convex|nef] "
+            << "[--output-topology raw] "
             << "[--timings-out <metrics.txt>] "
             << "[--assume-lhs-nsi] [--assume-lhs-nnc] "
             << "[--assume-rhs-nsi] [--assume-rhs-nnc]"
@@ -94,12 +91,6 @@ int topologyModeCode(ember::app::AppOutputTopologyMode mode) noexcept
     {
     case ember::app::AppOutputTopologyMode::Raw:
         return 0;
-    case ember::app::AppOutputTopologyMode::Conforming:
-        return 1;
-    case ember::app::AppOutputTopologyMode::ConformingMergeConvex:
-        return 2;
-    case ember::app::AppOutputTopologyMode::Nef:
-        return 3;
     }
 
     return 0;
@@ -326,19 +317,19 @@ bool parseArgs(int argc, char **argv, CliOptions &outOptions)
             {
                 if (!ember::app::parseAppOutputTopologyMode(value, outOptions.outputTopologyMode))
                 {
-                    std::cerr << "Unsupported output topology mode: " << value << std::endl;
+                    std::cerr << "Unsupported output topology mode: " << value
+                              << ". Application output post-processing is disabled; use raw."
+                              << std::endl;
                     return false;
                 }
             }
             else if (arg == "--output-postprocess")
             {
-                if (value == "nef")
+                if (value != "none")
                 {
-                    outOptions.outputTopologyMode = ember::app::AppOutputTopologyMode::Nef;
-                }
-                else if (value != "none")
-                {
-                    std::cerr << "Unsupported output postprocess mode: " << value << std::endl;
+                    std::cerr << "Unsupported output postprocess mode: " << value
+                              << ". Application output post-processing is disabled."
+                              << std::endl;
                     return false;
                 }
             }
@@ -520,15 +511,6 @@ int main(int argc, char **argv)
         timings.outputTopologyMode = options.outputTopologyMode;
         std::string error;
 
-#if !defined(REEMBER_ENABLE_NEF_POSTPROCESS)
-        if (ember::app::isNefOutputTopologyMode(options.outputTopologyMode))
-        {
-            std::cerr << "--output-topology nef requires a build with REEMBER_ENABLE_NEF_POSTPROCESS=ON."
-                      << std::endl;
-            return 1;
-        }
-#endif
-
         const Clock::time_point readStart = Clock::now();
         {
             REEMBER_PROFILE_ZONE("re-EMBER::read_obj");
@@ -654,29 +636,12 @@ int main(int argc, char **argv)
                 ember::PolygonSoupExportOptions exportOptions;
                 exportOptions.coordinateScale = sharedScale;
                 exportOptions.topologyMode = ember::app::toPolygonSoupTopologyMode(options.outputTopologyMode);
-                if (ember::app::isNefOutputTopologyMode(options.outputTopologyMode))
-                {
-#if defined(REEMBER_ENABLE_NEF_POSTPROCESS)
-                    exported = ember::app::writeNefPostprocessedMesh(
-                        problem.resultFragments(),
-                        options.outputPath,
-                        sharedScale,
-                        exportedFaces,
-                        error);
-#else
-                    error = "--output-topology nef is not enabled in this build.";
-                    exported = false;
-#endif
-                }
-                else
-                {
-                    exported = ember::writePolygonSoupMesh(
-                        problem.resultFragments(),
-                        options.outputPath,
-                        exportedFaces,
-                        error,
-                        exportOptions);
-                }
+                exported = ember::writePolygonSoupMesh(
+                    problem.resultFragments(),
+                    options.outputPath,
+                    exportedFaces,
+                    error,
+                    exportOptions);
             });
             if (!exported)
             {

@@ -41,7 +41,6 @@ option(REEMBER_ENABLE_EIGEN "Link Eigen3 from vcpkg" OFF)
 option(REEMBER_ENABLE_CGAL "Link CGAL from vcpkg" OFF)
 option(REEMBER_BUILD_VISUAL_TEST "Build the libigl-based visual-test target" ON)
 option(REEMBER_BUILD_VERIFY "Build the CGAL Nef oracle verifier target" ON)
-option(REEMBER_ENABLE_NEF_POSTPROCESS "Enable CGAL Nef output topology in re-EMBER" ON)
 option(REEMBER_ENABLE_TRACY "Enable optional Tracy profiler instrumentation" OFF)
 option(REEMBER_ENABLE_TRACY_MATH "Enable optional low-level math256 Tracy instrumentation" OFF)
 
@@ -185,13 +184,6 @@ add_executable(re-EMBER ${REEMBER_APP_SOURCE} ${REEMBER_APP_HEADERS})
 target_compile_definitions(re-EMBER PRIVATE TINYOBJLOADER_USE_DOUBLE)
 target_link_libraries(re-EMBER PRIVATE reember_lib)
 
-if(REEMBER_ENABLE_NEF_POSTPROCESS)
-  find_package(CGAL CONFIG REQUIRED)
-  target_sources(re-EMBER PRIVATE ${REEMBER_NEF_POSTPROCESS_SOURCE} ${REEMBER_NEF_POSTPROCESS_HEADERS})
-  target_compile_definitions(re-EMBER PRIVATE REEMBER_ENABLE_NEF_POSTPROCESS=1)
-  target_link_libraries(re-EMBER PRIVATE CGAL::CGAL)
-endif()
-
 if(MSVC)
   target_compile_options(re-EMBER PRIVATE
     "$<$<CONFIG:Release>:/Zi>"
@@ -229,8 +221,6 @@ if(REEMBER_BUILD_VISUAL_TEST)
   add_executable(visual-test
     ${REEMBER_VISUAL_TEST_SOURCE}
     ${REEMBER_APP_HEADERS}
-    ${REEMBER_NEF_POSTPROCESS_SOURCE}
-    ${REEMBER_NEF_POSTPROCESS_HEADERS}
   )
   target_compile_definitions(visual-test PRIVATE REEMBER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
   target_link_libraries(visual-test

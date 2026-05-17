@@ -31,7 +31,7 @@ ctest --test-dir build --output-on-failure --timeout 120
 cmake --build build --target re-EMBER
 ```
 
-The default supported local configuration is clang-cl plus Boost.Multiprecision. The optional CGAL oracle verifier is controlled by `REEMBER_BUILD_VERIFY`, and the optional Nef output topology is controlled by `REEMBER_ENABLE_NEF_POSTPROCESS`; both are enabled in the normal local build. If `TBB`, LLVM, or CGAL is missing, install them first:
+The default supported local configuration is clang-cl plus Boost.Multiprecision. The optional CGAL oracle verifier is controlled by `REEMBER_BUILD_VERIFY` and is enabled in the normal local build. If `TBB`, LLVM, or CGAL is missing, install them first:
 
 ```powershell
 vcpkg install tbb:x64-windows cgal:x64-windows
@@ -46,9 +46,7 @@ Minimal boolean smoke test:
 build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\boolean_smoke.obj --leaf-threshold 25
 ```
 
-`.obj` output keeps n-gon faces by default. `.stl` output is triangulated at the I/O boundary. The default polygon-soup export may contain T-junctions, matching the paper's output model.
-
-The non-raw output topology modes are still under development and should not be used for normal results. `conforming`, `conforming-merge-convex`, and `nef` are unstable export-only post-processing experiments; they are slow, known to have correctness problems, and may fail or produce misleading meshes. Keep `--output-topology raw` unless you are debugging the post-processing code itself.
+`.obj` output keeps n-gon faces. `.stl` output is triangulated at the I/O boundary. Application output post-processing is disabled: the CLI exports raw `BoolProblem::resultFragments()` only, so it does not run T-junction repair, coplanar merging, or Nef regularization.
 
 ## Oracle verifier
 
@@ -69,7 +67,7 @@ The oracle is exact over the quantized `Polygon256` input used by re-EMBER. It d
 - `--scale <positive_integer>` overrides the shared quantization scale.
 - `--leaf-threshold <positive_integer>` controls when subdivision stops at a leaf.
 - `--threads <positive_integer>` sets the application-layer task arena size and solver thread count; use `1` to force serial execution.
-- `--output-topology raw|conforming|conforming-merge-convex|nef` chooses export topology handling. `raw` is the default and the only recommended mode. The other modes are in-development post-processing experiments: unstable, slow, known to have correctness problems, and not suitable for normal use.
+- `--output-topology raw` keeps application output on raw `resultFragments()`; non-raw output post-processing modes are disabled.
 - `--timings-out <metrics.txt>` writes the timing and solve summary for a single run.
 - `--assume-lhs-nsi`, `--assume-lhs-nnc`, `--assume-rhs-nsi`, and `--assume-rhs-nnc` declare input assumptions for faster runs. `NNC` requires `NSI` for the same side.
 
