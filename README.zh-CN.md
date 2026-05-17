@@ -20,7 +20,7 @@
 ```powershell
 $clang = "$env:USERPROFILE\scoop\apps\llvm\current\bin\clang-cl.exe"
 $rc = "$env:USERPROFILE\scoop\apps\llvm\current\bin\llvm-rc.exe"
-$ninja = "$env:USERPROFILE\scoop\apps\ninja\current\ninja.exe"
+$ninja = "D:\Program Files\VisualStudio\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe"
 cmake -S . -B build -G Ninja `
   -DCMAKE_MAKE_PROGRAM="$ninja" `
   -DCMAKE_CXX_COMPILER="$clang" `
@@ -31,11 +31,11 @@ ctest --test-dir build --output-on-failure --timeout 120
 cmake --build build --target re-EMBER
 ```
 
-默认支持的本地构建组合是 clang-cl + Boost.Multiprecision。`Release` 和 `RelWithDebInfo` 构建默认通过 `REEMBER_ENABLE_NATIVE_CLANG_OPTIMIZATIONS=ON` 打开 Clang 本机优化，也就是加入 `-O3`、`-march=native` 和 `-mtune=native`；需要可移植二进制时关闭这个选项。可选的 CGAL oracle 校验工具由 `REEMBER_BUILD_VERIFY` 控制，普通本地构建默认开启。如果缺少 `TBB`、LLVM、Ninja 或 CGAL，先安装：
+默认支持的本地构建组合是 clang-cl + Boost.Multiprecision。可选的 CGAL oracle 校验工具由 `REEMBER_BUILD_VERIFY` 控制，普通本地构建默认开启。如果缺少 `TBB`、LLVM 或 CGAL，先安装：
 
 ```powershell
 vcpkg install tbb:x64-windows cgal:x64-windows
-scoop install llvm ninja
+scoop install llvm
 ```
 
 ## 运行
