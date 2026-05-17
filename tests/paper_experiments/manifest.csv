@@ -9,3 +9,13 @@ small_007_702398_minus_118675,small,difference,inputs/small/small_007_702398_min
 small_008_45512_minus_84023,small,difference,inputs/small/small_008_45512_minus_84023/lhs.obj,inputs/small/small_008_45512_minus_84023/rhs.obj,1958,3916,1312,2664,success,5660,success,success
 small_009_48418_minus_269121,small,difference,inputs/small/small_009_48418_minus_269121/lhs.obj,inputs/small/small_009_48418_minus_269121/rhs.obj,1156,2332,608,1224,success,3516,success,success
 small_010_1614064_minus_129914,small,difference,inputs/small/small_010_1614064_minus_129914/lhs.obj,inputs/small/small_010_1614064_minus_129914/rhs.obj,1459,2922,1763,3522,success,3914,success,success
+medium_001_472093_minus_697212,medium,difference,inputs/medium/medium_001_472093_minus_697212/lhs.obj,inputs/medium/medium_001_472093_minus_697212/rhs.obj,7705,15406,2613,5230,success,,success,success
+medium_002_161091_minus_116051,medium,difference,inputs/medium/medium_002_161091_minus_116051/lhs.obj,inputs/medium/medium_002_161091_minus_116051/rhs.obj,2685,5366,3426,6864,success,,success,success
+medium_003_509310_minus_75090,medium,difference,inputs/medium/medium_003_509310_minus_75090/lhs.obj,inputs/medium/medium_003_509310_minus_75090/rhs.obj,5716,11520,7007,14018,success,,success,success
+medium_004_472155_minus_77016,medium,difference,inputs/medium/medium_004_472155_minus_77016/lhs.obj,inputs/medium/medium_004_472155_minus_77016/rhs.obj,5214,10424,2764,5524,success,,success,success
+medium_005_591249_minus_37275,medium,difference,inputs/medium/medium_005_591249_minus_37275/lhs.obj,inputs/medium/medium_005_591249_minus_37275/rhs.obj,3236,6520,9293,18594,success,,success,success
+large_001_40900_minus_95180,large,difference,inputs/large/large_001_40900_minus_95180/lhs.obj,inputs/large/large_001_40900_minus_95180/rhs.obj,13850,27708,34982,69960,timeout,,success,success
+large_002_37266_minus_1396893,large,difference,inputs/large/large_002_37266_minus_1396893/lhs.obj,inputs/large/large_002_37266_minus_1396893/rhs.obj,14738,29472,10128,20256,timeout,,success,success
+large_003_48270_minus_230909,large,difference,inputs/large/large_003_48270_minus_230909/lhs.obj,inputs/large/large_003_48270_minus_230909/rhs.obj,14298,28592,36259,72514,timeout,,success,success
+large_004_472015_minus_1146199,large,difference,inputs/large/large_004_472015_minus_1146199/lhs.obj,inputs/large/large_004_472015_minus_1146199/rhs.obj,19046,38096,34072,68228,timeout,,success,success
+large_005_1504272_minus_366956,large,difference,inputs/large/large_005_1504272_minus_366956/lhs.obj,inputs/large/large_005_1504272_minus_366956/rhs.obj,30695,61410,48023,96042,timeout,,success,success
