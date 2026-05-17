@@ -4,11 +4,14 @@
  */
 #pragma once
 
+#include "algorithm/WNV_tracing.h"
 #include "core/bool_problem.h"
 #include "core/parallel_solve_context.h"
 
 #include <cstddef>
 #include <memory>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace ember
@@ -51,6 +54,28 @@ struct BinaryPolygonScanSummary
     bool hasRhs = false;
     bool isSingleOperand = false;
     BinarySingleOperand singleOperand = BinarySingleOperand::None;
+};
+
+/**
+ * @brief 叶片分类候选全部耗尽时携带 trace 状态的内部异常。
+ */
+class LeafClassificationFailure : public std::runtime_error
+{
+public:
+    LeafClassificationFailure(std::string message, traceStatus status);
+
+    /**
+     * @brief 返回最后一次候选追踪的状态。
+     */
+    traceStatus status() const noexcept;
+
+    /**
+     * @brief 判断失败是否仅表示当前路径候选不可用，可通过继续细分重试。
+     */
+    bool isRecoverableBySubdivision() const noexcept;
+
+private:
+    traceStatus status_ = FAIL;
 };
 
 /**

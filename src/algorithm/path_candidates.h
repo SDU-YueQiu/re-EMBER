@@ -550,19 +550,23 @@ inline std::size_t enumerateLeafClassificationAxisPathCandidatesFromPoints(
         if (axisOrder.empty())
             continue;
 
-        std::vector<Segment256> path;
-        if (!detail::buildAxisAlignedCoordinatePath(
-                    referencePoint,
-                    targetPoint,
-                    referenceCoordinatePlanes,
-                    targetCoordinatePlanes,
-                    axisOrder,
-                    path))
-            continue;
+        std::sort(axisOrder.begin(), axisOrder.end(), detail::axisOrderLess);
+        do
+        {
+            std::vector<Segment256> path;
+            if (!detail::buildAxisAlignedCoordinatePath(
+                        referencePoint,
+                        targetPoint,
+                        referenceCoordinatePlanes,
+                        targetCoordinatePlanes,
+                        axisOrder,
+                        path))
+                continue;
 
-        ++emitted;
-        if (!visitor(LeafClassificationPathCandidate{targetPoint, std::move(path)}))
-            return emitted;
+            ++emitted;
+            if (!visitor(LeafClassificationPathCandidate{targetPoint, std::move(path)}))
+                return emitted;
+        } while (std::next_permutation(axisOrder.begin(), axisOrder.end(), detail::axisOrderLess));
     }
 
     return emitted;

@@ -136,7 +136,7 @@ flowchart TD
 当前 `solveRecursive()` 的决策顺序非常关键，真实实现顺序如下：
 
 1. 尝试 `single operand assumption leaf` 快路径；一旦命中，当前节点直接按普通叶节点完整求解。
-2. 若达到叶子阈值，或 AABB 已不可再切分，则转叶子求解。
+2. 若达到叶子阈值，或 AABB 已不可再切分，则转叶子求解；阈值叶片若只因 `PATH_INVALID` 候选耗尽失败且 AABB 还能切，会放弃当前叶子并继续细分。
 3. 否则选择切分面并创建左右子节点。
 4. 常量 indicator 剪枝只发生在 child 创建前。
 5. 若两个 child 都存在，且 sibling 并行门槛满足，则当前线程继续 polygon soup 更大的 child，把较小的 sibling 作为 `oneTBB` task 提交。
@@ -374,7 +374,7 @@ flowchart TD
 3. 如果命中 NSI/NNC 单操作数 bulk fast path，则只对一个代表面调用 `classifyLeafFragment()`。
 4. 代表面分类成功后，直接根据 `(frontStatus, backStatus)` 对整批 `polygons_` 做三选一处理：整体直接输出、整体翻转后输出，或整体丢弃。
 5. 如果没有命中 bulk fast path，则回到普通逐片流程：当前片段调用 `classifyLeafFragment()`；在允许单操作数逐片复用时，后续片段可以复用首个片段的 `front/back WNV`。
-6. 任一真实分类失败都会直接抛异常，不输出不可信结果。
+6. 任一真实分类失败都会先携带最后一次 trace 状态向上报告；只有阈值叶片上的 `PATH_INVALID` 可触发继续细分，其他失败仍直接抛异常，不输出不可信结果。
 
 ```mermaid
 flowchart TD
@@ -429,7 +429,7 @@ flowchart TD
     N -->|否| L["返回 Failure"]
 ```
 
-当前实现不会因为 `PATH_INVALID` 回退到递归细分；无论是普通叶节点还是入口单操作数快路径，一旦叶分类穷尽候选仍失败，就按叶节点失败处理。候选进入 trace 前会先验证路径非空、从局部参考点连续连接、终点落在待分类片段支撑平面上；不满足这些结构条件时只在当前候选上尝试局部重建，不把 `INPUT_INVALID` 当成普通 `PATH_INVALID` 推动全局穷举。
+阈值叶片穷尽候选且最后状态为 `PATH_INVALID` 时，如果当前 AABB 仍可切分，`tryFinishStoppedSubdivisionNode()` 会清理本次叶子尝试的临时片段并回到递归切分；该次数记录在 `leafClassificationRetrySubdivisionCount`。AABB 已不可切、切分失败路径、入口单操作数快路径，或者最后状态为 `INPUT_INVALID/FAIL` 时仍按失败处理。候选进入 trace 前会先验证路径非空、从局部参考点连续连接、终点落在待分类片段支撑平面上；不满足这些结构条件时只在当前候选上尝试局部重建，不把 `INPUT_INVALID` 当成普通 `PATH_INVALID` 推动全局穷举。
 
 换平面候选有两层去重：先用起点三平面、目标三平面和替换顺序组成 `PlaneReplacementBuildSignature`，在真正构造路径前过滤重复构造；再用路径端点的齐次点序列作为 trace 级签名，避免同一条路径重复进入 WNV trace。当前签名集合用哈希缓存维护，避免在大量 inset / bridge rescue 目标上反复线性比较。
 
@@ -481,7 +481,7 @@ flowchart TD
 其中 `solveMetrics()` 最值得关注的字段通常是：
 
 - 规模类：`effectiveThreadCount`、`nodeCount`、`leafNodeCount`、`maxDepth`、`totalPolygonCount`
-- 细分类：`wntvAwareSplitCount`、`centerRangeSplitCount`、`midpointSplitCount`
+- 细分类：`wntvAwareSplitCount`、`centerRangeSplitCount`、`midpointSplitCount`、`leafClassificationRetrySubdivisionCount`
 - 并行类：`parallelSiblingSpawnCount`
 - 子参考传播类：`childReferenceReuseCount`、`childReferenceTraceCount`、`childReferenceCandidateCount`
 - 叶片分类类：`leafFragmentCount`、`classifiedFragmentCount`、`leafClassificationTraceAttemptCount`、`leafClassificationCandidateGeneratedCount`、`leafClassificationCandidateUniqueCount`

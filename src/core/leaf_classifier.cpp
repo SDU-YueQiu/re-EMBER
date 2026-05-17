@@ -174,7 +174,7 @@ struct LeafClassificationTraceResult
                 << attemptStats.debugLog.str();
         }
     }
-    throw std::runtime_error(summary.str());
+    throw LeafClassificationFailure(summary.str(), attemptStats.lastStatus);
 }
 
 const char *traceStatusName(traceStatus status) noexcept
