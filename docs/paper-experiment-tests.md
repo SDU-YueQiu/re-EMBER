@@ -4,7 +4,7 @@
 
 ## 默认样本和参数
 
-默认纳入 `small_001` 到 `small_010` 共 10 个 small pair。CTest 会固定调用 `profile-re-ember.ps1 -InputRoot tests/paper_experiments/inputs/small -Op difference -NoTracy -Iterations 1`，并通过 `-ExecutablePath` 复用当前 CTest 构建树里的 CLI；普通手动 `-NoTracy` 运行在未显式传 `-Configuration` 时默认使用 `Release`。线程数默认取当前构建机的逻辑处理器数 `REEMBER_CTEST_THREADS`，并继续启用论文实验使用的四个输入假设。只有在专门排查串行分支时才应把 `REEMBER_CTEST_THREADS` 显式设为 `1`。
+默认纳入 `small_001` 到 `small_010` 共 10 个 small pair。CTest 会固定调用 `profile-re-ember.ps1 -InputRoot tests/paper_experiments/inputs/small -Op difference -NoTracy -Iterations 1`，并通过 `-ExecutablePath` 复用当前 CTest 构建树里的 CLI；普通手动 `-NoTracy` 运行在未显式传 `-Configuration` 时默认使用 `Release`。线程数默认取当前构建机的逻辑处理器数 `REEMBER_CTEST_THREADS`，并继续启用论文实验使用的四个输入假设。只有在专门排查串行分支时才应把 `REEMBER_CTEST_THREADS` 显式设为 `1`。`inputs/medium` 和 `inputs/large` 与 small 使用同一目录约定，但只作为手动 verifier / 性能对比输入，不默认进入 CTest。
 
 这些样本是当前代码的端到端回归集合，不在本文档固化某次历史通过率；修复算法时以最新 `ctest` 和对应 `build/performance/run_<timestamp>/timings.csv`、`summary.txt`、`report.md` 为准。多 workload 批量运行时，`summary.txt` 会额外给出 `overall_avg_*` 总平均时间，`report.md` 会给出 `Overall Average Timings` 表，方便先比较整批负载的平均耗时。其中 `end_to_end_ms` / `avg_end_to_end_ms` 表示 CLI 流水线从开始读输入到完成导出输出的墙钟时间；`process_elapsed_ms` / `avg_process_elapsed_ms` 表示整个 `re-EMBER.exe` 进程的墙钟时间，包含阶段外开销。`tests/paper_experiments/manifest.csv` 中的 `current_status` / `current_failure_category` 只记录本工作树上次刷新后的状态，不能替代重新运行 CTest。
 
