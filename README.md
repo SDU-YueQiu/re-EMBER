@@ -20,7 +20,7 @@ All build artifacts go under `build/`.
 ```powershell
 $clang = "$env:USERPROFILE\scoop\apps\llvm\current\bin\clang-cl.exe"
 $rc = "$env:USERPROFILE\scoop\apps\llvm\current\bin\llvm-rc.exe"
-$ninja = "$env:USERPROFILE\scoop\apps\ninja\current\ninja.exe"
+$ninja = "D:\Program Files\VisualStudio\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe"
 cmake -S . -B build -G Ninja `
   -DCMAKE_MAKE_PROGRAM="$ninja" `
   -DCMAKE_CXX_COMPILER="$clang" `
@@ -31,11 +31,11 @@ ctest --test-dir build --output-on-failure --timeout 120
 cmake --build build --target re-EMBER
 ```
 
-The default supported local configuration is clang-cl plus Boost.Multiprecision. `Release` and `RelWithDebInfo` builds enable Clang native optimization by default through `REEMBER_ENABLE_NATIVE_CLANG_OPTIMIZATIONS=ON`, adding `-O3`, `-march=native`, and `-mtune=native`. Turn that option off when a portable binary is required. The optional CGAL oracle verifier is controlled by `REEMBER_BUILD_VERIFY` and is enabled in the normal local build. If `TBB`, LLVM, Ninja, or CGAL is missing, install them first:
+The default supported local configuration is clang-cl plus Boost.Multiprecision. The optional CGAL oracle verifier is controlled by `REEMBER_BUILD_VERIFY` and is enabled in the normal local build. If `TBB`, LLVM, or CGAL is missing, install them first:
 
 ```powershell
 vcpkg install tbb:x64-windows cgal:x64-windows
-scoop install llvm ninja
+scoop install llvm
 ```
 
 ## Run
