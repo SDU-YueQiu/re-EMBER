@@ -31,7 +31,7 @@ ctest --test-dir build --output-on-failure --timeout 120
 cmake --build build --target re-EMBER
 ```
 
-The default supported local configuration is clang-cl plus Boost.Multiprecision. The optional CGAL oracle verifier is controlled by `REEMBER_BUILD_VERIFY`, and the optional Nef export post-process is controlled by `REEMBER_ENABLE_NEF_POSTPROCESS`; both are enabled in the normal local build. If `TBB`, LLVM, or CGAL is missing, install them first:
+The default supported local configuration is clang-cl plus Boost.Multiprecision. The optional CGAL oracle verifier is controlled by `REEMBER_BUILD_VERIFY`, and the optional Nef output topology is controlled by `REEMBER_ENABLE_NEF_POSTPROCESS`; both are enabled in the normal local build. If `TBB`, LLVM, or CGAL is missing, install them first:
 
 ```powershell
 vcpkg install tbb:x64-windows cgal:x64-windows
@@ -48,7 +48,7 @@ build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\mo
 
 `.obj` output keeps n-gon faces by default. `.stl` output is triangulated at the I/O boundary. The default polygon-soup export may contain T-junctions, matching the paper's output model; pass `--output-topology conforming` to insert existing T-junction vertices before export, or `--output-topology conforming-merge-convex` to also merge conservative convex coplanar faces.
 
-`conforming-merge-convex` is intentionally a conservative prototype, not an industrial coplanar-region reconstruction pass. It fixes T-junctions and merges only some convex coplanar fragments. For paper-only visualization or verifier handoff where a watertight regularized mesh is more useful than preserving EMBER's raw polygon soup, pass `--output-postprocess nef`; this routes the result fragments through CGAL Nef regularization before writing OBJ/STL. This is heavier and can clean export topology, but it does not repair an incorrect solver result.
+`conforming-merge-convex` is intentionally a conservative prototype, not an industrial coplanar-region reconstruction pass. It fixes T-junctions and merges only some convex coplanar fragments. For paper-only visualization or verifier handoff where a watertight regularized mesh is more useful than preserving EMBER's raw polygon soup, pass `--output-topology nef`; this repairs T-junctions, routes the result fragments through CGAL Nef regularization, then writes OBJ/STL. This is heavier and can clean export topology, but it does not repair an incorrect solver result.
 
 ## Oracle verifier
 
@@ -69,8 +69,7 @@ The oracle is exact over the quantized `Polygon256` input used by re-EMBER. It d
 - `--scale <positive_integer>` overrides the shared quantization scale.
 - `--leaf-threshold <positive_integer>` controls when subdivision stops at a leaf.
 - `--threads <positive_integer>` sets the application-layer task arena size and solver thread count; use `1` to force serial execution.
-- `--output-topology raw|conforming|conforming-merge-convex` chooses optional export-only topology recovery. `raw` is the default, `conforming` repairs T-junctions with exact predicates, and `conforming-merge-convex` also merges adjacent coplanar faces only when the merged face remains convex.
-- `--output-postprocess none|nef` chooses a heavy export post-process. `none` is the default; `nef` regularizes the selected export topology with CGAL Nef before writing the mesh.
+- `--output-topology raw|conforming|conforming-merge-convex|nef` chooses optional export-only topology recovery. `raw` is the default, `conforming` repairs T-junctions with exact predicates, `conforming-merge-convex` also merges adjacent coplanar faces only when the merged face remains convex, and `nef` uses CGAL Nef regularization after T-junction repair.
 - `--timings-out <metrics.txt>` writes the timing and solve summary for a single run.
 - `--assume-lhs-nsi`, `--assume-lhs-nnc`, `--assume-rhs-nsi`, and `--assume-rhs-nnc` declare input assumptions for faster runs. `NNC` requires `NSI` for the same side.
 
@@ -99,6 +98,6 @@ The script writes `build\performance\run_<timestamp>\` with `summary.txt`, `timi
 ## Notes
 
 - `build\Debug\re-EMBER_tests.exe` runs the repository tests.
-- `build\Debug\visual-test.exe` exposes the same Ember output topology and Nef post-process controls in the interactive panel.
+- `build\Debug\visual-test.exe` exposes the same Ember output topology controls in the interactive panel, including `nef`.
 - `--threads 1` forces a serial run across application-layer preparation and solving when you need to debug.
 - `--timings-out <file>` writes the timing summary for a single run.
