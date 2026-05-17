@@ -1033,11 +1033,11 @@ function Resolve-ClangBoostConfigureTools {
     }
 
     $ninjaPath = Resolve-ClangBoostToolPath "ninja" @(
-        "D:\Program Files\VisualStudio\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe",
-        (Join-Path $env:ProgramFiles "Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe")
+        (Join-Path $env:USERPROFILE "scoop\apps\ninja\current\ninja.exe"),
+        (Join-Path $env:ProgramFiles "Ninja\ninja.exe")
     )
     if (-not $ninjaPath) {
-        throw "Missing ninja. Install Ninja or use the Visual Studio bundled Ninja executable."
+        throw "Missing ninja. Install Ninja first, for example with: scoop install ninja."
     }
 
     return [pscustomobject]@{
