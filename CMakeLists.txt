@@ -41,6 +41,7 @@ option(REEMBER_ENABLE_EIGEN "Link Eigen3 from vcpkg" OFF)
 option(REEMBER_ENABLE_CGAL "Link CGAL from vcpkg" OFF)
 option(REEMBER_BUILD_VISUAL_TEST "Build the libigl-based visual-test target" ON)
 option(REEMBER_BUILD_VERIFY "Build the CGAL Nef oracle verifier target" ON)
+option(REEMBER_ENABLE_NEF_POSTPROCESS "Enable CGAL Nef output postprocess in re-EMBER" ON)
 option(REEMBER_ENABLE_TRACY "Enable optional Tracy profiler instrumentation" OFF)
 option(REEMBER_ENABLE_TRACY_MATH "Enable optional low-level math256 Tracy instrumentation" OFF)
 
@@ -52,6 +53,18 @@ set(REEMBER_THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 
 set(REEMBER_APP_SOURCE
   "${CMAKE_CURRENT_SOURCE_DIR}/src/application/main.cpp"
+)
+
+set(REEMBER_APP_HEADERS
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/application/output_modes.h"
+)
+
+set(REEMBER_NEF_POSTPROCESS_SOURCE
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/application/nef_postprocess.cpp"
+)
+
+set(REEMBER_NEF_POSTPROCESS_HEADERS
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/application/nef_postprocess.h"
 )
 
 set(REEMBER_VISUAL_TEST_SOURCE
@@ -168,9 +181,16 @@ if(REEMBER_ENABLE_TRACY)
   endif()
 endif()
 
-add_executable(re-EMBER ${REEMBER_APP_SOURCE})
+add_executable(re-EMBER ${REEMBER_APP_SOURCE} ${REEMBER_APP_HEADERS})
 target_compile_definitions(re-EMBER PRIVATE TINYOBJLOADER_USE_DOUBLE)
 target_link_libraries(re-EMBER PRIVATE reember_lib)
+
+if(REEMBER_ENABLE_NEF_POSTPROCESS)
+  find_package(CGAL CONFIG REQUIRED)
+  target_sources(re-EMBER PRIVATE ${REEMBER_NEF_POSTPROCESS_SOURCE} ${REEMBER_NEF_POSTPROCESS_HEADERS})
+  target_compile_definitions(re-EMBER PRIVATE REEMBER_ENABLE_NEF_POSTPROCESS=1)
+  target_link_libraries(re-EMBER PRIVATE CGAL::CGAL)
+endif()
 
 if(MSVC)
   target_compile_options(re-EMBER PRIVATE
@@ -192,7 +212,11 @@ add_dependencies(re-EMBER_tests re-EMBER)
 if(REEMBER_BUILD_VERIFY)
   find_package(CGAL CONFIG REQUIRED)
 
-  add_executable(re-EMBER_verify ${REEMBER_VERIFY_SOURCE})
+  add_executable(re-EMBER_verify
+    ${REEMBER_VERIFY_SOURCE}
+    ${REEMBER_NEF_POSTPROCESS_SOURCE}
+    ${REEMBER_NEF_POSTPROCESS_HEADERS}
+  )
   target_compile_definitions(re-EMBER_verify PRIVATE TINYOBJLOADER_USE_DOUBLE)
   target_link_libraries(re-EMBER_verify PRIVATE reember_lib CGAL::CGAL)
 endif()
