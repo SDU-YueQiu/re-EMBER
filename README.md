@@ -46,9 +46,9 @@ Minimal boolean smoke test:
 build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\boolean_smoke.obj --leaf-threshold 25
 ```
 
-`.obj` output keeps n-gon faces by default. `.stl` output is triangulated at the I/O boundary. The default polygon-soup export may contain T-junctions, matching the paper's output model; pass `--output-topology conforming` to insert existing T-junction vertices before export, or `--output-topology conforming-merge-convex` to also merge conservative convex coplanar faces.
+`.obj` output keeps n-gon faces by default. `.stl` output is triangulated at the I/O boundary. The default polygon-soup export may contain T-junctions, matching the paper's output model.
 
-`conforming-merge-convex` is intentionally a conservative prototype, not an industrial coplanar-region reconstruction pass. It fixes T-junctions and merges only some convex coplanar fragments. For paper-only visualization or verifier handoff where a watertight regularized mesh is more useful than preserving EMBER's raw polygon soup, pass `--output-topology nef`; this repairs T-junctions, routes the result fragments through CGAL Nef regularization, then writes OBJ/STL. This is heavier and can clean export topology, but it does not repair an incorrect solver result.
+The non-raw output topology modes are still under development and should not be used for normal results. `conforming`, `conforming-merge-convex`, and `nef` are unstable export-only post-processing experiments; they are slow, known to have correctness problems, and may fail or produce misleading meshes. Keep `--output-topology raw` unless you are debugging the post-processing code itself.
 
 ## Oracle verifier
 
@@ -59,7 +59,7 @@ cmake --build build --target re-EMBER_verify
 build\Debug\re-EMBER_verify.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --leaf-threshold 25 --oracle-cache-dir build\oracle_cache\nef
 ```
 
-The oracle is exact over the quantized `Polygon256` input used by re-EMBER. It does not claim to validate the original floating OBJ/STL CAD intent before import and quantization. Oracle Nef files are cached under `build\oracle_cache\nef\` by default; pass `--refresh-oracle` to rebuild a cached entry. `--candidate-mode fragments-nef|export-conforming|export-nef` selects whether the candidate is compared from raw result fragments, from the conforming export topology, or from the Nef post-process path; this does not change the oracle cache key.
+The oracle is exact over the quantized `Polygon256` input used by re-EMBER. It does not claim to validate the original floating OBJ/STL CAD intent before import and quantization. Oracle Nef files are cached under `build\oracle_cache\nef\` by default; pass `--refresh-oracle` to rebuild a cached entry. `--candidate-mode fragments-nef|export-conforming|export-nef` selects whether the candidate is compared from raw result fragments, from the conforming export topology, or from the Nef export topology path; this does not change the oracle cache key.
 
 ## CLI options
 
@@ -69,7 +69,7 @@ The oracle is exact over the quantized `Polygon256` input used by re-EMBER. It d
 - `--scale <positive_integer>` overrides the shared quantization scale.
 - `--leaf-threshold <positive_integer>` controls when subdivision stops at a leaf.
 - `--threads <positive_integer>` sets the application-layer task arena size and solver thread count; use `1` to force serial execution.
-- `--output-topology raw|conforming|conforming-merge-convex|nef` chooses optional export-only topology recovery. `raw` is the default, `conforming` repairs T-junctions with exact predicates, `conforming-merge-convex` also merges adjacent coplanar faces only when the merged face remains convex, and `nef` uses CGAL Nef regularization after T-junction repair.
+- `--output-topology raw|conforming|conforming-merge-convex|nef` chooses export topology handling. `raw` is the default and the only recommended mode. The other modes are in-development post-processing experiments: unstable, slow, known to have correctness problems, and not suitable for normal use.
 - `--timings-out <metrics.txt>` writes the timing and solve summary for a single run.
 - `--assume-lhs-nsi`, `--assume-lhs-nnc`, `--assume-rhs-nsi`, and `--assume-rhs-nnc` declare input assumptions for faster runs. `NNC` requires `NSI` for the same side.
 
