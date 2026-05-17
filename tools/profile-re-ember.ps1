@@ -35,6 +35,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $TracyPortWasExplicit = $PSBoundParameters.ContainsKey("TracyPort")
 $ThreadsWasExplicit = $PSBoundParameters.ContainsKey("Threads")
+$ConfigurationWasExplicit = $PSBoundParameters.ContainsKey("Configuration")
 $UnwrapZoneFilter = @(
     foreach ($value in $UnwrapZoneFilter) {
         foreach ($token in ([string]$value -split '[,;]')) {
@@ -77,7 +78,7 @@ Notes:
   - The script sets REEMBER_TRACY_WAIT_MS before timed work so tracy-capture can attach without polluting read/prepare/solve/export timings.
   - tracy_zones.csv keeps inclusive time; tracy_zones_self.csv uses tracy-csvexport -e for self time.
   - Use -UnwrapZoneFilter <zone-name> to export per-event CSVs for specific hotspots only.
-  - Use -NoTracy only for timing-only runs without zone capture; that mode uses build\profile_clang_notracy\ automatically.
+  - Use -NoTracy only for timing-only runs without zone capture; that mode uses build\profile_clang_notracy\ automatically and defaults to Release unless -Configuration is explicit.
   - Automatic profiling builds use clang-cl with the Boost.Multiprecision integer backend.
   - Use -VerifyWithOracle to run re-EMBER_verify once per workload after timing; verification time is not included in timings.csv.
   - OBJ workloads are assumed to satisfy NSI/NNC input assumptions by default.
@@ -96,6 +97,10 @@ if ($Help) {
 
 if ($EnableMathTracy -and $NoTracy) {
     throw "-EnableMathTracy requires Tracy capture. Remove -NoTracy or omit -EnableMathTracy."
+}
+
+if ($NoTracy -and -not $ConfigurationWasExplicit) {
+    $Configuration = "Release"
 }
 
 if ($Threads -lt 0) {
@@ -905,6 +910,13 @@ function Test-TracyMathEnabledInBuild {
     $cachePath = Join-Path $BuildDir "CMakeCache.txt"
     $value = Get-CMakeCacheValue $cachePath "REEMBER_ENABLE_TRACY_MATH"
     return ($value -eq "ON" -or $value -eq "TRUE" -or $value -eq "1")
+}
+
+function Get-CMakeBuildType {
+    param([string]$BuildDir)
+
+    $cachePath = Join-Path $BuildDir "CMakeCache.txt"
+    return Get-CMakeCacheValue $cachePath "CMAKE_BUILD_TYPE"
 }
 
 function Get-ReEmberExecutableCandidates {
@@ -2356,6 +2368,7 @@ try {
 
         $script:TracyEnabledInBuild = Test-TracyEnabledInBuild $BuildRoot
         $script:MathTracyEnabledInBuild = Test-TracyMathEnabledInBuild $BuildRoot
+        $script:CMakeBuildTypeInBuild = Get-CMakeBuildType $BuildRoot
 
         if ($NoTracy -and $script:TracyEnabledInBuild) {
             throw ("The selected profiling build tree '{0}' is configured with REEMBER_ENABLE_TRACY=ON, but -NoTracy was requested. Re-run without -SkipBuild so the script can configure build\\profile_clang_notracy\\ automatically." -f $BuildRoot)
@@ -2369,6 +2382,10 @@ try {
         $script:MathTracyEnabledInBuild = (-not $NoTracy) -and $script:MathTracyEnabledInBuild
         if ($SkipBuild -and (-not $EnableMathTracy) -and $script:MathTracyEnabledInBuild) {
             throw ("The selected profiling build tree '{0}' already has REEMBER_ENABLE_TRACY_MATH=ON, but -EnableMathTracy was not requested. Re-run without -SkipBuild so the script can reconfigure build\\profile_clang_tracy\\ automatically." -f $BuildRoot)
+        }
+        if ($SkipBuild -and (-not (Test-CMakeMultiConfig (Join-Path $BuildRoot "CMakeCache.txt"))) -and
+                $script:CMakeBuildTypeInBuild -ne $Configuration) {
+            throw ("The selected profiling build tree '{0}' is configured as CMAKE_BUILD_TYPE={1}, but this run requested {2}. Re-run without -SkipBuild so the script can configure the matching build type." -f $BuildRoot, $script:CMakeBuildTypeInBuild, $Configuration)
         }
 
         if (-not $SkipBuild) {

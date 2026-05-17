@@ -43,7 +43,7 @@ build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\mo
 
 ## 性能测试
 
-计时优先使用 `RelWithDebInfo`：
+Tracy 采样优先使用 `RelWithDebInfo`：
 
 ```powershell
 vcpkg install tracy[cli-tools]:x64-windows
@@ -58,7 +58,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Configura
 
 只有在确认热点落在 `determinant3x3`、`gcdMagnitude`、`primitiveHomPoint` 这类底层函数时才开 `REEMBER_ENABLE_TRACY_MATH` / `-EnableMathTracy`；平时保持关闭，避免给正常 profiling 和普通运行带来额外开销。
 
-只要端到端时间和 `BoolSolveMetrics` 时可加 `-NoTracy`；脚本会自动切到 `build\profile_notracy\`，普通构建仍保持 `REEMBER_ENABLE_TRACY=OFF`、`REEMBER_ENABLE_TRACY_MATH=OFF`。
+只要端到端时间和 `BoolSolveMetrics` 时可加 `-NoTracy`；未显式传 `-Configuration` 时脚本默认使用 `Release` 并自动切到 `build\profile_notracy\`，普通构建仍保持 `REEMBER_ENABLE_TRACY=OFF`、`REEMBER_ENABLE_TRACY_MATH=OFF`。
 
 如果只想比较固定工件和固定位姿下的不同布尔运算，保持 `-Lhs/-Rhs` 不变，只切换 `-Op`：
 
