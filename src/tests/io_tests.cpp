@@ -1058,6 +1058,54 @@ void runIoTests()
     }
 
     {
+        const std::vector<Polygon256> fragments{
+            makeFaceXY(0, 0, 2, 0, 2, 1),
+            makeFaceXY(0, 1, 2, -1, 0, 1)};
+
+        ObjMeshData rawMesh;
+        ObjMeshData conformingMesh;
+        std::string error;
+        assert(ember::buildObjMeshFromPolygonSoup(fragments, rawMesh, error));
+
+        ember::PolygonSoupExportOptions options;
+        options.topologyMode = ember::PolygonSoupTopologyMode::Conforming;
+        assert(ember::buildObjMeshFromPolygonSoup(fragments, conformingMesh, error, options));
+        assert(rawMesh.faces.size() == 2u);
+        assert(conformingMesh.faces.size() == 2u);
+        assert(rawMesh.faces[0].size() == 4u);
+        assert(conformingMesh.faces[0].size() == 5u);
+    }
+
+    {
+        Polygon256 left = makeFaceXY(0, 0, 1, 0, 1, 1);
+        Polygon256 right = makeFaceXY(0, 1, 2, 0, 1, 1);
+        left.edgeProvenances[1] = ember::PolygonEdgeProvenance::ArrangementClip;
+        const std::vector<Polygon256> fragments{left, right};
+
+        ObjMeshData mergedMesh;
+        std::string error;
+        ember::PolygonSoupExportOptions options;
+        options.topologyMode = ember::PolygonSoupTopologyMode::ConformingMergeConvex;
+        assert(ember::buildObjMeshFromPolygonSoup(fragments, mergedMesh, error, options));
+        assert(mergedMesh.faces.size() == 1u);
+        assert(mergedMesh.faces.front().size() == 4u);
+    }
+
+    {
+        Polygon256 tall = makeFaceXY(0, 0, 1, 0, 2, 1);
+        Polygon256 lowerRight = makeFaceXY(0, 1, 2, 0, 1, 1);
+        tall.edgeProvenances[1] = ember::PolygonEdgeProvenance::ArrangementClip;
+        const std::vector<Polygon256> fragments{tall, lowerRight};
+
+        ObjMeshData notMergedMesh;
+        std::string error;
+        ember::PolygonSoupExportOptions options;
+        options.topologyMode = ember::PolygonSoupTopologyMode::ConformingMergeConvex;
+        assert(ember::buildObjMeshFromPolygonSoup(fragments, notMergedMesh, error, options));
+        assert(notMergedMesh.faces.size() == 2u);
+    }
+
+    {
         const Polygon256 square = makeFaceXY(0, 0, 2, 0, 2, 1);
         const std::filesystem::path outputPath = makeTestPath("io_single_square_export.obj");
 
@@ -1110,6 +1158,20 @@ void runIoTests()
         assert(mesh.vertices.size() == 4u);
         assert(mesh.faces[0].size() == 3u);
         assert(mesh.faces[1].size() == 3u);
+    }
+
+    {
+        const std::vector<Polygon256> fragments{
+            makeFaceXY(0, 0, 2, 0, 2, 1),
+            makeFaceXY(0, 1, 2, -1, 0, 1)};
+        const std::filesystem::path outputPath = makeTestPath("io_conforming_square_export.stl");
+
+        ember::PolygonSoupExportOptions options;
+        options.topologyMode = ember::PolygonSoupTopologyMode::Conforming;
+        std::size_t faceCount = 0;
+        std::string error;
+        assert(ember::writePolygonSoupMesh(fragments, outputPath.string(), faceCount, error, options));
+        assert(faceCount == 5u);
     }
 
     {

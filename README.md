@@ -46,7 +46,7 @@ Minimal boolean smoke test:
 build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\boolean_smoke.obj --leaf-threshold 25
 ```
 
-`.obj` output keeps n-gon faces by default. `.stl` output is triangulated at the I/O boundary.
+`.obj` output keeps n-gon faces by default. `.stl` output is triangulated at the I/O boundary. The default polygon-soup export may contain T-junctions, matching the paper's output model; pass `--output-topology conforming` to insert existing T-junction vertices before export, or `--output-topology conforming-merge-convex` to also merge conservative convex coplanar faces.
 
 ## Oracle verifier
 
@@ -67,6 +67,7 @@ The oracle is exact over the quantized `Polygon256` input used by re-EMBER. It d
 - `--scale <positive_integer>` overrides the shared quantization scale.
 - `--leaf-threshold <positive_integer>` controls when subdivision stops at a leaf.
 - `--threads <positive_integer>` sets the application-layer task arena size and solver thread count; use `1` to force serial execution.
+- `--output-topology raw|conforming|conforming-merge-convex` chooses optional export-only topology recovery. `raw` is the default, `conforming` repairs T-junctions with exact predicates, and `conforming-merge-convex` also merges adjacent coplanar faces only when the merged face remains convex.
 - `--timings-out <metrics.txt>` writes the timing and solve summary for a single run.
 - `--assume-lhs-nsi`, `--assume-lhs-nnc`, `--assume-rhs-nsi`, and `--assume-rhs-nnc` declare input assumptions for faster runs. `NNC` requires `NSI` for the same side.
 
