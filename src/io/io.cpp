@@ -679,22 +679,6 @@ bool pointIsBetweenSegmentEndpoints(
     return pointVsEnd >= 0 && pointVsStart <= 0;
 }
 
-bool pointIsStrictlyInsideEdge(
-    const std::vector<PlanePoint3i> &vertices,
-    const std::vector<ApproxPoint3> &approxVertices,
-    const std::vector<std::string> &pointKeys,
-    std::size_t start,
-    std::size_t point,
-    std::size_t end)
-{
-    if (point == start || point == end)
-        return false;
-    if (pointKeys[point] == pointKeys[start] || pointKeys[point] == pointKeys[end])
-        return false;
-
-    return pointIsBetweenSegmentEndpoints(vertices, approxVertices, start, point, end);
-}
-
 struct WideVec3
 {
     boost::multiprecision::cpp_int x = 0;
@@ -710,6 +694,49 @@ WideVec3 wideVectorNumerator(const HomPoint4i &from, const HomPoint4i &to)
         toWideInteger(to.x) * fromW - toWideInteger(from.x) * toW,
         toWideInteger(to.y) * fromW - toWideInteger(from.y) * toW,
         toWideInteger(to.z) * fromW - toWideInteger(from.z) * toW};
+}
+
+bool isZeroWideVec3(const WideVec3 &value)
+{
+    return value.x == 0 && value.y == 0 && value.z == 0;
+}
+
+WideVec3 crossWideVec3(const WideVec3 &lhs, const WideVec3 &rhs)
+{
+    return WideVec3{
+        lhs.y * rhs.z - lhs.z * rhs.y,
+        lhs.z * rhs.x - lhs.x * rhs.z,
+        lhs.x * rhs.y - lhs.y * rhs.x};
+}
+
+bool pointIsStrictlyOnSegmentExact(
+    const std::vector<PlanePoint3i> &vertices,
+    std::size_t start,
+    std::size_t point,
+    std::size_t end)
+{
+    if (point == start || point == end)
+        return false;
+
+    const HomPoint4i &startPoint = vertices[start].x;
+    const HomPoint4i &candidatePoint = vertices[point].x;
+    const HomPoint4i &endPoint = vertices[end].x;
+    const WideVec3 segment = wideVectorNumerator(startPoint, endPoint);
+    const WideVec3 candidate = wideVectorNumerator(startPoint, candidatePoint);
+    if (!isZeroWideVec3(crossWideVec3(segment, candidate)))
+        return false;
+
+    const int axis = chooseSegmentSortAxis(vertices[start], vertices[end]);
+    const int startVsEnd = compareHomCoordinate(startPoint, endPoint, axis);
+    if (startVsEnd == 0)
+        return false;
+
+    const int candidateVsStart = compareHomCoordinate(candidatePoint, startPoint, axis);
+    const int candidateVsEnd = compareHomCoordinate(candidatePoint, endPoint, axis);
+    if (startVsEnd < 0)
+        return candidateVsStart > 0 && candidateVsEnd < 0;
+
+    return candidateVsEnd > 0 && candidateVsStart < 0;
 }
 
 boost::multiprecision::cpp_int orientationAgainstPlane(
@@ -912,36 +939,6 @@ std::vector<ApproxPoint3> buildApproxPoints(const std::vector<PlanePoint3i> &ver
     return points;
 }
 
-std::unordered_map<std::string, std::vector<std::size_t>> buildVerticesByPlanePair(
-    const RecoveredPolygonSoupData &data)
-{
-    std::unordered_map<std::string, std::vector<std::size_t>> verticesByPlanePair;
-    for (std::size_t faceIndex = 0; faceIndex < data.faces.size(); ++faceIndex)
-    {
-        const std::vector<std::size_t> &face = data.faces[faceIndex];
-        if (faceIndex >= data.faceEdgePlanes.size() || data.faceEdgePlanes[faceIndex].size() != face.size())
-            continue;
-
-        for (std::size_t edgeIndex = 0; edgeIndex < face.size(); ++edgeIndex)
-        {
-            const std::string key =
-                makeUnorientedPlanePairKey(data.facePlanes[faceIndex], data.faceEdgePlanes[faceIndex][edgeIndex]);
-            std::vector<std::size_t> &indices = verticesByPlanePair[key];
-            indices.push_back(face[edgeIndex]);
-            indices.push_back(face[(edgeIndex + 1u) % face.size()]);
-        }
-    }
-
-    for (auto &entry : verticesByPlanePair)
-    {
-        std::vector<std::size_t> &indices = entry.second;
-        std::sort(indices.begin(), indices.end());
-        indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
-    }
-
-    return verticesByPlanePair;
-}
-
 void removeConsecutiveDuplicateIndices(std::vector<std::size_t> &face)
 {
     face.erase(std::unique(face.begin(), face.end()), face.end());
@@ -955,8 +952,6 @@ bool insertTJunctionVertices(RecoveredPolygonSoupData &data, std::string &outErr
     const std::vector<AABB3i> vertexBoxes = buildVertexAABBs(data.uniqueVertices);
     const std::vector<std::string> pointKeys = buildPointKeys(data.uniqueVertices);
     const std::vector<ApproxPoint3> approxVertices = buildApproxPoints(data.uniqueVertices);
-    const std::unordered_map<std::string, std::vector<std::size_t>> verticesByPlanePair =
-        buildVerticesByPlanePair(data);
     std::vector<std::vector<std::size_t>> refinedFaces(data.faces.size());
     std::vector<std::vector<PolygonEdgeProvenance>> refinedFaceProvenances(data.faces.size());
     std::vector<std::string> faceErrors(data.faces.size());
@@ -998,13 +993,7 @@ bool insertTJunctionVertices(RecoveredPolygonSoupData &data, std::string &outErr
             }
 
             std::vector<std::size_t> interiorPoints;
-            const std::string candidateKey =
-                makeUnorientedPlanePairKey(data.facePlanes[faceIndex], data.faceEdgePlanes[faceIndex][edgeIndex]);
-            const auto candidateEntry = verticesByPlanePair.find(candidateKey);
-            if (candidateEntry == verticesByPlanePair.end())
-                continue;
-
-            for (std::size_t candidateIndex : candidateEntry->second)
+            for (std::size_t candidateIndex = 0; candidateIndex < data.uniqueVertices.size(); ++candidateIndex)
             {
                 if (candidateIndex == startIndex || candidateIndex == endIndex)
                     continue;
@@ -1014,21 +1003,12 @@ bool insertTJunctionVertices(RecoveredPolygonSoupData &data, std::string &outErr
                 if (!doAABBsOverlap(edgeBox, vertexBoxes[candidateIndex]))
                     continue;
 
-                const PlanePoint3i &candidate = data.uniqueVertices[candidateIndex];
-                if (candidate.classify(data.facePlanes[faceIndex]) != 0)
-                    continue;
-                if (candidate.classify(data.faceEdgePlanes[faceIndex][edgeIndex]) != 0)
-                    continue;
-                if (!pointIsStrictlyInsideEdge(
+                if (!pointIsStrictlyOnSegmentExact(
                             data.uniqueVertices,
-                            approxVertices,
-                            pointKeys,
                             startIndex,
                             candidateIndex,
                             endIndex))
-                {
                     continue;
-                }
 
                 interiorPoints.push_back(candidateIndex);
             }
