@@ -61,18 +61,19 @@ Outputs:
 
 Notes:
   - Uses build\ only; profiling builds live under build\profile_* and do not reuse the ordinary build\ tree.
-  - Tracy profiling is the default path and uses build\profile_tracy\ with REEMBER_ENABLE_TRACY=ON.
+  - Tracy profiling is the default path and uses build\profile_clang_tracy\ with REEMBER_ENABLE_TRACY=ON.
   - When -SkipBuild is not specified, the script configures the mode-matched profiling build tree automatically.
   - Use -ExecutablePath to reuse an existing re-EMBER.exe directly and skip all configure/build logic.
   - Use -InputRoot when one parent directory contains multiple case subdirectories, each with exactly one lhs.obj|stl and one rhs.obj|stl.
   - Use -EnableMathTracy to additionally enable low-level math256 Tracy zones; the default is OFF to avoid steady-state overhead.
-  - -EnableMathTracy uses build\profile_tracy_math\ and enables REEMBER_ENABLE_TRACY_MATH automatically.
+  - -EnableMathTracy uses build\profile_clang_tracy_math\ and enables REEMBER_ENABLE_TRACY_MATH automatically.
   - Install the required tools with: vcpkg install tracy[cli-tools]:x64-windows
   - The script auto-selects a bindable Tracy port when the default port is reserved on the local machine.
   - The script sets REEMBER_TRACY_WAIT_MS before timed work so tracy-capture can attach without polluting read/prepare/solve/export timings.
   - tracy_zones.csv keeps inclusive time; tracy_zones_self.csv uses tracy-csvexport -e for self time.
   - Use -UnwrapZoneFilter <zone-name> to export per-event CSVs for specific hotspots only.
-  - Use -NoTracy only for timing-only runs without zone capture; that mode uses build\profile_notracy\ automatically.
+  - Use -NoTracy only for timing-only runs without zone capture; that mode uses build\profile_clang_notracy\ automatically.
+  - Automatic profiling builds use clang-cl with the Boost.Multiprecision integer backend.
   - OBJ workloads are assumed to satisfy NSI/NNC input assumptions by default.
   - Use -NoInputAssumptions only when profiling intentionally invalid or adversarial OBJ inputs.
   - The script uses all logical processors by default. Use -Threads <N> to force a different total solve thread count; pass 0 only when intentionally testing the solver auto-thread mode.
@@ -139,14 +140,14 @@ $script:RunMode = Get-RunMode
 
 function Get-ProfilingBuildFlavor {
     if ($NoTracy) {
-        return "notracy"
+        return "clang_notracy"
     }
 
     if ($EnableMathTracy) {
-        return "tracy_math"
+        return "clang_tracy_math"
     }
 
-    return "tracy"
+    return "clang_tracy"
 }
 
 $BuildFlavor = "explicit"
@@ -931,8 +932,75 @@ function Resolve-ReEmberExecutablePath {
     return $null
 }
 
+function Convert-PathForCMake {
+    param([string]$Path)
+
+    return $Path.Replace("\", "/")
+}
+
+function Resolve-ClangBoostToolPath {
+    param(
+        [string]$ToolName,
+        [string[]]$ExtraCandidates = @()
+    )
+
+    foreach ($candidate in $ExtraCandidates) {
+        if ($candidate -and (Test-Path -LiteralPath $candidate)) {
+            return (Resolve-Path -LiteralPath $candidate).Path
+        }
+    }
+
+    $command = Get-Command $ToolName -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
+    }
+
+    return $null
+}
+
+function Resolve-ClangBoostConfigureTools {
+    $clangPath = Resolve-ClangBoostToolPath "clang-cl" @(
+        (Join-Path $env:USERPROFILE "scoop\apps\llvm\current\bin\clang-cl.exe"),
+        (Join-Path $env:ProgramFiles "LLVM\bin\clang-cl.exe")
+    )
+    if (-not $clangPath) {
+        throw "Missing clang-cl. Install LLVM first, for example with: scoop install llvm."
+    }
+
+    $rcPath = Resolve-ClangBoostToolPath "llvm-rc" @(
+        (Join-Path $env:USERPROFILE "scoop\apps\llvm\current\bin\llvm-rc.exe"),
+        (Join-Path $env:ProgramFiles "LLVM\bin\llvm-rc.exe")
+    )
+    if (-not $rcPath) {
+        throw "Missing llvm-rc. Install LLVM first, for example with: scoop install llvm."
+    }
+
+    $ninjaPath = Resolve-ClangBoostToolPath "ninja" @(
+        "D:\Program Files\VisualStudio\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe",
+        (Join-Path $env:ProgramFiles "Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe")
+    )
+    if (-not $ninjaPath) {
+        throw "Missing ninja. Install Ninja or use the Visual Studio bundled Ninja executable."
+    }
+
+    return [pscustomobject]@{
+        ClangCl = Convert-PathForCMake $clangPath
+        LlvmRc = Convert-PathForCMake $rcPath
+        Ninja = Convert-PathForCMake $ninjaPath
+    }
+}
+
 function Invoke-CMakeConfigure {
-    $args = @("-S", ".", "-B", $BuildRoot)
+    $tools = Resolve-ClangBoostConfigureTools
+    $args = @(
+        "-S", ".",
+        "-B", $BuildRoot,
+        "-G", "Ninja",
+        "-DCMAKE_MAKE_PROGRAM=$($tools.Ninja)",
+        "-DCMAKE_CXX_COMPILER=$($tools.ClangCl)",
+        "-DCMAKE_RC_COMPILER=$($tools.LlvmRc)",
+        "-DCMAKE_BUILD_TYPE=$Configuration"
+    )
     if (-not $NoTracy) {
         $args += "-DREEMBER_ENABLE_TRACY=ON"
         if ($EnableMathTracy) {
@@ -2099,7 +2167,7 @@ try {
         $script:MathTracyEnabledInBuild = Test-TracyMathEnabledInBuild $BuildRoot
 
         if ($NoTracy -and $script:TracyEnabledInBuild) {
-            throw ("The selected profiling build tree '{0}' is configured with REEMBER_ENABLE_TRACY=ON, but -NoTracy was requested. Re-run without -SkipBuild so the script can configure build\\profile_notracy\\ automatically." -f $BuildRoot)
+            throw ("The selected profiling build tree '{0}' is configured with REEMBER_ENABLE_TRACY=ON, but -NoTracy was requested. Re-run without -SkipBuild so the script can configure build\\profile_clang_notracy\\ automatically." -f $BuildRoot)
         }
         if ((-not $NoTracy) -and (-not $script:TracyEnabledInBuild)) {
             throw ("The profiling build tree '{0}' is not configured with REEMBER_ENABLE_TRACY=ON. Re-run without -SkipBuild so the script can configure it automatically." -f $BuildRoot)
@@ -2109,7 +2177,7 @@ try {
         }
         $script:MathTracyEnabledInBuild = (-not $NoTracy) -and $script:MathTracyEnabledInBuild
         if ($SkipBuild -and (-not $EnableMathTracy) -and $script:MathTracyEnabledInBuild) {
-            throw ("The selected profiling build tree '{0}' already has REEMBER_ENABLE_TRACY_MATH=ON, but -EnableMathTracy was not requested. Re-run without -SkipBuild so the script can reconfigure build\\profile_tracy\\ automatically." -f $BuildRoot)
+            throw ("The selected profiling build tree '{0}' already has REEMBER_ENABLE_TRACY_MATH=ON, but -EnableMathTracy was not requested. Re-run without -SkipBuild so the script can reconfigure build\\profile_clang_tracy\\ automatically." -f $BuildRoot)
         }
 
         if (-not $SkipBuild) {
