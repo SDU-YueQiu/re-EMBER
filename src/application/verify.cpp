@@ -566,7 +566,9 @@ NefPolyhedron buildCandidateNef(
             throw std::runtime_error("Failed to build conforming candidate mesh: " + error);
         }
 
-        return ember::app::makeNefFromExactMesh(exactMesh, "candidate");
+        ember::app::NefBuildOptions options;
+        options.refineEdgeInteriorPoints = false;
+        return ember::app::makeNefFromExactMesh(exactMesh, "candidate", options);
     }
     case CandidateMode::ExportNef:
     {
@@ -578,11 +580,13 @@ NefPolyhedron buildCandidateNef(
                     error,
                     ember::PolygonSoupTopologyMode::Conforming))
         {
-            throw std::runtime_error("Failed to build Nef postprocess candidate mesh: " + error);
+            throw std::runtime_error("Failed to build Nef output-topology candidate mesh: " + error);
         }
 
-        const NefPolyhedron candidate = ember::app::makeNefFromExactMesh(exactMesh, "candidate");
-        return candidate.regularization();
+        ember::app::NefBuildOptions options;
+        options.refineEdgeInteriorPoints = false;
+        options.rejectEmptyRegularizedResult = !fragments.empty();
+        return ember::app::makeNefFromExactMesh(exactMesh, "candidate", options);
     }
     }
 

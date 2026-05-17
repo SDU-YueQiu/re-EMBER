@@ -46,8 +46,7 @@ struct CliOptions
     std::optional<std::uint64_t> scale;
     std::size_t leafThreshold = 25;
     std::size_t threadCount = 0;
-    ember::PolygonSoupTopologyMode outputTopologyMode = ember::PolygonSoupTopologyMode::Raw;
-    ember::app::OutputPostprocessMode outputPostprocessMode = ember::app::OutputPostprocessMode::None;
+    ember::app::AppOutputTopologyMode outputTopologyMode = ember::app::AppOutputTopologyMode::Raw;
     BoolOperandAssumptions lhsAssumptions;
     BoolOperandAssumptions rhsAssumptions;
 };
@@ -65,8 +64,7 @@ struct CliTimings
     std::size_t lhsPolygonCount = 0;
     std::size_t rhsPolygonCount = 0;
     std::size_t exportedFaces = 0;
-    ember::PolygonSoupTopologyMode outputTopologyMode = ember::PolygonSoupTopologyMode::Raw;
-    ember::app::OutputPostprocessMode outputPostprocessMode = ember::app::OutputPostprocessMode::None;
+    ember::app::AppOutputTopologyMode outputTopologyMode = ember::app::AppOutputTopologyMode::Raw;
     ember::BoolSolveMetrics solveMetrics;
 };
 
@@ -77,8 +75,7 @@ void printUsage()
             << "--op union|intersection|difference --out <result.obj|result.stl> "
             << "[--scale <positive_integer>] [--leaf-threshold <positive_integer>] "
             << "[--threads <positive_integer>] "
-            << "[--output-topology raw|conforming|conforming-merge-convex] "
-            << "[--output-postprocess none|nef] "
+            << "[--output-topology raw|conforming|conforming-merge-convex|nef] "
             << "[--timings-out <metrics.txt>] "
             << "[--assume-lhs-nsi] [--assume-lhs-nnc] "
             << "[--assume-rhs-nsi] [--assume-rhs-nnc]"
@@ -91,29 +88,18 @@ void printUsage()
             << std::endl;
 }
 
-int topologyModeCode(ember::PolygonSoupTopologyMode mode) noexcept
+int topologyModeCode(ember::app::AppOutputTopologyMode mode) noexcept
 {
     switch (mode)
     {
-    case ember::PolygonSoupTopologyMode::Raw:
+    case ember::app::AppOutputTopologyMode::Raw:
         return 0;
-    case ember::PolygonSoupTopologyMode::Conforming:
+    case ember::app::AppOutputTopologyMode::Conforming:
         return 1;
-    case ember::PolygonSoupTopologyMode::ConformingMergeConvex:
+    case ember::app::AppOutputTopologyMode::ConformingMergeConvex:
         return 2;
-    }
-
-    return 0;
-}
-
-int postprocessModeCode(ember::app::OutputPostprocessMode mode) noexcept
-{
-    switch (mode)
-    {
-    case ember::app::OutputPostprocessMode::None:
-        return 0;
-    case ember::app::OutputPostprocessMode::Nef:
-        return 1;
+    case ember::app::AppOutputTopologyMode::Nef:
+        return 3;
     }
 
     return 0;
@@ -190,7 +176,6 @@ bool writeTimingMetrics(const std::string &path, const CliTimings &timings, std:
            << "rhs_polygons=" << timings.rhsPolygonCount << '\n'
            << "exported_faces=" << timings.exportedFaces << '\n'
            << "output_topology_mode=" << topologyModeCode(timings.outputTopologyMode) << '\n'
-           << "output_postprocess_mode=" << postprocessModeCode(timings.outputPostprocessMode) << '\n'
            << "input_polygons=" << timings.solveMetrics.inputPolygonCount << '\n'
            << "effective_thread_count=" << timings.solveMetrics.effectiveThreadCount << '\n'
            << "node_count=" << timings.solveMetrics.nodeCount << '\n'
@@ -338,7 +323,7 @@ bool parseArgs(int argc, char **argv, CliOptions &outOptions)
                 outOptions.timingsOutputPath = value;
             else if (arg == "--output-topology")
             {
-                if (!ember::parsePolygonSoupTopologyMode(value, outOptions.outputTopologyMode))
+                if (!ember::app::parseAppOutputTopologyMode(value, outOptions.outputTopologyMode))
                 {
                     std::cerr << "Unsupported output topology mode: " << value << std::endl;
                     return false;
@@ -346,7 +331,11 @@ bool parseArgs(int argc, char **argv, CliOptions &outOptions)
             }
             else if (arg == "--output-postprocess")
             {
-                if (!ember::app::parseOutputPostprocessMode(value, outOptions.outputPostprocessMode))
+                if (value == "nef")
+                {
+                    outOptions.outputTopologyMode = ember::app::AppOutputTopologyMode::Nef;
+                }
+                else if (value != "none")
                 {
                     std::cerr << "Unsupported output postprocess mode: " << value << std::endl;
                     return false;
@@ -528,13 +517,12 @@ int main(int argc, char **argv)
         ember::ObjMeshData rhsMesh;
         CliTimings timings;
         timings.outputTopologyMode = options.outputTopologyMode;
-        timings.outputPostprocessMode = options.outputPostprocessMode;
         std::string error;
 
 #if !defined(REEMBER_ENABLE_NEF_POSTPROCESS)
-        if (options.outputPostprocessMode == ember::app::OutputPostprocessMode::Nef)
+        if (ember::app::isNefOutputTopologyMode(options.outputTopologyMode))
         {
-            std::cerr << "--output-postprocess nef requires a build with REEMBER_ENABLE_NEF_POSTPROCESS=ON."
+            std::cerr << "--output-topology nef requires a build with REEMBER_ENABLE_NEF_POSTPROCESS=ON."
                       << std::endl;
             return 1;
         }
@@ -664,19 +652,18 @@ int main(int argc, char **argv)
             {
                 ember::PolygonSoupExportOptions exportOptions;
                 exportOptions.coordinateScale = sharedScale;
-                exportOptions.topologyMode = options.outputTopologyMode;
-                if (options.outputPostprocessMode == ember::app::OutputPostprocessMode::Nef)
+                exportOptions.topologyMode = ember::app::toPolygonSoupTopologyMode(options.outputTopologyMode);
+                if (ember::app::isNefOutputTopologyMode(options.outputTopologyMode))
                 {
 #if defined(REEMBER_ENABLE_NEF_POSTPROCESS)
                     exported = ember::app::writeNefPostprocessedMesh(
                         problem.resultFragments(),
                         options.outputPath,
-                        options.outputTopologyMode,
                         sharedScale,
                         exportedFaces,
                         error);
 #else
-                    error = "--output-postprocess nef is not enabled in this build.";
+                    error = "--output-topology nef is not enabled in this build.";
                     exported = false;
 #endif
                 }
@@ -732,8 +719,7 @@ int main(int argc, char **argv)
                 << " child_ref_tried=" << timings.solveMetrics.childReferenceCandidateTriedCount
                 << " leaf_trace_attempts=" << timings.solveMetrics.leafClassificationTraceAttemptCount
                 << " result_fragments=" << problem.resultFragments().size()
-                << " output_topology=" << ember::toString(options.outputTopologyMode)
-                << " output_postprocess=" << ember::app::toString(options.outputPostprocessMode)
+                << " output_topology=" << ember::app::toString(options.outputTopologyMode)
                 << " exported_faces=" << exportedFaces
                 << std::endl;
 

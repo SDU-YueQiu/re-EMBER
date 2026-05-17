@@ -1,6 +1,6 @@
 /**
  * @file nef_postprocess.h
- * @brief 声明应用层 CGAL Nef 后处理和 oracle 转换工具。
+ * @brief 声明应用层 CGAL Nef 导出拓扑和 oracle 转换工具。
  */
 #pragma once
 
@@ -22,9 +22,28 @@ using SurfaceMesh = CGAL::Surface_mesh<ExactKernel::Point_3>;
 using NefPolyhedron = CGAL::Nef_polyhedron_3<ExactKernel>;
 
 /**
+ * @brief Nef 构造时的精确网格处理选项。
+ */
+struct NefBuildOptions
+{
+    /**
+     * @brief 是否在每条边上再次搜索全局共线内部顶点。
+     */
+    bool refineEdgeInteriorPoints = true;
+
+    /**
+     * @brief 非空输入正则化为空 Nef 时是否直接报错。
+     */
+    bool rejectEmptyRegularizedResult = false;
+};
+
+/**
  * @brief 将精确面网格转换为正则化 Nef 多面体。
  */
-NefPolyhedron makeNefFromExactMesh(const ExactMeshData &mesh, const char *label);
+NefPolyhedron makeNefFromExactMesh(
+    const ExactMeshData &mesh,
+    const char *label,
+    const NefBuildOptions &options = NefBuildOptions());
 
 /**
  * @brief 将 `Polygon256` 集合转换为正则化 Nef 多面体。
@@ -46,7 +65,6 @@ ObjMeshData makeObjMeshData(const NefPolyhedron &nef, std::uint64_t coordinateSc
  */
 bool buildNefPostprocessedMeshFromPolygons(
     const std::vector<Polygon256> &fragments,
-    PolygonSoupTopologyMode topologyMode,
     std::uint64_t coordinateScale,
     ObjMeshData &outMesh,
     std::string &outError);
@@ -57,7 +75,6 @@ bool buildNefPostprocessedMeshFromPolygons(
 bool writeNefPostprocessedMesh(
     const std::vector<Polygon256> &fragments,
     const std::string &path,
-    PolygonSoupTopologyMode topologyMode,
     std::uint64_t coordinateScale,
     std::size_t &outFaceCount,
     std::string &outError);

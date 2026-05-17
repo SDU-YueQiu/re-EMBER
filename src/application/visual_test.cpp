@@ -148,8 +148,7 @@ struct UiState
     bool emberAutoScale = true;
     std::uint64_t emberManualScale = kVisualTestManualScale;
     std::size_t leafThreshold = kLeafThreshold;
-    ember::PolygonSoupTopologyMode emberOutputTopology = ember::PolygonSoupTopologyMode::Raw;
-    ember::app::OutputPostprocessMode emberOutputPostprocess = ember::app::OutputPostprocessMode::None;
+    ember::app::AppOutputTopologyMode emberOutputTopology = ember::app::AppOutputTopologyMode::Raw;
     bool previewDirty = false;
     bool solveRequested = false;
     bool continuousSolve = false;
@@ -582,13 +581,12 @@ bool computeEmberResult(SceneData &scene, const UiState &ui, ResultStats &outSta
         const Clock::time_point convertStart = Clock::now();
         PolygonSoupExportOptions exportOptions;
         exportOptions.coordinateScale = scene.emberSharedScale;
-        exportOptions.topologyMode = ui.emberOutputTopology;
+        exportOptions.topologyMode = ember::app::toPolygonSoupTopologyMode(ui.emberOutputTopology);
         bool converted = false;
-        if (ui.emberOutputPostprocess == ember::app::OutputPostprocessMode::Nef)
+        if (ember::app::isNefOutputTopologyMode(ui.emberOutputTopology))
         {
             converted = ember::app::buildNefPostprocessedMeshFromPolygons(
                             problem.resultFragments(),
-                            ui.emberOutputTopology,
                             scene.emberSharedScale,
                             scene.resultDisplayMesh,
                             outError);
@@ -997,29 +995,21 @@ int main()
             changed = true;
         }
 
-        const char *topologyItems[] = {"raw", "conforming", "conforming-merge-convex"};
+        const char *topologyItems[] = {"raw", "conforming", "conforming-merge-convex", "nef"};
         int topologyIndex = 0;
-        if (proposed.emberOutputTopology == ember::PolygonSoupTopologyMode::Conforming)
+        if (proposed.emberOutputTopology == ember::app::AppOutputTopologyMode::Conforming)
             topologyIndex = 1;
-        else if (proposed.emberOutputTopology == ember::PolygonSoupTopologyMode::ConformingMergeConvex)
+        else if (proposed.emberOutputTopology == ember::app::AppOutputTopologyMode::ConformingMergeConvex)
             topologyIndex = 2;
-        if (ImGui::Combo("output topology", &topologyIndex, topologyItems, 3))
+        else if (proposed.emberOutputTopology == ember::app::AppOutputTopologyMode::Nef)
+            topologyIndex = 3;
+        if (ImGui::Combo("output topology", &topologyIndex, topologyItems, 4))
         {
             proposed.emberOutputTopology =
-                topologyIndex == 1 ? ember::PolygonSoupTopologyMode::Conforming :
-                topologyIndex == 2 ? ember::PolygonSoupTopologyMode::ConformingMergeConvex :
-                ember::PolygonSoupTopologyMode::Raw;
-            changed = true;
-        }
-
-        const char *postprocessItems[] = {"none", "nef"};
-        int postprocessIndex =
-            proposed.emberOutputPostprocess == ember::app::OutputPostprocessMode::Nef ? 1 : 0;
-        if (ImGui::Combo("output postprocess", &postprocessIndex, postprocessItems, 2))
-        {
-            proposed.emberOutputPostprocess =
-                postprocessIndex == 1 ? ember::app::OutputPostprocessMode::Nef :
-                ember::app::OutputPostprocessMode::None;
+                topologyIndex == 1 ? ember::app::AppOutputTopologyMode::Conforming :
+                topologyIndex == 2 ? ember::app::AppOutputTopologyMode::ConformingMergeConvex :
+                topologyIndex == 3 ? ember::app::AppOutputTopologyMode::Nef :
+                ember::app::AppOutputTopologyMode::Raw;
             changed = true;
         }
 
@@ -1102,8 +1092,7 @@ int main()
         {
             ImGui::Text("shared_scale=%llu", static_cast<unsigned long long>(ui.stats.sharedScale));
             ImGui::Text("leaf_threshold=%zu", ui.leafThreshold);
-            ImGui::Text("output_topology=%s", ember::toString(ui.emberOutputTopology));
-            ImGui::Text("output_postprocess=%s", ember::app::toString(ui.emberOutputPostprocess));
+            ImGui::Text("output_topology=%s", ember::app::toString(ui.emberOutputTopology));
         }
         ImGui::Text("lhs=%s", scene.workpiecePath.c_str());
         ImGui::Text("rhs=%s", scene.toolPath.c_str());
