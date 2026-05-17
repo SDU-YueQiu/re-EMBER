@@ -15,10 +15,7 @@ namespace ember::app
  */
 enum class AppOutputTopologyMode
 {
-    Raw,
-    Conforming,
-    ConformingMergeConvex,
-    Nef
+    Raw
 };
 
 /**
@@ -30,12 +27,6 @@ inline const char *toString(AppOutputTopologyMode mode) noexcept
     {
     case AppOutputTopologyMode::Raw:
         return "raw";
-    case AppOutputTopologyMode::Conforming:
-        return "conforming";
-    case AppOutputTopologyMode::ConformingMergeConvex:
-        return "conforming-merge-convex";
-    case AppOutputTopologyMode::Nef:
-        return "nef";
     }
 
     return "raw";
@@ -53,51 +44,22 @@ inline bool parseAppOutputTopologyMode(
         outMode = AppOutputTopologyMode::Raw;
         return true;
     }
-    if (token == "conforming")
-    {
-        outMode = AppOutputTopologyMode::Conforming;
-        return true;
-    }
-    if (token == "conforming-merge-convex")
-    {
-        outMode = AppOutputTopologyMode::ConformingMergeConvex;
-        return true;
-    }
-    if (token == "nef")
-    {
-        outMode = AppOutputTopologyMode::Nef;
-        return true;
-    }
-
     return false;
 }
 
 /**
  * @brief 判断应用层导出模式是否需要 CGAL Nef 正则化。
  */
-inline bool isNefOutputTopologyMode(AppOutputTopologyMode mode) noexcept
+inline bool isNefOutputTopologyMode(AppOutputTopologyMode) noexcept
 {
-    return mode == AppOutputTopologyMode::Nef;
+    return false;
 }
 
 /**
  * @brief 映射到 I/O 层轻量拓扑恢复策略。
- *
- * `Nef` 模式内部固定先补齐 T-junction，再交给 CGAL Nef 正则化；不会叠加凸共面合并。
  */
-inline PolygonSoupTopologyMode toPolygonSoupTopologyMode(AppOutputTopologyMode mode) noexcept
+inline PolygonSoupTopologyMode toPolygonSoupTopologyMode(AppOutputTopologyMode) noexcept
 {
-    switch (mode)
-    {
-    case AppOutputTopologyMode::Raw:
-        return PolygonSoupTopologyMode::Raw;
-    case AppOutputTopologyMode::Conforming:
-    case AppOutputTopologyMode::Nef:
-        return PolygonSoupTopologyMode::Conforming;
-    case AppOutputTopologyMode::ConformingMergeConvex:
-        return PolygonSoupTopologyMode::ConformingMergeConvex;
-    }
-
     return PolygonSoupTopologyMode::Raw;
 }
 }
