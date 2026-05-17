@@ -983,11 +983,15 @@ int main()
             changed = true;
         }
 
-        const char *topologyItems[] = {"raw"};
+        const char *topologyItems[] = {"raw", "conforming"};
         int topologyIndex = 0;
-        if (ImGui::Combo("output topology", &topologyIndex, topologyItems, 1))
+        if (proposed.emberOutputTopology == ember::app::AppOutputTopologyMode::Conforming)
+            topologyIndex = 1;
+        if (ImGui::Combo("output topology", &topologyIndex, topologyItems, 2))
         {
-            proposed.emberOutputTopology = ember::app::AppOutputTopologyMode::Raw;
+            proposed.emberOutputTopology =
+                topologyIndex == 1 ? ember::app::AppOutputTopologyMode::Conforming :
+                ember::app::AppOutputTopologyMode::Raw;
             changed = true;
         }
 

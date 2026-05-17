@@ -15,7 +15,8 @@ namespace ember::app
  */
 enum class AppOutputTopologyMode
 {
-    Raw
+    Raw,
+    Conforming
 };
 
 /**
@@ -27,6 +28,8 @@ inline const char *toString(AppOutputTopologyMode mode) noexcept
     {
     case AppOutputTopologyMode::Raw:
         return "raw";
+    case AppOutputTopologyMode::Conforming:
+        return "conforming";
     }
 
     return "raw";
@@ -44,6 +47,11 @@ inline bool parseAppOutputTopologyMode(
         outMode = AppOutputTopologyMode::Raw;
         return true;
     }
+    if (token == "conforming")
+    {
+        outMode = AppOutputTopologyMode::Conforming;
+        return true;
+    }
     return false;
 }
 
@@ -58,8 +66,16 @@ inline bool isNefOutputTopologyMode(AppOutputTopologyMode) noexcept
 /**
  * @brief 映射到 I/O 层轻量拓扑恢复策略。
  */
-inline PolygonSoupTopologyMode toPolygonSoupTopologyMode(AppOutputTopologyMode) noexcept
+inline PolygonSoupTopologyMode toPolygonSoupTopologyMode(AppOutputTopologyMode mode) noexcept
 {
+    switch (mode)
+    {
+    case AppOutputTopologyMode::Raw:
+        return PolygonSoupTopologyMode::Raw;
+    case AppOutputTopologyMode::Conforming:
+        return PolygonSoupTopologyMode::Conforming;
+    }
+
     return PolygonSoupTopologyMode::Raw;
 }
 }
