@@ -192,6 +192,7 @@ bool writeTimingMetrics(const std::string &path, const CliTimings &timings, std:
            << "leaf_threshold_stop_count=" << timings.solveMetrics.leafThresholdStopCount << '\n'
            << "aabb_not_splittable_stop_count=" << timings.solveMetrics.aabbNotSplittableStopCount << '\n'
            << "split_failure_stop_count=" << timings.solveMetrics.splitFailureStopCount << '\n'
+           << "leaf_classification_retry_subdivision_count=" << timings.solveMetrics.leafClassificationRetrySubdivisionCount << '\n'
            << "wntv_aware_split_count=" << timings.solveMetrics.wntvAwareSplitCount << '\n'
            << "center_range_split_count=" << timings.solveMetrics.centerRangeSplitCount << '\n'
            << "midpoint_split_count=" << timings.solveMetrics.midpointSplitCount << '\n'
@@ -711,6 +712,7 @@ int main(int argc, char **argv)
                 << " constant_discards=" << timings.solveMetrics.constantDiscardCount
                 << " single_operand_stops=" << timings.solveMetrics.singleOperandAssumptionStopCount
                 << " single_operand_fallbacks=" << timings.solveMetrics.singleOperandAssumptionFallbackCount
+                << " leaf_classification_retries=" << timings.solveMetrics.leafClassificationRetrySubdivisionCount
                 << " wntv_splits=" << timings.solveMetrics.wntvAwareSplitCount
                 << " center_splits=" << timings.solveMetrics.centerRangeSplitCount
                 << " midpoint_splits=" << timings.solveMetrics.midpointSplitCount
