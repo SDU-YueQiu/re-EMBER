@@ -1106,6 +1106,50 @@ void runIoTests()
     }
 
     {
+        Polygon256 left = makeFaceXY(0, 0, 1, 0, 2, 1);
+        Polygon256 right = makeFaceXY(0, 1, 2, 0, 2, 1);
+        Polygon256 marker = makeFaceXY(0, 1, 3, 1, 3, 1);
+        left.edgeProvenances[1] = ember::PolygonEdgeProvenance::SubdivisionClip;
+        right.edgeProvenances[3] = ember::PolygonEdgeProvenance::SubdivisionClip;
+        const std::vector<Polygon256> fragments{left, right, marker};
+
+        ObjMeshData mergedMesh;
+        std::string error;
+        ember::PolygonSoupExportOptions options;
+        options.topologyMode = ember::PolygonSoupTopologyMode::ConformingMergeConvex;
+        assert(ember::buildObjMeshFromPolygonSoup(fragments, mergedMesh, error, options));
+        assert(mergedMesh.faces.size() == 2u);
+
+        bool foundMergedRectangle = false;
+        for (const std::vector<std::size_t> &face : mergedMesh.faces)
+        {
+            if (face.size() != 4u)
+                continue;
+
+            double minX = mergedMesh.vertices[face.front()].x;
+            double maxX = minX;
+            double minY = mergedMesh.vertices[face.front()].y;
+            double maxY = minY;
+            for (const std::size_t vertexIndex : face)
+            {
+                const ObjVertex &vertex = mergedMesh.vertices[vertexIndex];
+                minX = std::min(minX, vertex.x);
+                maxX = std::max(maxX, vertex.x);
+                minY = std::min(minY, vertex.y);
+                maxY = std::max(maxY, vertex.y);
+            }
+
+            foundMergedRectangle =
+                foundMergedRectangle ||
+                (std::fabs(minX - 0.0) < 1e-12 &&
+                 std::fabs(maxX - 2.0) < 1e-12 &&
+                 std::fabs(minY - 0.0) < 1e-12 &&
+                 std::fabs(maxY - 2.0) < 1e-12);
+        }
+        assert(foundMergedRectangle);
+    }
+
+    {
         const Polygon256 square = makeFaceXY(0, 0, 2, 0, 2, 1);
         const std::filesystem::path outputPath = makeTestPath("io_single_square_export.obj");
 
