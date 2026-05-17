@@ -178,29 +178,19 @@ inline HomPoint4i primitiveHomPoint(const HomPoint4i& point) noexcept
 }
 
 /**
- * @brief 使用当前固定宽度整数运算比较齐次点。
+ * @brief 将齐次点约为 primitive 后比较四个分量。
  *
- * @warning 这不是任意齐次点的通用安全相等谓词。
- * 交叉相乘可能超过 256 位预算；仅在调用方已知操作数来自有界构造时使用。
+ * @note 避免使用交叉相乘比较比例等价；该乘法在 int256_t 下可能溢出并误判相等。
  */
 inline bool areSameHomPoint(const HomPoint4i& lhs, const HomPoint4i& rhs) noexcept
 {
     REEMBER_PROFILE_MATH_ZONE("math256::areSameHomPoint");
     if (lhs.hasSameComponents(rhs))
         return true;
-    if (!isZero(lhs.w) && !isZero(rhs.w))
-        return lhs.x * rhs.w == rhs.x * lhs.w && lhs.y * rhs.w == rhs.y * lhs.w && lhs.z * rhs.w == rhs.z * lhs.w;
 
-    if (!isZero(lhs.z) && !isZero(rhs.z))
-        return lhs.x * rhs.z == rhs.x * lhs.z && lhs.y * rhs.z == rhs.y * lhs.z && lhs.w * rhs.z == rhs.w * lhs.z;
-
-    if (!isZero(lhs.y) && !isZero(rhs.y))
-        return lhs.x * rhs.y == rhs.x * lhs.y && lhs.z * rhs.y == rhs.z * lhs.y && lhs.w * rhs.y == rhs.w * lhs.y;
-
-    if (!isZero(lhs.x) && !isZero(rhs.x))
-        return lhs.y * rhs.x == rhs.y * lhs.x && lhs.z * rhs.x == rhs.z * lhs.x && lhs.w * rhs.x == rhs.w * lhs.x;
-
-    return false;
+    const HomPoint4i lhsPrimitive = primitiveHomPoint(lhs);
+    const HomPoint4i rhsPrimitive = primitiveHomPoint(rhs);
+    return lhsPrimitive.hasSameComponents(rhsPrimitive);
 }
 
 struct Vec3i
