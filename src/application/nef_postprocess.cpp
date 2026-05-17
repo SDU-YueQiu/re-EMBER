@@ -1,6 +1,6 @@
 /**
  * @file nef_postprocess.cpp
- * @brief 实现应用层 CGAL Nef 后处理和 oracle 转换工具。
+ * @brief 实现应用层 CGAL Nef 导出拓扑和 oracle 转换工具。
  */
 #include "nef_postprocess.h"
 
@@ -161,7 +161,10 @@ void appendConvexEarTriangles(
 }
 }
 
-NefPolyhedron makeNefFromExactMesh(const ExactMeshData &mesh, const char *label)
+NefPolyhedron makeNefFromExactMesh(
+    const ExactMeshData &mesh,
+    const char *label,
+    const NefBuildOptions &options)
 {
     if (mesh.faces.empty())
         return NefPolyhedron(NefPolyhedron::EMPTY);
@@ -213,36 +216,43 @@ NefPolyhedron makeNefFromExactMesh(const ExactMeshData &mesh, const char *label)
         const std::vector<std::size_t> &face = polygonFaces[polygonIndex];
         std::vector<std::size_t> refinedFace;
         refinedFace.reserve(face.size());
-        for (std::size_t edgeIndex = 0; edgeIndex < face.size(); ++edgeIndex)
+        if (!options.refineEdgeInteriorPoints)
         {
-            const std::size_t startIndex = face[edgeIndex];
-            const std::size_t endIndex = face[(edgeIndex + 1u) % face.size()];
-            refinedFace.push_back(startIndex);
-
-            std::vector<std::size_t> edgeInteriorPoints;
-            const ExactKernel::Point_3 &start = points[startIndex];
-            const ExactKernel::Point_3 &end = points[endIndex];
-            for (std::size_t candidateIndex = 0; candidateIndex < points.size(); ++candidateIndex)
+            refinedFace = face;
+        }
+        else
+        {
+            for (std::size_t edgeIndex = 0; edgeIndex < face.size(); ++edgeIndex)
             {
-                if (candidateIndex == startIndex || candidateIndex == endIndex)
-                    continue;
-                if (pointIsOnSegment(start, points[candidateIndex], end))
-                    edgeInteriorPoints.push_back(candidateIndex);
-            }
+                const std::size_t startIndex = face[edgeIndex];
+                const std::size_t endIndex = face[(edgeIndex + 1u) % face.size()];
+                refinedFace.push_back(startIndex);
 
-            const int sortAxis = chooseSegmentSortAxis(start, end);
-            const bool ascending = coordinateByAxis(start, sortAxis) < coordinateByAxis(end, sortAxis);
-            std::sort(
-                edgeInteriorPoints.begin(),
-                edgeInteriorPoints.end(),
-                [&](std::size_t lhs, std::size_t rhs)
+                std::vector<std::size_t> edgeInteriorPoints;
+                const ExactKernel::Point_3 &start = points[startIndex];
+                const ExactKernel::Point_3 &end = points[endIndex];
+                for (std::size_t candidateIndex = 0; candidateIndex < points.size(); ++candidateIndex)
                 {
-                    const ExactKernel::FT lhsCoord = coordinateByAxis(points[lhs], sortAxis);
-                    const ExactKernel::FT rhsCoord = coordinateByAxis(points[rhs], sortAxis);
-                    return ascending ? lhsCoord < rhsCoord : rhsCoord < lhsCoord;
-                });
+                    if (candidateIndex == startIndex || candidateIndex == endIndex)
+                        continue;
+                    if (pointIsOnSegment(start, points[candidateIndex], end))
+                        edgeInteriorPoints.push_back(candidateIndex);
+                }
 
-            refinedFace.insert(refinedFace.end(), edgeInteriorPoints.begin(), edgeInteriorPoints.end());
+                const int sortAxis = chooseSegmentSortAxis(start, end);
+                const bool ascending = coordinateByAxis(start, sortAxis) < coordinateByAxis(end, sortAxis);
+                std::sort(
+                    edgeInteriorPoints.begin(),
+                    edgeInteriorPoints.end(),
+                    [&](std::size_t lhs, std::size_t rhs)
+                    {
+                        const ExactKernel::FT lhsCoord = coordinateByAxis(points[lhs], sortAxis);
+                        const ExactKernel::FT rhsCoord = coordinateByAxis(points[rhs], sortAxis);
+                        return ascending ? lhsCoord < rhsCoord : rhsCoord < lhsCoord;
+                    });
+
+                refinedFace.insert(refinedFace.end(), edgeInteriorPoints.begin(), edgeInteriorPoints.end());
+            }
         }
 
         refinedFace.erase(
@@ -257,19 +267,42 @@ NefPolyhedron makeNefFromExactMesh(const ExactMeshData &mesh, const char *label)
     }
 
     if (triangles.empty())
+    {
+        if (options.rejectEmptyRegularizedResult)
+        {
+            throw std::runtime_error(
+                std::string("CGAL Nef ") + label +
+                " output topology produced no triangles from a non-empty exact mesh.");
+        }
         return NefPolyhedron(NefPolyhedron::EMPTY);
+    }
 
     SurfaceMesh surfaceMesh;
     CGAL::Polygon_mesh_processing::polygon_soup_to_polygon_mesh(points, triangles, surfaceMesh);
     if (surfaceMesh.number_of_faces() == 0)
+    {
+        if (options.rejectEmptyRegularizedResult)
+        {
+            throw std::runtime_error(
+                std::string("CGAL Nef ") + label +
+                " output topology produced an empty surface mesh from a non-empty exact mesh.");
+        }
         return NefPolyhedron(NefPolyhedron::EMPTY);
+    }
     if (CGAL::is_closed(surfaceMesh) && CGAL::is_triangle_mesh(surfaceMesh) &&
             CGAL::Polygon_mesh_processing::does_bound_a_volume(surfaceMesh))
     {
         CGAL::Polygon_mesh_processing::orient_to_bound_a_volume(surfaceMesh);
     }
 
-    return NefPolyhedron(surfaceMesh).regularization();
+    NefPolyhedron nef = NefPolyhedron(surfaceMesh).regularization();
+    if (options.rejectEmptyRegularizedResult && nef.is_empty())
+    {
+        throw std::runtime_error(
+            std::string("CGAL Nef ") + label +
+            " output topology regularized a non-empty exact mesh to an empty set; likely non-closed, misoriented, or invalid candidate soup.");
+    }
+    return nef;
 }
 
 NefPolyhedron makeNefFromPolygons(const std::vector<Polygon256> &polygons, const char *label)
@@ -367,7 +400,6 @@ ObjMeshData makeObjMeshData(const NefPolyhedron &nef, std::uint64_t coordinateSc
 
 bool buildNefPostprocessedMeshFromPolygons(
     const std::vector<Polygon256> &fragments,
-    PolygonSoupTopologyMode topologyMode,
     std::uint64_t coordinateScale,
     ObjMeshData &outMesh,
     std::string &outError)
@@ -378,11 +410,30 @@ bool buildNefPostprocessedMeshFromPolygons(
     try
     {
         ExactMeshData exactMesh;
-        if (!buildExactMeshFromPolygonSoup(fragments, exactMesh, outError, topologyMode))
+        if (!buildExactMeshFromPolygonSoup(
+                    fragments,
+                    exactMesh,
+                    outError,
+                    PolygonSoupTopologyMode::Conforming))
+        {
             return false;
+        }
+        if (!fragments.empty() && exactMesh.faces.empty())
+        {
+            outError = "Nef output topology received non-empty fragments but topology recovery produced no faces.";
+            return false;
+        }
 
-        const NefPolyhedron nef = makeNefFromExactMesh(exactMesh, "candidate");
+        NefBuildOptions nefOptions;
+        nefOptions.refineEdgeInteriorPoints = false;
+        nefOptions.rejectEmptyRegularizedResult = !fragments.empty();
+        const NefPolyhedron nef = makeNefFromExactMesh(exactMesh, "candidate", nefOptions);
         outMesh = makeObjMeshData(nef, coordinateScale);
+        if (!fragments.empty() && outMesh.faces.empty())
+        {
+            outError = "Nef output topology converted a non-empty regularized result to an empty mesh.";
+            return false;
+        }
         return true;
     }
     catch (const std::exception &ex)
@@ -395,7 +446,6 @@ bool buildNefPostprocessedMeshFromPolygons(
 bool writeNefPostprocessedMesh(
     const std::vector<Polygon256> &fragments,
     const std::string &path,
-    PolygonSoupTopologyMode topologyMode,
     std::uint64_t coordinateScale,
     std::size_t &outFaceCount,
     std::string &outError)
@@ -404,12 +454,11 @@ bool writeNefPostprocessedMesh(
     ObjMeshData mesh;
     if (!buildNefPostprocessedMeshFromPolygons(
                 fragments,
-                topologyMode,
                 coordinateScale,
                 mesh,
                 outError))
     {
-        outError = "Failed to apply Nef output postprocess: " + outError;
+        outError = "Failed to apply Nef output topology: " + outError;
         return false;
     }
 
