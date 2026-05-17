@@ -46,7 +46,7 @@ Minimal boolean smoke test:
 build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\boolean_smoke.obj --leaf-threshold 25
 ```
 
-`.obj` output keeps n-gon faces. `.stl` output is triangulated at the I/O boundary. Application output post-processing is disabled: the CLI exports raw `BoolProblem::resultFragments()` only, so it does not run T-junction repair, coplanar merging, or Nef regularization.
+`.obj` output keeps n-gon faces. `.stl` output is triangulated at the I/O boundary. `--output-topology conforming` enables the lightweight T-junction repair pass before export. Coplanar merging and Nef regularized output remain disabled in the application CLI.
 
 ## Oracle verifier
 
@@ -67,7 +67,7 @@ The oracle is exact over the quantized `Polygon256` input used by re-EMBER. It d
 - `--scale <positive_integer>` overrides the shared quantization scale.
 - `--leaf-threshold <positive_integer>` controls when subdivision stops at a leaf.
 - `--threads <positive_integer>` sets the application-layer task arena size and solver thread count; use `1` to force serial execution.
-- `--output-topology raw` keeps application output on raw `resultFragments()`; non-raw output post-processing modes are disabled.
+- `--output-topology raw|conforming` chooses application export topology. `raw` writes `resultFragments()` directly; `conforming` inserts existing vertices that lie on other face edges to reduce T-junctions. Coplanar merging and Nef output are disabled.
 - `--timings-out <metrics.txt>` writes the timing and solve summary for a single run.
 - `--assume-lhs-nsi`, `--assume-lhs-nnc`, `--assume-rhs-nsi`, and `--assume-rhs-nnc` declare input assumptions for faster runs. `NNC` requires `NSI` for the same side.
 

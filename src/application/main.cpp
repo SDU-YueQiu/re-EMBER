@@ -72,7 +72,7 @@ void printUsage()
             << "--op union|intersection|difference --out <result.obj|result.stl> "
             << "[--scale <positive_integer>] [--leaf-threshold <positive_integer>] "
             << "[--threads <positive_integer>] "
-            << "[--output-topology raw] "
+            << "[--output-topology raw|conforming] "
             << "[--timings-out <metrics.txt>] "
             << "[--assume-lhs-nsi] [--assume-lhs-nnc] "
             << "[--assume-rhs-nsi] [--assume-rhs-nnc]"
@@ -91,6 +91,8 @@ int topologyModeCode(ember::app::AppOutputTopologyMode mode) noexcept
     {
     case ember::app::AppOutputTopologyMode::Raw:
         return 0;
+    case ember::app::AppOutputTopologyMode::Conforming:
+        return 1;
     }
 
     return 0;
@@ -318,7 +320,7 @@ bool parseArgs(int argc, char **argv, CliOptions &outOptions)
                 if (!ember::app::parseAppOutputTopologyMode(value, outOptions.outputTopologyMode))
                 {
                     std::cerr << "Unsupported output topology mode: " << value
-                              << ". Application output post-processing is disabled; use raw."
+                              << ". Supported application output topology modes are raw and conforming."
                               << std::endl;
                     return false;
                 }
