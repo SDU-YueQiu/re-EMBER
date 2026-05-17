@@ -31,10 +31,10 @@ ctest --test-dir build --output-on-failure --timeout 120
 cmake --build build --target re-EMBER
 ```
 
-默认支持的本地构建组合是 clang-cl + Boost.Multiprecision。如果缺少 `TBB` 或 LLVM，先安装：
+默认支持的本地构建组合是 clang-cl + Boost.Multiprecision。可选的 CGAL oracle 校验工具由 `REEMBER_BUILD_VERIFY` 控制，普通本地构建默认开启。如果缺少 `TBB`、LLVM 或 CGAL，先安装：
 
 ```powershell
-vcpkg install tbb:x64-windows
+vcpkg install tbb:x64-windows cgal:x64-windows
 scoop install llvm
 ```
 
@@ -47,6 +47,17 @@ build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\mo
 ```
 
 `.obj` 输出默认保留 n 边面；`.stl` 输出会在 I/O 边界三角化。
+
+## Oracle 校验工具
+
+`re-EMBER_verify` 会把 `BoolProblem::resultFragments()` 候选结果和缓存的 CGAL Nef oracle 做集合相等校验：
+
+```powershell
+cmake --build build --target re-EMBER_verify
+build\Debug\re-EMBER_verify.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --leaf-threshold 25 --oracle-cache-dir build\oracle_cache\nef
+```
+
+oracle 的精确性边界是 re-EMBER 已经量化后的 `Polygon256` 输入；它不声明验证原始浮点 OBJ/STL 在 CAD 语义上的真实布尔结果。默认缓存目录是 `build\oracle_cache\nef\`；需要强制重算时传 `--refresh-oracle`。
 
 ## CLI 参数
 
@@ -76,9 +87,10 @@ build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\mo
 - `-EnableMathTracy` 额外打开底层 `math256` Tracy 区间，并使用 `build\profile_clang_tracy_math\`。
 - `-SkipBuild` 复用已有的 profiling 构建树。
 - `-UnwrapZoneFilter` 会导出指定热点 zone 的逐事件 CSV。
+- `-VerifyWithOracle` 会在计时迭代结束后对每个 workload 跑一次 `re-EMBER_verify` 并写出 `verification.csv`；校验耗时不计入 `timings.csv`。
 - `-WorkloadPriority`、`-UsePCores` 和 `-WorkloadAffinityMask` 控制被计时进程的调度方式。
 
-脚本会在 `build\performance\run_<timestamp>\` 下生成 `summary.txt`、`timings.csv`、`manifest.json`、`profile.log`、`report.md`、`tracy_zones.csv`、`tracy_zones_self.csv`，以及可选的 `tracy_unwrap\*.csv`。
+脚本会在 `build\performance\run_<timestamp>\` 下生成 `summary.txt`、`timings.csv`、`manifest.json`、`profile.log`、`report.md`、`tracy_zones.csv`、`tracy_zones_self.csv`，以及可选的 `verification.csv` 和 `tracy_unwrap\*.csv`。
 
 ## 备注
 

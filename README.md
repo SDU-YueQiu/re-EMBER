@@ -31,10 +31,10 @@ ctest --test-dir build --output-on-failure --timeout 120
 cmake --build build --target re-EMBER
 ```
 
-The default supported local configuration is clang-cl plus Boost.Multiprecision. If `TBB` or LLVM is missing, install them first:
+The default supported local configuration is clang-cl plus Boost.Multiprecision. The optional CGAL oracle verifier is controlled by `REEMBER_BUILD_VERIFY` and is enabled in the normal local build. If `TBB`, LLVM, or CGAL is missing, install them first:
 
 ```powershell
-vcpkg install tbb:x64-windows
+vcpkg install tbb:x64-windows cgal:x64-windows
 scoop install llvm
 ```
 
@@ -47,6 +47,17 @@ build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\mo
 ```
 
 `.obj` output keeps n-gon faces by default. `.stl` output is triangulated at the I/O boundary.
+
+## Oracle verifier
+
+`re-EMBER_verify` checks a `BoolProblem::resultFragments()` candidate against a cached CGAL Nef oracle:
+
+```powershell
+cmake --build build --target re-EMBER_verify
+build\Debug\re-EMBER_verify.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --leaf-threshold 25 --oracle-cache-dir build\oracle_cache\nef
+```
+
+The oracle is exact over the quantized `Polygon256` input used by re-EMBER. It does not claim to validate the original floating OBJ/STL CAD intent before import and quantization. Oracle Nef files are cached under `build\oracle_cache\nef\` by default; pass `--refresh-oracle` to rebuild a cached entry.
 
 ## CLI options
 
@@ -76,9 +87,10 @@ Application-layer parallelism uses the same `--threads` limit for coarse left/ri
 - `-EnableMathTracy` also enables low-level `math256` Tracy zones and uses `build\profile_clang_tracy_math\`.
 - `-SkipBuild` reuses an already prepared profiling tree.
 - `-UnwrapZoneFilter` exports per-event CSVs for selected hotspot zones.
+- `-VerifyWithOracle` runs `re-EMBER_verify` once per workload after timed iterations and writes `verification.csv`; verifier time is not included in `timings.csv`.
 - `-WorkloadPriority`, `-UsePCores`, and `-WorkloadAffinityMask` control workload scheduling.
 
-The script writes `build\performance\run_<timestamp>\` with `summary.txt`, `timings.csv`, `manifest.json`, `profile.log`, `report.md`, `tracy_zones.csv`, `tracy_zones_self.csv`, and optional `tracy_unwrap\*.csv`.
+The script writes `build\performance\run_<timestamp>\` with `summary.txt`, `timings.csv`, `manifest.json`, `profile.log`, `report.md`, `tracy_zones.csv`, `tracy_zones_self.csv`, optional `verification.csv`, and optional `tracy_unwrap\*.csv`.
 
 ## Notes
 
