@@ -24,6 +24,8 @@
 #include <iomanip>
 #include <iterator>
 #include <limits>
+#include <map>
+#include <set>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -512,9 +514,269 @@ ObjVertex homogeneousPointToObjVertex(const PlanePoint3i &vertex, std::uint64_t 
 // 以齐次四元组全文本作为顶点键，避免浮点近似导致的错误去重。
 std::string makeHomogeneousPointKey(const HomPoint4i &point)
 {
+    const HomPoint4i primitive = primitiveHomPoint(point);
     std::ostringstream stream;
-    stream << point.x << "|" << point.y << "|" << point.z << "|" << point.w;
+    stream << primitive.x << "|" << primitive.y << "|" << primitive.z << "|" << primitive.w;
     return stream.str();
+}
+
+std::string makePlaneKey(const Plane3i &plane)
+{
+    const Plane3i primitive = primitivePlane(plane);
+    std::ostringstream stream;
+    stream << primitive.a << "|" << primitive.b << "|" << primitive.c << "|" << primitive.d;
+    return stream.str();
+}
+
+std::string makeUnorientedPlaneKey(const Plane3i &plane)
+{
+    Plane3i primitive = primitivePlane(plane);
+    if (primitive.a < 0 ||
+            (isZero(primitive.a) && (primitive.b < 0 ||
+                                     (isZero(primitive.b) && (primitive.c < 0 ||
+                                                             (isZero(primitive.c) && primitive.d < 0))))))
+    {
+        primitive.a = -primitive.a;
+        primitive.b = -primitive.b;
+        primitive.c = -primitive.c;
+        primitive.d = -primitive.d;
+    }
+
+    std::ostringstream stream;
+    stream << primitive.a << "|" << primitive.b << "|" << primitive.c << "|" << primitive.d;
+    return stream.str();
+}
+
+std::string makeUnorientedPlanePairKey(const Plane3i &lhs, const Plane3i &rhs)
+{
+    std::string lhsKey = makeUnorientedPlaneKey(lhs);
+    std::string rhsKey = makeUnorientedPlaneKey(rhs);
+    if (rhsKey < lhsKey)
+        std::swap(lhsKey, rhsKey);
+    return lhsKey + "||" + rhsKey;
+}
+
+boost::multiprecision::cpp_int toWideInteger(const Integer &value)
+{
+    return boost::multiprecision::cpp_int(integerToString(value));
+}
+
+boost::multiprecision::cpp_int homCoordinateNumerator(const HomPoint4i &point, int axis)
+{
+    if (axis == 0)
+        return toWideInteger(point.x);
+    if (axis == 1)
+        return toWideInteger(point.y);
+    return toWideInteger(point.z);
+}
+
+int compareHomCoordinate(const HomPoint4i &lhs, const HomPoint4i &rhs, int axis)
+{
+    const boost::multiprecision::cpp_int left =
+        homCoordinateNumerator(lhs, axis) * toWideInteger(rhs.w);
+    const boost::multiprecision::cpp_int right =
+        homCoordinateNumerator(rhs, axis) * toWideInteger(lhs.w);
+    return (left > right) - (left < right);
+}
+
+struct ApproxPoint3
+{
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+};
+
+ApproxPoint3 makeApproxPoint(const PlanePoint3i &point)
+{
+    const double invW = 1.0 / static_cast<double>(integerToLongDouble(point.x.w));
+    return ApproxPoint3{
+        static_cast<double>(integerToLongDouble(point.x.x)) * invW,
+        static_cast<double>(integerToLongDouble(point.x.y)) * invW,
+        static_cast<double>(integerToLongDouble(point.x.z)) * invW};
+}
+
+double approxCoordinate(const ApproxPoint3 &point, int axis) noexcept
+{
+    if (axis == 0)
+        return point.x;
+    if (axis == 1)
+        return point.y;
+    return point.z;
+}
+
+double reliableEpsilon(double lhs, double rhs) noexcept
+{
+    const double scale = std::max({1.0, std::fabs(lhs), std::fabs(rhs)});
+    return scale * 1e-10;
+}
+
+int compareApproxCoordinate(
+    const std::vector<PlanePoint3i> &vertices,
+    const std::vector<ApproxPoint3> &approxVertices,
+    std::size_t lhs,
+    std::size_t rhs,
+    int axis)
+{
+    const double lhsCoord = approxCoordinate(approxVertices[lhs], axis);
+    const double rhsCoord = approxCoordinate(approxVertices[rhs], axis);
+    const double diff = lhsCoord - rhsCoord;
+    if (std::fabs(diff) > reliableEpsilon(lhsCoord, rhsCoord))
+        return (diff > 0.0L) - (diff < 0.0L);
+
+    return compareHomCoordinate(vertices[lhs].x, vertices[rhs].x, axis);
+}
+
+int chooseSegmentSortAxis(const PlanePoint3i &start, const PlanePoint3i &end)
+{
+    if (compareHomCoordinate(start.x, end.x, 0) != 0)
+        return 0;
+    if (compareHomCoordinate(start.x, end.x, 1) != 0)
+        return 1;
+    return 2;
+}
+
+int chooseSegmentSortAxis(
+    const std::vector<PlanePoint3i> &vertices,
+    const std::vector<ApproxPoint3> &approxVertices,
+    std::size_t start,
+    std::size_t end)
+{
+    int bestAxis = 0;
+    double bestSpan = std::fabs(approxVertices[start].x - approxVertices[end].x);
+    const double ySpan = std::fabs(approxVertices[start].y - approxVertices[end].y);
+    const double zSpan = std::fabs(approxVertices[start].z - approxVertices[end].z);
+    if (ySpan > bestSpan)
+    {
+        bestAxis = 1;
+        bestSpan = ySpan;
+    }
+    if (zSpan > bestSpan)
+    {
+        bestAxis = 2;
+        bestSpan = zSpan;
+    }
+
+    if (bestSpan > reliableEpsilon(approxCoordinate(approxVertices[start], bestAxis),
+                                   approxCoordinate(approxVertices[end], bestAxis)))
+        return bestAxis;
+
+    return chooseSegmentSortAxis(vertices[start], vertices[end]);
+}
+
+bool pointIsBetweenSegmentEndpoints(
+    const std::vector<PlanePoint3i> &vertices,
+    const std::vector<ApproxPoint3> &approxVertices,
+    std::size_t start,
+    std::size_t point,
+    std::size_t end)
+{
+    const int axis = chooseSegmentSortAxis(vertices, approxVertices, start, end);
+    const int pointVsStart = compareApproxCoordinate(vertices, approxVertices, point, start, axis);
+    const int pointVsEnd = compareApproxCoordinate(vertices, approxVertices, point, end, axis);
+    if (compareApproxCoordinate(vertices, approxVertices, start, end, axis) < 0)
+        return pointVsStart >= 0 && pointVsEnd <= 0;
+
+    return pointVsEnd >= 0 && pointVsStart <= 0;
+}
+
+bool pointIsStrictlyInsideEdge(
+    const std::vector<PlanePoint3i> &vertices,
+    const std::vector<ApproxPoint3> &approxVertices,
+    const std::vector<std::string> &pointKeys,
+    std::size_t start,
+    std::size_t point,
+    std::size_t end)
+{
+    if (point == start || point == end)
+        return false;
+    if (pointKeys[point] == pointKeys[start] || pointKeys[point] == pointKeys[end])
+        return false;
+
+    return pointIsBetweenSegmentEndpoints(vertices, approxVertices, start, point, end);
+}
+
+struct WideVec3
+{
+    boost::multiprecision::cpp_int x = 0;
+    boost::multiprecision::cpp_int y = 0;
+    boost::multiprecision::cpp_int z = 0;
+};
+
+WideVec3 wideVectorNumerator(const HomPoint4i &from, const HomPoint4i &to)
+{
+    const boost::multiprecision::cpp_int fromW = toWideInteger(from.w);
+    const boost::multiprecision::cpp_int toW = toWideInteger(to.w);
+    return WideVec3{
+        toWideInteger(to.x) * fromW - toWideInteger(from.x) * toW,
+        toWideInteger(to.y) * fromW - toWideInteger(from.y) * toW,
+        toWideInteger(to.z) * fromW - toWideInteger(from.z) * toW};
+}
+
+boost::multiprecision::cpp_int orientationAgainstPlane(
+    const std::vector<PlanePoint3i> &vertices,
+    const Plane3i &plane,
+    std::size_t previous,
+    std::size_t current,
+    std::size_t next)
+{
+    const WideVec3 first = wideVectorNumerator(vertices[current].x, vertices[next].x);
+    const WideVec3 second = wideVectorNumerator(vertices[current].x, vertices[previous].x);
+    const boost::multiprecision::cpp_int crossX = first.y * second.z - first.z * second.y;
+    const boost::multiprecision::cpp_int crossY = first.z * second.x - first.x * second.z;
+    const boost::multiprecision::cpp_int crossZ = first.x * second.y - first.y * second.x;
+    return crossX * toWideInteger(plane.a) +
+           crossY * toWideInteger(plane.b) +
+           crossZ * toWideInteger(plane.c);
+}
+
+int signumWide(const boost::multiprecision::cpp_int &value)
+{
+    return (value > 0) - (value < 0);
+}
+
+int orientationSignAgainstPlane(
+    const std::vector<PlanePoint3i> &vertices,
+    const std::vector<ApproxPoint3> &approxVertices,
+    const Plane3i &plane,
+    std::size_t previous,
+    std::size_t current,
+    std::size_t next)
+{
+    const ApproxPoint3 &p = approxVertices[previous];
+    const ApproxPoint3 &c = approxVertices[current];
+    const ApproxPoint3 &n = approxVertices[next];
+    const double ax = n.x - c.x;
+    const double ay = n.y - c.y;
+    const double az = n.z - c.z;
+    const double bx = p.x - c.x;
+    const double by = p.y - c.y;
+    const double bz = p.z - c.z;
+    const double cx = ay * bz - az * by;
+    const double cy = az * bx - ax * bz;
+    const double cz = ax * by - ay * bx;
+    const double nx = static_cast<double>(integerToLongDouble(plane.a));
+    const double ny = static_cast<double>(integerToLongDouble(plane.b));
+    const double nz = static_cast<double>(integerToLongDouble(plane.c));
+    const double value = cx * nx + cy * ny + cz * nz;
+    const double scale =
+        std::max(1.0, (std::fabs(cx * nx) + std::fabs(cy * ny) + std::fabs(cz * nz)));
+    if (std::fabs(value) > scale * 1e-9)
+        return (value > 0.0) - (value < 0.0);
+
+    return signumWide(orientationAgainstPlane(vertices, plane, previous, current, next));
+}
+
+bool isGeneratedClipEdge(PolygonEdgeProvenance provenance) noexcept
+{
+    return provenance == PolygonEdgeProvenance::SubdivisionClip ||
+           provenance == PolygonEdgeProvenance::ArrangementClip;
+}
+
+std::string makeUndirectedEdgeKey(std::size_t lhs, std::size_t rhs)
+{
+    if (rhs < lhs)
+        std::swap(lhs, rhs);
+    return std::to_string(lhs) + "|" + std::to_string(rhs);
 }
 
 // OBJ 导出要求有稳定的顶点顺序，这里直接复用 Polygon256 的边平面顺序恢复顶点。
@@ -550,6 +812,9 @@ struct RecoveredPolygonSoupData
 {
     std::vector<PlanePoint3i> uniqueVertices;
     std::vector<std::vector<std::size_t>> faces;
+    std::vector<Plane3i> facePlanes;
+    std::vector<std::vector<Plane3i>> faceEdgePlanes;
+    std::vector<std::vector<PolygonEdgeProvenance>> faceEdgeProvenances;
 };
 
 struct RecoveredPolygonBuildResult
@@ -565,6 +830,9 @@ bool recoverPolygonSoupData(
 {
     outData.uniqueVertices.clear();
     outData.faces.clear();
+    outData.facePlanes.clear();
+    outData.faceEdgePlanes.clear();
+    outData.faceEdgeProvenances.clear();
     outError.clear();
 
     std::vector<RecoveredPolygonBuildResult> recoveredPolygons(fragments.size());
@@ -589,10 +857,14 @@ bool recoverPolygonSoupData(
 
     std::unordered_map<std::string, std::size_t> vertexIndexByKey;
     outData.faces.reserve(fragments.size());
+    outData.facePlanes.reserve(fragments.size());
+    outData.faceEdgePlanes.reserve(fragments.size());
+    outData.faceEdgeProvenances.reserve(fragments.size());
     vertexIndexByKey.reserve(fragments.size() * 4);
 
-    for (const RecoveredPolygonBuildResult &result : recoveredPolygons)
+    for (std::size_t polygonIndex = 0; polygonIndex < recoveredPolygons.size(); ++polygonIndex)
     {
+        const RecoveredPolygonBuildResult &result = recoveredPolygons[polygonIndex];
         std::vector<std::size_t> face;
         face.reserve(result.orderedVertices.size());
         for (const PlanePoint3i &vertex : result.orderedVertices)
@@ -606,7 +878,507 @@ bool recoverPolygonSoupData(
         }
 
         outData.faces.push_back(std::move(face));
+        outData.facePlanes.push_back(fragments[polygonIndex].plane);
+        outData.faceEdgePlanes.push_back(fragments[polygonIndex].edgePlanes);
+        outData.faceEdgeProvenances.push_back(fragments[polygonIndex].edgeProvenances);
     }
+
+    return true;
+}
+
+std::vector<AABB3i> buildVertexAABBs(const std::vector<PlanePoint3i> &vertices)
+{
+    std::vector<AABB3i> boxes(vertices.size());
+    for (std::size_t vertexIndex = 0; vertexIndex < vertices.size(); ++vertexIndex)
+        appendPointToAABB(boxes[vertexIndex], vertices[vertexIndex]);
+    return boxes;
+}
+
+std::vector<std::string> buildPointKeys(const std::vector<PlanePoint3i> &vertices)
+{
+    std::vector<std::string> keys;
+    keys.reserve(vertices.size());
+    for (const PlanePoint3i &vertex : vertices)
+        keys.push_back(makeHomogeneousPointKey(vertex.x));
+    return keys;
+}
+
+std::vector<ApproxPoint3> buildApproxPoints(const std::vector<PlanePoint3i> &vertices)
+{
+    std::vector<ApproxPoint3> points;
+    points.reserve(vertices.size());
+    for (const PlanePoint3i &vertex : vertices)
+        points.push_back(makeApproxPoint(vertex));
+    return points;
+}
+
+std::unordered_map<std::string, std::vector<std::size_t>> buildVerticesByPlanePair(
+    const RecoveredPolygonSoupData &data)
+{
+    std::unordered_map<std::string, std::vector<std::size_t>> verticesByPlanePair;
+    for (std::size_t faceIndex = 0; faceIndex < data.faces.size(); ++faceIndex)
+    {
+        const std::vector<std::size_t> &face = data.faces[faceIndex];
+        if (faceIndex >= data.faceEdgePlanes.size() || data.faceEdgePlanes[faceIndex].size() != face.size())
+            continue;
+
+        for (std::size_t edgeIndex = 0; edgeIndex < face.size(); ++edgeIndex)
+        {
+            const std::string key =
+                makeUnorientedPlanePairKey(data.facePlanes[faceIndex], data.faceEdgePlanes[faceIndex][edgeIndex]);
+            std::vector<std::size_t> &indices = verticesByPlanePair[key];
+            indices.push_back(face[edgeIndex]);
+            indices.push_back(face[(edgeIndex + 1u) % face.size()]);
+        }
+    }
+
+    for (auto &entry : verticesByPlanePair)
+    {
+        std::vector<std::size_t> &indices = entry.second;
+        std::sort(indices.begin(), indices.end());
+        indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+    }
+
+    return verticesByPlanePair;
+}
+
+void removeConsecutiveDuplicateIndices(std::vector<std::size_t> &face)
+{
+    face.erase(std::unique(face.begin(), face.end()), face.end());
+    while (face.size() > 1 && face.front() == face.back())
+        face.pop_back();
+}
+
+bool insertTJunctionVertices(RecoveredPolygonSoupData &data, std::string &outError)
+{
+    outError.clear();
+    const std::vector<AABB3i> vertexBoxes = buildVertexAABBs(data.uniqueVertices);
+    const std::vector<std::string> pointKeys = buildPointKeys(data.uniqueVertices);
+    const std::vector<ApproxPoint3> approxVertices = buildApproxPoints(data.uniqueVertices);
+    const std::unordered_map<std::string, std::vector<std::size_t>> verticesByPlanePair =
+        buildVerticesByPlanePair(data);
+    std::vector<std::vector<std::size_t>> refinedFaces(data.faces.size());
+    std::vector<std::vector<PolygonEdgeProvenance>> refinedFaceProvenances(data.faces.size());
+    std::vector<std::string> faceErrors(data.faces.size());
+
+    parallelForStatic(data.faces.size(), [&](std::size_t faceIndex)
+    {
+        const std::vector<std::size_t> &face = data.faces[faceIndex];
+        if (face.size() < 3u)
+        {
+            faceErrors[faceIndex] = "Topology recovery found a face with fewer than three vertices.";
+            return;
+        }
+        if (faceIndex >= data.faceEdgePlanes.size() || data.faceEdgePlanes[faceIndex].size() != face.size())
+        {
+            faceErrors[faceIndex] = "Topology recovery missing original edge planes for a face.";
+            return;
+        }
+        if (faceIndex >= data.faceEdgeProvenances.size() || data.faceEdgeProvenances[faceIndex].size() != face.size())
+        {
+            faceErrors[faceIndex] = "Topology recovery missing original edge provenance for a face.";
+            return;
+        }
+
+        std::vector<std::size_t> refinedFace;
+        std::vector<PolygonEdgeProvenance> refinedProvenances;
+        refinedFace.reserve(face.size());
+        refinedProvenances.reserve(face.size());
+        for (std::size_t edgeIndex = 0; edgeIndex < face.size(); ++edgeIndex)
+        {
+            const std::size_t startIndex = face[edgeIndex];
+            const std::size_t endIndex = face[(edgeIndex + 1u) % face.size()];
+            refinedFace.push_back(startIndex);
+
+            AABB3i edgeBox;
+            if (!buildPointPairAABB(data.uniqueVertices[startIndex], data.uniqueVertices[endIndex], edgeBox))
+            {
+                faceErrors[faceIndex] = "Topology recovery failed to build an edge AABB.";
+                return;
+            }
+
+            std::vector<std::size_t> interiorPoints;
+            const std::string candidateKey =
+                makeUnorientedPlanePairKey(data.facePlanes[faceIndex], data.faceEdgePlanes[faceIndex][edgeIndex]);
+            const auto candidateEntry = verticesByPlanePair.find(candidateKey);
+            if (candidateEntry == verticesByPlanePair.end())
+                continue;
+
+            for (std::size_t candidateIndex : candidateEntry->second)
+            {
+                if (candidateIndex == startIndex || candidateIndex == endIndex)
+                    continue;
+                if (pointKeys[candidateIndex] == pointKeys[startIndex] ||
+                        pointKeys[candidateIndex] == pointKeys[endIndex])
+                    continue;
+                if (!doAABBsOverlap(edgeBox, vertexBoxes[candidateIndex]))
+                    continue;
+
+                const PlanePoint3i &candidate = data.uniqueVertices[candidateIndex];
+                if (candidate.classify(data.facePlanes[faceIndex]) != 0)
+                    continue;
+                if (candidate.classify(data.faceEdgePlanes[faceIndex][edgeIndex]) != 0)
+                    continue;
+                if (!pointIsStrictlyInsideEdge(
+                            data.uniqueVertices,
+                            approxVertices,
+                            pointKeys,
+                            startIndex,
+                            candidateIndex,
+                            endIndex))
+                {
+                    continue;
+                }
+
+                interiorPoints.push_back(candidateIndex);
+            }
+
+            const int axis = chooseSegmentSortAxis(data.uniqueVertices, approxVertices, startIndex, endIndex);
+            const bool ascending =
+                compareApproxCoordinate(data.uniqueVertices, approxVertices, startIndex, endIndex, axis) < 0;
+            std::sort(
+                interiorPoints.begin(),
+                interiorPoints.end(),
+                [&](std::size_t lhs, std::size_t rhs)
+                {
+                    const int comparison =
+                        compareApproxCoordinate(data.uniqueVertices, approxVertices, lhs, rhs, axis);
+                    return ascending ? comparison < 0 : comparison > 0;
+                });
+            interiorPoints.erase(std::unique(interiorPoints.begin(), interiorPoints.end()), interiorPoints.end());
+            refinedFace.insert(refinedFace.end(), interiorPoints.begin(), interiorPoints.end());
+            const std::size_t segmentCount = interiorPoints.size() + 1u;
+            for (std::size_t segmentIndex = 0; segmentIndex < segmentCount; ++segmentIndex)
+                refinedProvenances.push_back(data.faceEdgeProvenances[faceIndex][edgeIndex]);
+        }
+
+        removeConsecutiveDuplicateIndices(refinedFace);
+        if (refinedFace.size() < 3u)
+        {
+            faceErrors[faceIndex] = "Topology recovery collapsed a face while inserting T-junction vertices.";
+            return;
+        }
+        if (refinedProvenances.size() != refinedFace.size())
+        {
+            faceErrors[faceIndex] = "Topology recovery produced inconsistent refined edge provenance.";
+            return;
+        }
+
+        refinedFaces[faceIndex] = std::move(refinedFace);
+        refinedFaceProvenances[faceIndex] = std::move(refinedProvenances);
+    });
+
+    for (std::size_t faceIndex = 0; faceIndex < faceErrors.size(); ++faceIndex)
+    {
+        if (!faceErrors[faceIndex].empty())
+            return failIo(outError, faceErrors[faceIndex]);
+
+        data.faces[faceIndex] = std::move(refinedFaces[faceIndex]);
+        data.faceEdgePlanes[faceIndex].clear();
+        data.faceEdgeProvenances[faceIndex] = std::move(refinedFaceProvenances[faceIndex]);
+    }
+
+    return true;
+}
+
+bool removeRedundantCollinearVertices(
+    const std::vector<PlanePoint3i> &vertices,
+    const std::vector<ApproxPoint3> &approxVertices,
+    const Plane3i &plane,
+    std::vector<std::size_t> &face,
+    std::vector<PolygonEdgeProvenance> &provenances)
+{
+    removeConsecutiveDuplicateIndices(face);
+    if (provenances.size() != face.size())
+        return false;
+    bool changed = true;
+    while (changed && face.size() > 3u)
+    {
+        changed = false;
+        for (std::size_t i = 0; i < face.size(); ++i)
+        {
+            const std::size_t previous = face[(i + face.size() - 1u) % face.size()];
+            const std::size_t current = face[i];
+            const std::size_t next = face[(i + 1u) % face.size()];
+            if (orientationSignAgainstPlane(vertices, approxVertices, plane, previous, current, next) != 0)
+                continue;
+            if (!pointIsBetweenSegmentEndpoints(vertices, approxVertices, previous, current, next))
+                return false;
+
+            const std::size_t previousEdge = (i + face.size() - 1u) % face.size();
+            const PolygonEdgeProvenance mergedProvenance =
+                isGeneratedClipEdge(provenances[previousEdge]) ? provenances[previousEdge] : provenances[i];
+            provenances[previousEdge] = mergedProvenance;
+            face.erase(face.begin() + static_cast<std::ptrdiff_t>(i));
+            provenances.erase(provenances.begin() + static_cast<std::ptrdiff_t>(i));
+            changed = true;
+            break;
+        }
+    }
+
+    return face.size() >= 3u && provenances.size() == face.size();
+}
+
+bool isConvexFace(
+    const std::vector<PlanePoint3i> &vertices,
+    const std::vector<ApproxPoint3> &approxVertices,
+    const Plane3i &plane,
+    const std::vector<std::size_t> &face)
+{
+    if (face.size() < 3u)
+        return false;
+
+    std::set<std::size_t> uniqueIndices(face.begin(), face.end());
+    if (uniqueIndices.size() != face.size())
+        return false;
+
+    int expectedSign = 0;
+    for (std::size_t i = 0; i < face.size(); ++i)
+    {
+        const std::size_t previous = face[(i + face.size() - 1u) % face.size()];
+        const std::size_t current = face[i];
+        const std::size_t next = face[(i + 1u) % face.size()];
+        const int sign = orientationSignAgainstPlane(vertices, approxVertices, plane, previous, current, next);
+        if (sign == 0)
+            return false;
+        if (expectedSign == 0)
+            expectedSign = sign;
+        else if (expectedSign != sign)
+            return false;
+    }
+
+    return expectedSign != 0;
+}
+
+std::vector<std::size_t> buildMergedBoundary(
+    const std::vector<std::size_t> &lhs,
+    std::size_t lhsEdge,
+    const std::vector<std::size_t> &rhs,
+    std::size_t rhsEdge,
+    const std::vector<PolygonEdgeProvenance> &lhsProvenances,
+    const std::vector<PolygonEdgeProvenance> &rhsProvenances,
+    std::vector<PolygonEdgeProvenance> &outProvenances)
+{
+    std::vector<std::size_t> boundary;
+    outProvenances.clear();
+    boundary.reserve(lhs.size() + rhs.size() - 2u);
+    outProvenances.reserve(lhs.size() + rhs.size() - 2u);
+
+    std::size_t index = (lhsEdge + 1u) % lhs.size();
+    while (true)
+    {
+        boundary.push_back(lhs[index]);
+        if (index == lhsEdge)
+            break;
+        outProvenances.push_back(lhsProvenances[index]);
+        index = (index + 1u) % lhs.size();
+    }
+
+    index = (rhsEdge + 1u) % rhs.size();
+    while (index != rhsEdge)
+    {
+        outProvenances.push_back(rhsProvenances[index]);
+        boundary.push_back(rhs[(index + 1u) % rhs.size()]);
+        index = (index + 1u) % rhs.size();
+    }
+
+    removeConsecutiveDuplicateIndices(boundary);
+    return boundary;
+}
+
+bool tryMergeFaces(
+    const std::vector<PlanePoint3i> &vertices,
+    const std::vector<ApproxPoint3> &approxVertices,
+    const Plane3i &plane,
+    const std::vector<std::size_t> &lhs,
+    const std::vector<std::size_t> &rhs,
+    const std::vector<PolygonEdgeProvenance> &lhsProvenances,
+    const std::vector<PolygonEdgeProvenance> &rhsProvenances,
+    std::vector<std::size_t> &outMerged,
+    std::vector<PolygonEdgeProvenance> &outProvenances)
+{
+    for (std::size_t lhsEdge = 0; lhsEdge < lhs.size(); ++lhsEdge)
+    {
+        const std::size_t lhsStart = lhs[lhsEdge];
+        const std::size_t lhsEnd = lhs[(lhsEdge + 1u) % lhs.size()];
+        for (std::size_t rhsEdge = 0; rhsEdge < rhs.size(); ++rhsEdge)
+        {
+            const std::size_t rhsStart = rhs[rhsEdge];
+            const std::size_t rhsEnd = rhs[(rhsEdge + 1u) % rhs.size()];
+            if (lhsStart != rhsEnd || lhsEnd != rhsStart)
+                continue;
+
+            std::vector<PolygonEdgeProvenance> provenances;
+            std::vector<std::size_t> boundary =
+                buildMergedBoundary(lhs, lhsEdge, rhs, rhsEdge, lhsProvenances, rhsProvenances, provenances);
+            if (!removeRedundantCollinearVertices(vertices, approxVertices, plane, boundary, provenances))
+                continue;
+            if (!isConvexFace(vertices, approxVertices, plane, boundary))
+                continue;
+            if (provenances.size() != boundary.size())
+                continue;
+
+            outMerged = std::move(boundary);
+            outProvenances = std::move(provenances);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void mergeConvexCoplanarFaces(RecoveredPolygonSoupData &data)
+{
+    struct EdgeOwner
+    {
+        std::size_t face = 0;
+        std::size_t edge = 0;
+    };
+
+    const std::vector<ApproxPoint3> approxVertices = buildApproxPoints(data.uniqueVertices);
+    bool changed = true;
+    while (changed)
+    {
+        changed = false;
+        std::map<std::string, std::vector<EdgeOwner>> ownersByEdge;
+        for (std::size_t faceIndex = 0; faceIndex < data.faces.size(); ++faceIndex)
+        {
+            const std::vector<std::size_t> &face = data.faces[faceIndex];
+            for (std::size_t edgeIndex = 0; edgeIndex < face.size(); ++edgeIndex)
+            {
+                const std::size_t start = face[edgeIndex];
+                const std::size_t end = face[(edgeIndex + 1u) % face.size()];
+                ownersByEdge[makeUndirectedEdgeKey(start, end)].push_back(EdgeOwner{faceIndex, edgeIndex});
+            }
+        }
+
+        std::vector<bool> consumed(data.faces.size(), false);
+        std::vector<bool> removed(data.faces.size(), false);
+        std::vector<std::vector<std::size_t>> replacements(data.faces.size());
+        std::vector<std::vector<PolygonEdgeProvenance>> replacementProvenances(data.faces.size());
+        for (const auto &entry : ownersByEdge)
+        {
+            const std::vector<EdgeOwner> &owners = entry.second;
+            if (owners.size() < 2u)
+                continue;
+
+            for (std::size_t lhsOwnerIndex = 0; lhsOwnerIndex < owners.size(); ++lhsOwnerIndex)
+            {
+                const EdgeOwner lhsOwner = owners[lhsOwnerIndex];
+                for (std::size_t rhsOwnerIndex = lhsOwnerIndex + 1u; rhsOwnerIndex < owners.size(); ++rhsOwnerIndex)
+                {
+                    const EdgeOwner rhsOwner = owners[rhsOwnerIndex];
+                    if (lhsOwner.face == rhsOwner.face)
+                        continue;
+                    if (consumed[lhsOwner.face] || consumed[rhsOwner.face])
+                        continue;
+                    const bool lhsGenerated =
+                        lhsOwner.face < data.faceEdgeProvenances.size() &&
+                        lhsOwner.edge < data.faceEdgeProvenances[lhsOwner.face].size() &&
+                        isGeneratedClipEdge(data.faceEdgeProvenances[lhsOwner.face][lhsOwner.edge]);
+                    const bool rhsGenerated =
+                        rhsOwner.face < data.faceEdgeProvenances.size() &&
+                        rhsOwner.edge < data.faceEdgeProvenances[rhsOwner.face].size() &&
+                        isGeneratedClipEdge(data.faceEdgeProvenances[rhsOwner.face][rhsOwner.edge]);
+                    if (!lhsGenerated && !rhsGenerated)
+                        continue;
+                    if (makePlaneKey(data.facePlanes[lhsOwner.face]) != makePlaneKey(data.facePlanes[rhsOwner.face]))
+                        continue;
+
+                    const std::size_t keep = std::min(lhsOwner.face, rhsOwner.face);
+                    const std::size_t remove = std::max(lhsOwner.face, rhsOwner.face);
+                    const std::vector<std::size_t> &keepFace = data.faces[keep];
+                    const std::vector<std::size_t> &removeFace = data.faces[remove];
+                    const std::size_t keepEdge = keep == lhsOwner.face ? lhsOwner.edge : rhsOwner.edge;
+                    const std::size_t removeEdge = remove == lhsOwner.face ? lhsOwner.edge : rhsOwner.edge;
+
+                    // 同一无向边只在方向相反时表示两个同向共面面的公共边。
+                    const std::size_t keepStart = keepFace[keepEdge];
+                    const std::size_t keepEnd = keepFace[(keepEdge + 1u) % keepFace.size()];
+                    const std::size_t removeStart = removeFace[removeEdge];
+                    const std::size_t removeEnd = removeFace[(removeEdge + 1u) % removeFace.size()];
+                    if (keepStart != removeEnd || keepEnd != removeStart)
+                        continue;
+
+                    std::vector<std::size_t> merged;
+                    std::vector<PolygonEdgeProvenance> mergedProvenances;
+                    if (!tryMergeFaces(
+                                data.uniqueVertices,
+                                approxVertices,
+                                data.facePlanes[keep],
+                                keepFace,
+                                removeFace,
+                                data.faceEdgeProvenances[keep],
+                                data.faceEdgeProvenances[remove],
+                                merged,
+                                mergedProvenances))
+                    {
+                        continue;
+                    }
+
+                    replacements[keep] = std::move(merged);
+                    replacementProvenances[keep] = std::move(mergedProvenances);
+                    consumed[keep] = true;
+                    consumed[remove] = true;
+                    removed[remove] = true;
+                    changed = true;
+                    break;
+                }
+            }
+        }
+
+        if (changed)
+        {
+            std::vector<std::vector<std::size_t>> nextFaces;
+            std::vector<Plane3i> nextPlanes;
+            std::vector<std::vector<Plane3i>> nextEdgePlanes;
+            std::vector<std::vector<PolygonEdgeProvenance>> nextEdgeProvenances;
+            nextFaces.reserve(data.faces.size());
+            nextPlanes.reserve(data.facePlanes.size());
+            nextEdgePlanes.reserve(data.faceEdgePlanes.size());
+            nextEdgeProvenances.reserve(data.faceEdgeProvenances.size());
+
+            for (std::size_t faceIndex = 0; faceIndex < data.faces.size(); ++faceIndex)
+            {
+                if (removed[faceIndex])
+                    continue;
+
+                if (!replacements[faceIndex].empty())
+                {
+                    nextFaces.push_back(std::move(replacements[faceIndex]));
+                    nextEdgeProvenances.push_back(std::move(replacementProvenances[faceIndex]));
+                }
+                else
+                {
+                    nextFaces.push_back(std::move(data.faces[faceIndex]));
+                    nextEdgeProvenances.push_back(std::move(data.faceEdgeProvenances[faceIndex]));
+                }
+                nextPlanes.push_back(data.facePlanes[faceIndex]);
+                nextEdgePlanes.emplace_back();
+            }
+
+            data.faces = std::move(nextFaces);
+            data.facePlanes = std::move(nextPlanes);
+            data.faceEdgePlanes = std::move(nextEdgePlanes);
+            data.faceEdgeProvenances = std::move(nextEdgeProvenances);
+        }
+    }
+}
+
+bool applyTopologyMode(
+    RecoveredPolygonSoupData &data,
+    PolygonSoupTopologyMode mode,
+    std::string &outError)
+{
+    outError.clear();
+    if (mode == PolygonSoupTopologyMode::Raw)
+        return true;
+
+    if (!insertTJunctionVertices(data, outError))
+        return false;
+
+    if (mode == PolygonSoupTopologyMode::ConformingMergeConvex)
+        mergeConvexCoplanarFaces(data);
 
     return true;
 }
@@ -623,8 +1395,8 @@ void writeObjVertexLine(std::ostream &stream, const PlanePoint3i &vertex, std::u
            << point.z << "\n";
 }
 
-bool buildStlTrianglesFromPolygonSoup(
-    const std::vector<Polygon256> &fragments,
+bool buildStlTrianglesFromRecoveredData(
+    const RecoveredPolygonSoupData &recovered,
     std::uint64_t coordinateScale,
     std::vector<StlTriangle> &outTriangles,
     std::string &outError)
@@ -632,29 +1404,10 @@ bool buildStlTrianglesFromPolygonSoup(
     outTriangles.clear();
     outError.clear();
 
-    std::vector<RecoveredPolygonBuildResult> recoveredPolygons(fragments.size());
-    parallelForStatic(fragments.size(), [&](std::size_t polygonIndex)
-    {
-        std::string polygonError;
-        if (!recoverOrderedPolygonVertices(
-                    fragments[polygonIndex],
-                    recoveredPolygons[polygonIndex].orderedVertices,
-                    polygonError))
-        {
-            recoveredPolygons[polygonIndex].error =
-                "Failed to recover polygon " + std::to_string(polygonIndex) + ": " + polygonError;
-        }
-    });
-
     std::size_t triangleCount = 0;
-    for (std::size_t polygonIndex = 0; polygonIndex < recoveredPolygons.size(); ++polygonIndex)
+    for (std::size_t polygonIndex = 0; polygonIndex < recovered.faces.size(); ++polygonIndex)
     {
-        const RecoveredPolygonBuildResult &result = recoveredPolygons[polygonIndex];
-        if (!result.error.empty())
-            return failIo(outError, result.error);
-
-        const std::vector<PlanePoint3i> &orderedVertices = result.orderedVertices;
-        if (orderedVertices.size() < 3u)
+        if (recovered.faces[polygonIndex].size() < 3u)
         {
             outError =
                 "Failed to triangulate polygon " + std::to_string(polygonIndex) +
@@ -662,26 +1415,61 @@ bool buildStlTrianglesFromPolygonSoup(
             return false;
         }
 
-        triangleCount += orderedVertices.size() - 2u;
+        triangleCount += recovered.faces[polygonIndex].size() - 2u;
     }
 
     outTriangles.reserve(triangleCount);
-    for (const RecoveredPolygonBuildResult &result : recoveredPolygons)
+    for (const std::vector<std::size_t> &face : recovered.faces)
     {
-        const std::vector<PlanePoint3i> &orderedVertices = result.orderedVertices;
         const ObjVertex anchor =
-            homogeneousPointToObjVertex(orderedVertices[0], coordinateScale);
-        for (std::size_t i = 1; i + 1 < orderedVertices.size(); ++i)
+            homogeneousPointToObjVertex(recovered.uniqueVertices[face[0]], coordinateScale);
+        for (std::size_t i = 1; i + 1 < face.size(); ++i)
         {
             outTriangles.push_back(StlTriangle{
                 anchor,
-                homogeneousPointToObjVertex(orderedVertices[i], coordinateScale),
-                homogeneousPointToObjVertex(orderedVertices[i + 1], coordinateScale)});
+                homogeneousPointToObjVertex(recovered.uniqueVertices[face[i]], coordinateScale),
+                homogeneousPointToObjVertex(recovered.uniqueVertices[face[i + 1u]], coordinateScale)});
         }
     }
 
     return true;
 }
+}
+
+const char *toString(PolygonSoupTopologyMode mode) noexcept
+{
+    switch (mode)
+    {
+    case PolygonSoupTopologyMode::Raw:
+        return "raw";
+    case PolygonSoupTopologyMode::Conforming:
+        return "conforming";
+    case PolygonSoupTopologyMode::ConformingMergeConvex:
+        return "conforming-merge-convex";
+    }
+
+    return "raw";
+}
+
+bool parsePolygonSoupTopologyMode(const std::string &token, PolygonSoupTopologyMode &outMode) noexcept
+{
+    if (token == "raw")
+    {
+        outMode = PolygonSoupTopologyMode::Raw;
+        return true;
+    }
+    if (token == "conforming")
+    {
+        outMode = PolygonSoupTopologyMode::Conforming;
+        return true;
+    }
+    if (token == "conforming-merge-convex")
+    {
+        outMode = PolygonSoupTopologyMode::ConformingMergeConvex;
+        return true;
+    }
+
+    return false;
 }
 
 bool readObjMesh(const std::string &path, ObjMeshData &outMesh, std::string &outError)
@@ -1040,10 +1828,22 @@ bool writePolygonSoupObj(
     std::string &outError,
     std::uint64_t coordinateScale)
 {
+    PolygonSoupExportOptions options;
+    options.coordinateScale = coordinateScale;
+    return writePolygonSoupObj(fragments, path, outFaceCount, outError, options);
+}
+
+bool writePolygonSoupObj(
+    const std::vector<Polygon256> &fragments,
+    const std::string &path,
+    std::size_t &outFaceCount,
+    std::string &outError,
+    const PolygonSoupExportOptions &options)
+{
     outFaceCount = 0;
     outError.clear();
 
-    if (coordinateScale == 0)
+    if (options.coordinateScale == 0)
         return failIo(outError, "Coordinate scale must be a positive integer.");
     if (!ensureOutputDirectoryExists(path, "OBJ", outError))
         return false;
@@ -1054,6 +1854,11 @@ bool writePolygonSoupObj(
         outError = "Failed to prepare polygon soup OBJ export: " + outError;
         return false;
 
+    }
+    if (!applyTopologyMode(recovered, options.topologyMode, outError))
+    {
+        outError = "Failed to apply polygon soup topology recovery: " + outError;
+        return false;
     }
 
     std::ofstream output(path, std::ios::trunc);
@@ -1068,7 +1873,7 @@ bool writePolygonSoupObj(
     // 默认保持多边形集合形态：写顶点，再逐面写 OBJ n 边面。
     output << "# Ember exact polygon soup export\n";
     for (const PlanePoint3i &vertex : recovered.uniqueVertices)
-        writeObjVertexLine(output, vertex, coordinateScale);
+        writeObjVertexLine(output, vertex, options.coordinateScale);
 
     for (const std::vector<std::size_t> &face : recovered.faces)
     {
@@ -1090,16 +1895,40 @@ bool writePolygonSoupStl(
     std::string &outError,
     std::uint64_t coordinateScale)
 {
+    PolygonSoupExportOptions options;
+    options.coordinateScale = coordinateScale;
+    return writePolygonSoupStl(fragments, path, outFaceCount, outError, options);
+}
+
+bool writePolygonSoupStl(
+    const std::vector<Polygon256> &fragments,
+    const std::string &path,
+    std::size_t &outFaceCount,
+    std::string &outError,
+    const PolygonSoupExportOptions &options)
+{
     outFaceCount = 0;
     outError.clear();
 
-    if (coordinateScale == 0)
+    if (options.coordinateScale == 0)
         return failIo(outError, "Coordinate scale must be a positive integer.");
     if (!ensureOutputDirectoryExists(path, "STL", outError))
         return false;
 
+    RecoveredPolygonSoupData recovered;
+    if (!recoverPolygonSoupData(fragments, recovered, outError))
+    {
+        outError = "Failed to prepare polygon soup STL export: " + outError;
+        return false;
+    }
+    if (!applyTopologyMode(recovered, options.topologyMode, outError))
+    {
+        outError = "Failed to apply polygon soup topology recovery: " + outError;
+        return false;
+    }
+
     std::vector<StlTriangle> triangles;
-    if (!buildStlTrianglesFromPolygonSoup(fragments, coordinateScale, triangles, outError))
+    if (!buildStlTrianglesFromRecoveredData(recovered, options.coordinateScale, triangles, outError))
     {
         outError = "Failed to prepare polygon soup STL export: " + outError;
         return false;
@@ -1157,6 +1986,18 @@ bool writePolygonSoupMesh(
     std::string &outError,
     std::uint64_t coordinateScale)
 {
+    PolygonSoupExportOptions options;
+    options.coordinateScale = coordinateScale;
+    return writePolygonSoupMesh(fragments, path, outFaceCount, outError, options);
+}
+
+bool writePolygonSoupMesh(
+    const std::vector<Polygon256> &fragments,
+    const std::string &path,
+    std::size_t &outFaceCount,
+    std::string &outError,
+    const PolygonSoupExportOptions &options)
+{
     MeshFileFormat format = MeshFileFormat::Obj;
     if (!detectMeshFileFormatFromPath(path, format, outError))
         return false;
@@ -1164,9 +2005,9 @@ bool writePolygonSoupMesh(
     switch (format)
     {
     case MeshFileFormat::Obj:
-        return writePolygonSoupObj(fragments, path, outFaceCount, outError, coordinateScale);
+        return writePolygonSoupObj(fragments, path, outFaceCount, outError, options);
     case MeshFileFormat::Stl:
-        return writePolygonSoupStl(fragments, path, outFaceCount, outError, coordinateScale);
+        return writePolygonSoupStl(fragments, path, outFaceCount, outError, options);
     }
 
     return failIo(outError, "Unsupported mesh file format.");
@@ -1178,10 +2019,21 @@ bool buildObjMeshFromPolygonSoup(
     std::string &outError,
     std::uint64_t coordinateScale)
 {
+    PolygonSoupExportOptions options;
+    options.coordinateScale = coordinateScale;
+    return buildObjMeshFromPolygonSoup(fragments, outMesh, outError, options);
+}
+
+bool buildObjMeshFromPolygonSoup(
+    const std::vector<Polygon256> &fragments,
+    ObjMeshData &outMesh,
+    std::string &outError,
+    const PolygonSoupExportOptions &options)
+{
     outMesh = ObjMeshData();
     outError.clear();
 
-    if (coordinateScale == 0)
+    if (options.coordinateScale == 0)
         return failIo(outError, "Coordinate scale must be a positive integer.");
 
     RecoveredPolygonSoupData recovered;
@@ -1191,10 +2043,15 @@ bool buildObjMeshFromPolygonSoup(
         return false;
 
     }
+    if (!applyTopologyMode(recovered, options.topologyMode, outError))
+    {
+        outError = "Failed to apply polygon soup topology recovery: " + outError;
+        return false;
+    }
 
     outMesh.vertices.reserve(recovered.uniqueVertices.size());
     for (const PlanePoint3i &vertex : recovered.uniqueVertices)
-        outMesh.vertices.push_back(homogeneousPointToObjVertex(vertex, coordinateScale));
+        outMesh.vertices.push_back(homogeneousPointToObjVertex(vertex, options.coordinateScale));
 
     outMesh.faces = std::move(recovered.faces);
 

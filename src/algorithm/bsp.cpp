@@ -160,7 +160,12 @@ void BSPTree::addSegmentRecursive(BSPNode &node, const Plane3i &v0, const Plane3
         Polygon256 backGeometry;
 
         // 分割时使用平面；线段端点 v0/v1（p0/p1）的分类讨论在进入叶节点前完成。
-        if (!detail::clipLeafGeometryByPlaneTrusted(node.leafGeometry, insertPlane, frontGeometry, backGeometry))
+        if (!detail::clipLeafGeometryByPlaneTrusted(
+                    node.leafGeometry,
+                    insertPlane,
+                    frontGeometry,
+                    backGeometry,
+                    PolygonEdgeProvenance::ArrangementClip))
             return;
 
         node.isLeaf = false;

@@ -19,7 +19,7 @@
 当前对外流水线是：
 
 ```text
-OBJ/STL -> 共享 scale + 浮点输入AABB -> Polygon soup -> BoolProblem(校验/懒顶点缓存) -> SubdivisionSolver -> resultFragments -> OBJ n-gon / STL triangles
+OBJ/STL -> 共享 scale + 浮点输入AABB -> Polygon soup -> BoolProblem(校验/懒顶点缓存) -> SubdivisionSolver -> resultFragments -> 可选输出拓扑恢复 -> OBJ n-gon / STL triangles
 ```
 
 其中职责边界是：
@@ -27,7 +27,7 @@ OBJ/STL -> 共享 scale + 浮点输入AABB -> Polygon soup -> BoolProblem(校验
 - `main.cpp` 只负责 CLI、按扩展名读写 OBJ/STL、共享量化尺度选择、合并输入 AABB、驱动 `BoolProblem`。
 - `BoolProblem` 是公开门面，只保存输入、布尔配置和最终结果。
 - `SubdivisionSolver` 独占递归树、AABB、参考点传播、叶片片段、分类片段和结果汇总。
-- `writePolygonSoupMesh()` 按扩展名分发：`.obj` 保持 n 边面，`.stl` 在 I/O 边界层做扇形三角化。
+- `writePolygonSoupMesh()` 按扩展名分发：`.obj` 保持 n 边面，`.stl` 在 I/O 边界层做扇形三角化；默认 `raw` 模式不改变 polygon soup，非默认模式只在导出前做 T 形连接修复和可选凸共面合并。
 
 ```mermaid
 flowchart TD
@@ -41,14 +41,17 @@ flowchart TD
     H --> I["SubdivisionSolver::solve()"]
     I --> J["resultFragments()"]
     J --> K["writePolygonSoupMesh()"]
-    K --> L["OBJ n-gon 或 STL triangles 输出"]
+    K --> K1{"--output-topology"}
+    K1 -->|"raw"| L["OBJ n-gon 或 STL triangles 输出"]
+    K1 -->|"conforming / merge"| M["精确 T-junction 修复 / 凸共面合并"]
+    M --> L
 ```
 
 ## 2. 应用层到 BoolProblem
 
 `src/application/main.cpp` 的外层顺序比较固定：
 
-1. 解析 `--lhs --rhs --op --out --scale --leaf-threshold --threads`。
+1. 解析 `--lhs --rhs --op --out --scale --leaf-threshold --threads --output-topology`。
 2. 按扩展名读取左右输入网格（OBJ/STL）；左右输入由应用层并行调度。
 3. 选择共享 `scale`，把左右输入放进同一个整数坐标系。
 4. 用 `computeScaledMeshAABB()` 对输入网格浮点顶点执行 `floor(coord * scale)` / `ceil(coord * scale)`，得到左右输入 AABB；左右 AABB 与 polygon soup 构建在应用层并行执行。
@@ -66,7 +69,7 @@ flowchart TD
 - `BoolProblem` 不再暴露直接注入任意 `WNTV` polygon 集合的公开入口，公开输入边界固定为二元操作数。
 - 根场景 AABB 来自共享 `scale` 后的输入网格浮点顶点上/下取整，不再由 `SubdivisionSolver` 从 256 位多边形顶点反推。
 - STL 输入由 vendored `third_party/stl_reader/stl_reader.h` 负责 ASCII/binary 识别和三角顶点去重；应用层构建 polygon soup 时仍会启用 `triangulateNonCoplanarFaces=true`。
-- 最终结果导出到 `.obj` 时保持 polygon soup / n-gon 语义；导出到 `.stl` 时则在外层做三角化。
+- 最终结果导出到 `.obj` 时默认保持 polygon soup / n-gon 语义，可能包含论文允许的 T 形连接；`--output-topology conforming` 会复用已有精确顶点补齐边上的 T 点，`--output-topology conforming-merge-convex` 还会保守合并同向共面且合并后仍为凸多边形的相邻面。导出到 `.stl` 时同样先应用所选拓扑策略，再在外层三角化。
 
 ### 2.1 CGAL Nef verifier 的语义边界
 

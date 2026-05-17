@@ -17,7 +17,8 @@ namespace ember
 enum class PolygonEdgeProvenance
 {
     Regular,
-    SubdivisionClip
+    SubdivisionClip,
+    ArrangementClip
 };
 
 struct Line256

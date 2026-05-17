@@ -42,6 +42,7 @@ struct CliOptions
     std::optional<std::uint64_t> scale;
     std::size_t leafThreshold = 25;
     std::size_t threadCount = 0;
+    ember::PolygonSoupTopologyMode outputTopologyMode = ember::PolygonSoupTopologyMode::Raw;
     BoolOperandAssumptions lhsAssumptions;
     BoolOperandAssumptions rhsAssumptions;
 };
@@ -59,6 +60,7 @@ struct CliTimings
     std::size_t lhsPolygonCount = 0;
     std::size_t rhsPolygonCount = 0;
     std::size_t exportedFaces = 0;
+    ember::PolygonSoupTopologyMode outputTopologyMode = ember::PolygonSoupTopologyMode::Raw;
     ember::BoolSolveMetrics solveMetrics;
 };
 
@@ -69,6 +71,7 @@ void printUsage()
             << "--op union|intersection|difference --out <result.obj|result.stl> "
             << "[--scale <positive_integer>] [--leaf-threshold <positive_integer>] "
             << "[--threads <positive_integer>] "
+            << "[--output-topology raw|conforming|conforming-merge-convex] "
             << "[--timings-out <metrics.txt>] "
             << "[--assume-lhs-nsi] [--assume-lhs-nnc] "
             << "[--assume-rhs-nsi] [--assume-rhs-nnc]"
@@ -79,6 +82,21 @@ void printUsage()
     std::cerr
             << "Input supports .obj/.stl. Output .obj preserves n-gons; output .stl triangulates."
             << std::endl;
+}
+
+int topologyModeCode(ember::PolygonSoupTopologyMode mode) noexcept
+{
+    switch (mode)
+    {
+    case ember::PolygonSoupTopologyMode::Raw:
+        return 0;
+    case ember::PolygonSoupTopologyMode::Conforming:
+        return 1;
+    case ember::PolygonSoupTopologyMode::ConformingMergeConvex:
+        return 2;
+    }
+
+    return 0;
 }
 
 double elapsedMilliseconds(const Clock::time_point &start, const Clock::time_point &end)
@@ -151,6 +169,7 @@ bool writeTimingMetrics(const std::string &path, const CliTimings &timings, std:
            << "lhs_polygons=" << timings.lhsPolygonCount << '\n'
            << "rhs_polygons=" << timings.rhsPolygonCount << '\n'
            << "exported_faces=" << timings.exportedFaces << '\n'
+           << "output_topology_mode=" << topologyModeCode(timings.outputTopologyMode) << '\n'
            << "input_polygons=" << timings.solveMetrics.inputPolygonCount << '\n'
            << "effective_thread_count=" << timings.solveMetrics.effectiveThreadCount << '\n'
            << "node_count=" << timings.solveMetrics.nodeCount << '\n'
@@ -278,7 +297,8 @@ bool parseArgs(int argc, char **argv, CliOptions &outOptions)
     {
         const std::string arg(argv[i]);
         if (arg == "--lhs" || arg == "--rhs" || arg == "--op" || arg == "--out" ||
-                arg == "--scale" || arg == "--leaf-threshold" || arg == "--threads" || arg == "--timings-out")
+                arg == "--scale" || arg == "--leaf-threshold" || arg == "--threads" ||
+                arg == "--output-topology" || arg == "--timings-out")
         {
             if (i + 1 >= argc)
             {
@@ -295,6 +315,14 @@ bool parseArgs(int argc, char **argv, CliOptions &outOptions)
                 outOptions.outputPath = value;
             else if (arg == "--timings-out")
                 outOptions.timingsOutputPath = value;
+            else if (arg == "--output-topology")
+            {
+                if (!ember::parsePolygonSoupTopologyMode(value, outOptions.outputTopologyMode))
+                {
+                    std::cerr << "Unsupported output topology mode: " << value << std::endl;
+                    return false;
+                }
+            }
             else if (arg == "--op")
             {
                 if (!parseBoolOp(value, outOptions.operation))
@@ -470,6 +498,7 @@ int main(int argc, char **argv)
         ember::ObjMeshData lhsMesh;
         ember::ObjMeshData rhsMesh;
         CliTimings timings;
+        timings.outputTopologyMode = options.outputTopologyMode;
         std::string error;
 
         const Clock::time_point readStart = Clock::now();
@@ -594,12 +623,15 @@ int main(int argc, char **argv)
             bool exported = false;
             runApplicationTask(options.threadCount, [&]
             {
+                ember::PolygonSoupExportOptions exportOptions;
+                exportOptions.coordinateScale = sharedScale;
+                exportOptions.topologyMode = options.outputTopologyMode;
                 exported = ember::writePolygonSoupMesh(
                     problem.resultFragments(),
                     options.outputPath,
                     exportedFaces,
                     error,
-                    sharedScale);
+                    exportOptions);
             });
             if (!exported)
             {
@@ -643,6 +675,7 @@ int main(int argc, char **argv)
                 << " child_ref_tried=" << timings.solveMetrics.childReferenceCandidateTriedCount
                 << " leaf_trace_attempts=" << timings.solveMetrics.leafClassificationTraceAttemptCount
                 << " result_fragments=" << problem.resultFragments().size()
+                << " output_topology=" << ember::toString(options.outputTopologyMode)
                 << " exported_faces=" << exportedFaces
                 << std::endl;
 
