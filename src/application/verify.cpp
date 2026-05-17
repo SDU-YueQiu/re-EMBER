@@ -70,6 +70,7 @@ struct VerifyOptions
     std::filesystem::path oracleCacheDir = std::filesystem::path("build") / "oracle_cache" / "nef";
     bool refreshOracle = false;
     bool diagnoseNef = false;
+    bool disableSurfaceCompare = false;
     NefCompareOp nefCompareOp = NefCompareOp::Xor;
     std::filesystem::path reportPath;
 };
@@ -100,6 +101,7 @@ struct VerificationReport
     double solveMs = 0.0;
     double oracleMs = 0.0;
     double compareMs = 0.0;
+    bool surfaceCompareUsed = false;
 };
 
 double elapsedMilliseconds(const Clock::time_point &start, const Clock::time_point &end)
@@ -119,6 +121,7 @@ void printUsage()
             << "[--candidate-mode fragments-nef|export-conforming|export-nef] "
             << "[--oracle-cache-dir <dir>] [--refresh-oracle] "
             << "[--diagnose-nef] [--nef-compare-op xor|candidate-minus-oracle|oracle-minus-candidate|skip] "
+            << "[--disable-surface-compare] "
             << "[--report-out <file>]"
             << std::endl;
 }
@@ -351,6 +354,11 @@ bool parseArgs(int argc, char **argv, VerifyOptions &outOptions)
         if (arg == "--diagnose-nef")
         {
             outOptions.diagnoseNef = true;
+            continue;
+        }
+        if (arg == "--disable-surface-compare")
+        {
+            outOptions.disableSurfaceCompare = true;
             continue;
         }
         if (arg == "--assume-lhs-nsi")
@@ -758,20 +766,28 @@ IndexedExactMesh makeIndexedSurfaceMesh(const ember::app::SurfaceMesh &surfaceMe
     return indexed;
 }
 
-std::optional<IndexedExactMesh> diagnoseNef(const char *label, const NefPolyhedron &nef)
+std::optional<IndexedExactMesh> extractSimpleNefSurface(const NefPolyhedron &nef)
 {
-    std::cerr << "[nef-diagnose] " << label
-              << " nef_empty=" << (nef.is_empty() ? 1 : 0)
-              << " nef_simple=" << (nef.is_simple() ? 1 : 0)
-              << std::endl;
     if (nef.is_empty() || !nef.is_simple())
         return std::nullopt;
 
     ember::app::SurfaceMesh surfaceMesh;
     NefPolyhedron copy = nef;
     CGAL::convert_nef_polyhedron_to_polygon_mesh(copy, surfaceMesh, false);
-    IndexedExactMesh indexed = makeIndexedSurfaceMesh(surfaceMesh);
-    printMeshDiagnostics((std::string(label) + "_surface").c_str(), computeMeshDiagnostics(indexed));
+    return makeIndexedSurfaceMesh(surfaceMesh);
+}
+
+std::optional<IndexedExactMesh> diagnoseNef(const char *label, const NefPolyhedron &nef)
+{
+    std::cerr << "[nef-diagnose] " << label
+              << " nef_empty=" << (nef.is_empty() ? 1 : 0)
+              << " nef_simple=" << (nef.is_simple() ? 1 : 0)
+              << std::endl;
+    std::optional<IndexedExactMesh> indexed = extractSimpleNefSurface(nef);
+    if (!indexed)
+        return std::nullopt;
+
+    printMeshDiagnostics((std::string(label) + "_surface").c_str(), computeMeshDiagnostics(*indexed));
     return indexed;
 }
 
@@ -1108,6 +1124,7 @@ void writeReport(const std::filesystem::path &path, const VerificationReport &re
            << "result_fragments=" << report.resultFragments << '\n'
            << "candidate_mode=" << report.candidateMode << '\n'
            << "nef_compare_op=" << report.nefCompareOp << '\n'
+           << "surface_compare_used=" << (report.surfaceCompareUsed ? 1 : 0) << '\n'
            << std::fixed << std::setprecision(6)
            << "prepare_ms=" << report.prepareMs << '\n'
            << "solve_ms=" << report.solveMs << '\n'
@@ -1187,6 +1204,8 @@ int main(int argc, char **argv)
         std::optional<IndexedExactMesh> oracleSurface;
         if (options.diagnoseNef)
             oracleSurface = diagnoseNef("oracle", oracle);
+        else if (!options.disableSurfaceCompare)
+            oracleSurface = extractSimpleNefSurface(oracle);
 
         const Clock::time_point compareStart = Clock::now();
         const NefPolyhedron candidate = buildCandidateNef(options, problem.resultFragments());
@@ -1203,9 +1222,23 @@ int main(int argc, char **argv)
             }
             std::cerr << "[nef-diagnose] compare_begin op=" << toString(options.nefCompareOp) << std::endl;
         }
-        const bool equal = options.nefCompareOp == NefCompareOp::Skip ?
-                           false :
-                           runNefCompare(candidate, oracle, options.nefCompareOp);
+        else if (!options.disableSurfaceCompare)
+        {
+            candidateSurface = extractSimpleNefSurface(candidate);
+        }
+
+        bool equal = false;
+        if (!options.disableSurfaceCompare && candidateSurface && oracleSurface)
+        {
+            std::string surfaceReason;
+            if (equivalentSurfaceMeshes(*candidateSurface, *oracleSurface, surfaceReason))
+            {
+                equal = true;
+                report.surfaceCompareUsed = true;
+            }
+        }
+        if (!equal && options.nefCompareOp != NefCompareOp::Skip)
+            equal = runNefCompare(candidate, oracle, options.nefCompareOp);
         if (options.diagnoseNef)
             std::cerr << "[nef-diagnose] compare_end op=" << toString(options.nefCompareOp)
                       << " empty=" << (equal ? 1 : 0) << std::endl;
@@ -1223,6 +1256,7 @@ int main(int argc, char **argv)
                   << " result_fragments=" << report.resultFragments
                   << " candidate_mode=" << report.candidateMode
                   << " nef_compare_op=" << toString(options.nefCompareOp)
+                  << " surface_compare_used=" << (report.surfaceCompareUsed ? 1 : 0)
                   << " cache_hit=" << (report.cacheHit ? 1 : 0)
                   << " oracle_key=" << report.oracleKey
                   << " oracle_path=" << report.oraclePath.string()
