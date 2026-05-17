@@ -81,7 +81,7 @@ Application-layer parallelism uses the same `--threads` limit for coarse left/ri
 - `-InputRoot` runs a batch of cases from a directory tree.
 - `-Out` writes a single-workload result file.
 - `-ExecutablePath` reuses an existing `re-EMBER.exe` instead of rebuilding.
-- `-Configuration` chooses the profiling build type.
+- `-Configuration` chooses the profiling build type. Timing-only `-NoTracy` runs default to `Release`; Tracy runs default to `RelWithDebInfo`.
 - `-Iterations`, `-TimeoutSeconds`, `-BuildTimeoutSeconds`, and `-ReportTimeoutSeconds` control runtime limits.
 - `-LeafThreshold` is passed through to the solver; `-Threads` sets the application-layer task arena size and solver thread count.
 - `-NoTracy` skips Tracy capture and uses `build\profile_clang_notracy\`.
