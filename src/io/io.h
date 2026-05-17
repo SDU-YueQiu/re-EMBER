@@ -67,6 +67,53 @@ struct PolygonSoupBuildOptions
 };
 
 /**
+ * @brief 多边形集合导出前的可选拓扑恢复策略。
+ */
+enum class PolygonSoupTopologyMode
+{
+    /**
+     * @brief 原样导出 `BoolProblem::resultFragments()` 恢复出的 polygon soup。
+     */
+    Raw,
+
+    /**
+     * @brief 只补齐落在其他面边界上的已有顶点，消除导出网格中的 T 形连接。
+     */
+    Conforming,
+
+    /**
+     * @brief 先补齐 T 形连接，再保守合并仍为凸多边形的同向共面相邻面。
+     */
+    ConformingMergeConvex
+};
+
+/**
+ * @brief 多边形集合导出配置。
+ */
+struct PolygonSoupExportOptions
+{
+    /**
+     * @brief 将整数坐标反量化回输出坐标的共享尺度。
+     */
+    std::uint64_t coordinateScale = 1;
+
+    /**
+     * @brief 导出前执行的拓扑恢复策略。
+     */
+    PolygonSoupTopologyMode topologyMode = PolygonSoupTopologyMode::Raw;
+};
+
+/**
+ * @brief 返回导出拓扑策略的 CLI/日志名称。
+ */
+const char *toString(PolygonSoupTopologyMode mode) noexcept;
+
+/**
+ * @brief 从 CLI 字符串解析导出拓扑策略。
+ */
+bool parsePolygonSoupTopologyMode(const std::string &token, PolygonSoupTopologyMode &outMode) noexcept;
+
+/**
  * @brief 读取仅包含几何位置的 OBJ 数据。
  *
  * @param[in] path OBJ 文件路径。
@@ -191,6 +238,16 @@ bool writePolygonSoupObj(
     std::uint64_t coordinateScale = 1);
 
 /**
+ * @brief 将布尔结果多边形集合按指定拓扑策略导出为 OBJ n 边面。
+ */
+bool writePolygonSoupObj(
+    const std::vector<Polygon256> &fragments,
+    const std::string &path,
+    std::size_t &outFaceCount,
+    std::string &outError,
+    const PolygonSoupExportOptions &options);
+
+/**
  * @brief 将布尔结果多边形集合导出为 STL 三角面。
  *
  * @param[in] fragments 待导出的结果面集合。
@@ -208,6 +265,16 @@ bool writePolygonSoupStl(
     std::size_t &outFaceCount,
     std::string &outError,
     std::uint64_t coordinateScale = 1);
+
+/**
+ * @brief 将布尔结果多边形集合按指定拓扑策略导出为 STL 三角面。
+ */
+bool writePolygonSoupStl(
+    const std::vector<Polygon256> &fragments,
+    const std::string &path,
+    std::size_t &outFaceCount,
+    std::string &outError,
+    const PolygonSoupExportOptions &options);
 
 /**
  * @brief 按输出扩展名导出多边形集合。
@@ -229,6 +296,16 @@ bool writePolygonSoupMesh(
     std::uint64_t coordinateScale = 1);
 
 /**
+ * @brief 按输出扩展名和指定拓扑策略导出多边形集合。
+ */
+bool writePolygonSoupMesh(
+    const std::vector<Polygon256> &fragments,
+    const std::string &path,
+    std::size_t &outFaceCount,
+    std::string &outError,
+    const PolygonSoupExportOptions &options);
+
+/**
  * @brief 将 `Polygon256` 多边形集合转换为 OBJ 风格的 n 边面网格。
  *
  * 该函数按 `Polygon256` 的边平面顺序恢复每个面的有序顶点，并保留原始
@@ -247,4 +324,13 @@ bool buildObjMeshFromPolygonSoup(
     ObjMeshData &outMesh,
     std::string &outError,
     std::uint64_t coordinateScale = 1);
+
+/**
+ * @brief 按指定拓扑策略将 `Polygon256` 多边形集合转换为 OBJ 风格网格。
+ */
+bool buildObjMeshFromPolygonSoup(
+    const std::vector<Polygon256> &fragments,
+    ObjMeshData &outMesh,
+    std::string &outError,
+    const PolygonSoupExportOptions &options);
 }

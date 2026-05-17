@@ -146,6 +146,7 @@ struct UiState
     bool emberAutoScale = true;
     std::uint64_t emberManualScale = kVisualTestManualScale;
     std::size_t leafThreshold = kLeafThreshold;
+    ember::PolygonSoupTopologyMode emberOutputTopology = ember::PolygonSoupTopologyMode::Raw;
     bool previewDirty = false;
     bool solveRequested = false;
     bool continuousSolve = false;
@@ -576,11 +577,14 @@ bool computeEmberResult(SceneData &scene, const UiState &ui, ResultStats &outSta
         const Clock::time_point solveEnd = Clock::now();
 
         const Clock::time_point convertStart = Clock::now();
+        PolygonSoupExportOptions exportOptions;
+        exportOptions.coordinateScale = scene.emberSharedScale;
+        exportOptions.topologyMode = ui.emberOutputTopology;
         if (!ember::buildObjMeshFromPolygonSoup(
                     problem.resultFragments(),
                     scene.resultDisplayMesh,
                     outError,
-                    scene.emberSharedScale))
+                    exportOptions))
         {
             outError = "Failed to convert the EMBER result polygon soup to an OBJ mesh: " + outError;
             return false;
@@ -976,6 +980,21 @@ int main()
             changed = true;
         }
 
+        const char *topologyItems[] = {"raw", "conforming", "conforming-merge-convex"};
+        int topologyIndex = 0;
+        if (proposed.emberOutputTopology == ember::PolygonSoupTopologyMode::Conforming)
+            topologyIndex = 1;
+        else if (proposed.emberOutputTopology == ember::PolygonSoupTopologyMode::ConformingMergeConvex)
+            topologyIndex = 2;
+        if (ImGui::Combo("output topology", &topologyIndex, topologyItems, 3))
+        {
+            proposed.emberOutputTopology =
+                topologyIndex == 1 ? ember::PolygonSoupTopologyMode::Conforming :
+                topologyIndex == 2 ? ember::PolygonSoupTopologyMode::ConformingMergeConvex :
+                ember::PolygonSoupTopologyMode::Raw;
+            changed = true;
+        }
+
         changed = drawDoubleSliderInput(
                       "tool scale",
                       proposed.pose.scale,
@@ -1055,6 +1074,7 @@ int main()
         {
             ImGui::Text("shared_scale=%llu", static_cast<unsigned long long>(ui.stats.sharedScale));
             ImGui::Text("leaf_threshold=%zu", ui.leafThreshold);
+            ImGui::Text("output_topology=%s", ember::toString(ui.emberOutputTopology));
         }
         ImGui::Text("lhs=%s", scene.workpiecePath.c_str());
         ImGui::Text("rhs=%s", scene.toolPath.c_str());
