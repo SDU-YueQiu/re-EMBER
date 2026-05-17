@@ -8,6 +8,8 @@
 
 这些样本是当前代码的端到端回归集合，不在本文档固化某次历史通过率；修复算法时以最新 `ctest` 和对应 `build/performance/run_<timestamp>/timings.csv`、`summary.txt`、`report.md` 为准。多 workload 批量运行时，`summary.txt` 会额外给出 `overall_avg_*` 总平均时间，`report.md` 会给出 `Overall Average Timings` 表，方便先比较整批负载的平均耗时。其中 `end_to_end_ms` / `avg_end_to_end_ms` 表示 CLI 流水线从开始读输入到完成导出输出的墙钟时间；`process_elapsed_ms` / `avg_process_elapsed_ms` 表示整个 `re-EMBER.exe` 进程的墙钟时间，包含阶段外开销。`tests/paper_experiments/manifest.csv` 中的 `current_status` / `current_failure_category` 只记录本工作树上次刷新后的状态，不能替代重新运行 CTest。
 
+默认 paper 聚合测试只证明 re-EMBER 能按当前指标和输入假设跑通，不等价于集合正确性证明。需要结果正确性校验时，在性能脚本上额外加 `-VerifyWithOracle`；脚本会在计时迭代结束后对每个 workload 调用一次 `re-EMBER_verify`，输出 `verification.csv`，并把 pass/fail、cache hit/miss 和 report 路径写进 `summary.txt` / `report.md`。这部分 oracle 基于 re-EMBER 量化后的 `Polygon256` 输入和 CGAL Nef 正则化集合运算，缓存默认位于 `build/oracle_cache/nef/`，校验耗时不计入 `timings.csv`。
+
 ## 运行方式
 
 ```powershell
