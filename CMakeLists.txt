@@ -28,13 +28,34 @@ project(re-EMBER LANGUAGES CXX)
 
 message(STATUS "Current Toolchain File: ${CMAKE_TOOLCHAIN_FILE}")
 message(STATUS "Current C++ compiler: ${CMAKE_CXX_COMPILER}")
+message(STATUS "Current C++ compiler id: ${CMAKE_CXX_COMPILER_ID}")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-if(MSVC)
-  add_compile_options(/utf-8)
+option(REEMBER_ENABLE_NATIVE_CLANG_OPTIMIZATIONS "Enable native-codegen Clang optimizations for Release and RelWithDebInfo builds" ON)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+  add_compile_options(
+    "$<$<COMPILE_LANGUAGE:CXX>:/utf-8>"
+  )
+endif()
+
+if(REEMBER_ENABLE_NATIVE_CLANG_OPTIMIZATIONS AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  set(REEMBER_CLANG_OPTIMIZATION_OPTIONS -O3 -march=native -mtune=native)
+  if(CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+    foreach(REEMBER_CONFIG_FLAGS CMAKE_CXX_FLAGS_RELEASE CMAKE_CXX_FLAGS_RELWITHDEBINFO)
+      string(REGEX REPLACE "(^| )/O[12]( |$)" " " "${REEMBER_CONFIG_FLAGS}" "${${REEMBER_CONFIG_FLAGS}}")
+      string(REGEX REPLACE "(^| )/Ob[0-2]( |$)" " " "${REEMBER_CONFIG_FLAGS}" "${${REEMBER_CONFIG_FLAGS}}")
+      string(STRIP "${${REEMBER_CONFIG_FLAGS}}" "${REEMBER_CONFIG_FLAGS}")
+    endforeach()
+    set(REEMBER_CLANG_OPTIMIZATION_OPTIONS /clang:-O3 -march=native -mtune=native)
+  endif()
+  add_compile_options(
+    "$<$<CONFIG:Release>:${REEMBER_CLANG_OPTIMIZATION_OPTIONS}>"
+    "$<$<CONFIG:RelWithDebInfo>:${REEMBER_CLANG_OPTIMIZATION_OPTIONS}>"
+  )
 endif()
 
 option(REEMBER_ENABLE_EIGEN "Link Eigen3 from vcpkg" OFF)
@@ -128,16 +149,6 @@ target_include_directories(reember_lib
 
 target_compile_features(reember_lib PUBLIC cxx_std_17)
 
-if(MSVC AND CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-  target_compile_options(reember_lib PRIVATE /MP)
-endif()
-
-if(MSVC)
-  target_compile_options(reember_lib PRIVATE
-    "$<$<CONFIG:Release>:/Zi>"
-  )
-endif()
-
 target_link_libraries(reember_lib
   PRIVATE
     tinyobjloader::tinyobjloader_double
@@ -171,18 +182,6 @@ endif()
 add_executable(re-EMBER ${REEMBER_APP_SOURCE})
 target_compile_definitions(re-EMBER PRIVATE TINYOBJLOADER_USE_DOUBLE)
 target_link_libraries(re-EMBER PRIVATE reember_lib)
-
-if(MSVC)
-  target_compile_options(re-EMBER PRIVATE
-    "$<$<CONFIG:Release>:/Zi>"
-  )
-  target_link_options(re-EMBER PRIVATE
-    "$<$<CONFIG:Release>:/DEBUG:FULL>"
-    "$<$<CONFIG:Release>:/OPT:REF>"
-    "$<$<CONFIG:Release>:/OPT:ICF>"
-    "$<$<CONFIG:RelWithDebInfo>:/DEBUG:FULL>"
-  )
-endif()
 
 add_executable(re-EMBER_tests ${REEMBER_TEST_SOURCES} ${REEMBER_TEST_HEADERS})
 target_compile_definitions(re-EMBER_tests PRIVATE TINYOBJLOADER_USE_DOUBLE)
