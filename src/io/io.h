@@ -41,6 +41,17 @@ struct ObjMeshData
 };
 
 /**
+ * @brief 精确顶点坐标的轻量面网格数据。
+ *
+ * 该结构用于应用层后处理在不经过 double 导出/回读的情况下复用 I/O 拓扑恢复结果。
+ */
+struct ExactMeshData
+{
+    std::vector<PlanePoint3i> vertices;
+    std::vector<std::vector<std::size_t>> faces;
+};
+
+/**
  * @brief 浮点 OBJ 量化到整数域时的配置。
  *
  * 若 `explicitScale` 为空，则导入器会为一组输入网格自动选择共享的十进制缩放因子。
@@ -306,6 +317,23 @@ bool writePolygonSoupMesh(
     const PolygonSoupExportOptions &options);
 
 /**
+ * @brief 按输出扩展名导出轻量面网格。
+ *
+ * @param[in] mesh 待导出的轻量面网格。
+ * @param[in] path 输出路径。
+ * @param[out] outFaceCount 成功时写入导出面数。
+ * @param[out] outError 失败时写入可读错误信息。
+ * @retval true 导出成功。
+ * @retval false 扩展名不受支持，或对应格式导出失败。
+ * @note `.obj` 保持 n 边面，`.stl` 会按面扇形三角化导出。
+ */
+bool writeMesh(
+    const ObjMeshData &mesh,
+    const std::string &path,
+    std::size_t &outFaceCount,
+    std::string &outError);
+
+/**
  * @brief 将 `Polygon256` 多边形集合转换为 OBJ 风格的 n 边面网格。
  *
  * 该函数按 `Polygon256` 的边平面顺序恢复每个面的有序顶点，并保留原始
@@ -333,4 +361,20 @@ bool buildObjMeshFromPolygonSoup(
     ObjMeshData &outMesh,
     std::string &outError,
     const PolygonSoupExportOptions &options);
+
+/**
+ * @brief 将 `Polygon256` 多边形集合转换为精确面网格。
+ *
+ * @param[in] fragments 待转换的结果面集合。
+ * @param[out] outMesh 成功时写入精确顶点和面索引。
+ * @param[out] outError 失败时写入可读错误信息。
+ * @param[in] topologyMode 导出前执行的拓扑恢复策略。
+ * @retval true 转换成功。
+ * @retval false 任一结果面无法恢复唯一有限顶点，或拓扑恢复失败。
+ */
+bool buildExactMeshFromPolygonSoup(
+    const std::vector<Polygon256> &fragments,
+    ExactMeshData &outMesh,
+    std::string &outError,
+    PolygonSoupTopologyMode topologyMode = PolygonSoupTopologyMode::Raw);
 }

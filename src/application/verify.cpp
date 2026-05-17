@@ -5,13 +5,9 @@
 #include "core/bool_problem.h"
 #include "geometry/geometry256.h"
 #include "io/io.h"
+#include "nef_postprocess.h"
 
-#include <CGAL/Exact_predicates_exact_constructions_kernel.h>
 #include <CGAL/IO/Nef_polyhedron_iostream_3.h>
-#include <CGAL/Nef_polyhedron_3.h>
-#include <CGAL/Polygon_mesh_processing/orientation.h>
-#include <CGAL/Polygon_mesh_processing/polygon_soup_to_polygon_mesh.h>
-#include <CGAL/Surface_mesh.h>
 #include <CGAL/version.h>
 
 #include <boost/uuid/detail/sha1.hpp>
@@ -25,7 +21,6 @@
 #include <iostream>
 #include <filesystem>
 #include <fstream>
-#include <map>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -38,11 +33,16 @@ namespace
 using ember::BoolOp;
 using ember::BoolOperandAssumptions;
 using Clock = std::chrono::steady_clock;
-using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
-using SurfaceMesh = CGAL::Surface_mesh<Kernel::Point_3>;
-using NefPolyhedron = CGAL::Nef_polyhedron_3<Kernel>;
+using NefPolyhedron = ember::app::NefPolyhedron;
 
 constexpr const char *kOracleSchema = "re-EMBER-nef-oracle-v1";
+
+enum class CandidateMode
+{
+    FragmentsNef,
+    ExportConforming,
+    ExportNef
+};
 
 struct VerifyOptions
 {
@@ -54,6 +54,7 @@ struct VerifyOptions
     std::size_t threadCount = 0;
     BoolOperandAssumptions lhsAssumptions;
     BoolOperandAssumptions rhsAssumptions;
+    CandidateMode candidateMode = CandidateMode::FragmentsNef;
     std::filesystem::path oracleCacheDir = std::filesystem::path("build") / "oracle_cache" / "nef";
     bool refreshOracle = false;
     std::filesystem::path reportPath;
@@ -78,6 +79,7 @@ struct VerificationReport
     std::size_t lhsPolygons = 0;
     std::size_t rhsPolygons = 0;
     std::size_t resultFragments = 0;
+    std::string candidateMode;
     std::uint64_t sharedScale = 0;
     double prepareMs = 0.0;
     double solveMs = 0.0;
@@ -99,6 +101,7 @@ void printUsage()
             << "[--threads <positive_integer>] "
             << "[--assume-lhs-nsi] [--assume-lhs-nnc] "
             << "[--assume-rhs-nsi] [--assume-rhs-nnc] "
+            << "[--candidate-mode fragments-nef|export-conforming|export-nef] "
             << "[--oracle-cache-dir <dir>] [--refresh-oracle] [--report-out <file>]"
             << std::endl;
 }
@@ -157,6 +160,42 @@ const char *toString(BoolOp op)
     return "unknown";
 }
 
+const char *toString(CandidateMode mode)
+{
+    switch (mode)
+    {
+    case CandidateMode::FragmentsNef:
+        return "fragments-nef";
+    case CandidateMode::ExportConforming:
+        return "export-conforming";
+    case CandidateMode::ExportNef:
+        return "export-nef";
+    }
+
+    return "fragments-nef";
+}
+
+bool parseCandidateMode(const std::string &token, CandidateMode &outMode)
+{
+    if (token == "fragments-nef")
+    {
+        outMode = CandidateMode::FragmentsNef;
+        return true;
+    }
+    if (token == "export-conforming")
+    {
+        outMode = CandidateMode::ExportConforming;
+        return true;
+    }
+    if (token == "export-nef")
+    {
+        outMode = CandidateMode::ExportNef;
+        return true;
+    }
+
+    return false;
+}
+
 bool parseArgs(int argc, char **argv, VerifyOptions &outOptions)
 {
     outOptions = VerifyOptions();
@@ -167,7 +206,7 @@ bool parseArgs(int argc, char **argv, VerifyOptions &outOptions)
         const std::string arg(argv[i]);
         if (arg == "--lhs" || arg == "--rhs" || arg == "--op" ||
                 arg == "--scale" || arg == "--leaf-threshold" || arg == "--threads" ||
-                arg == "--oracle-cache-dir" || arg == "--report-out")
+                arg == "--candidate-mode" || arg == "--oracle-cache-dir" || arg == "--report-out")
         {
             if (i + 1 >= argc)
             {
@@ -221,6 +260,14 @@ bool parseArgs(int argc, char **argv, VerifyOptions &outOptions)
             }
             else if (arg == "--oracle-cache-dir")
                 outOptions.oracleCacheDir = value;
+            else if (arg == "--candidate-mode")
+            {
+                if (!parseCandidateMode(value, outOptions.candidateMode))
+                {
+                    std::cerr << "Unsupported candidate mode: " << value << std::endl;
+                    return false;
+                }
+            }
             else if (arg == "--report-out")
                 outOptions.reportPath = value;
 
@@ -324,263 +371,6 @@ PreparedProblem prepareProblem(const VerifyOptions &options)
     ember::mergeAABB(prepared.sceneAABB, rhsAABB);
     ember::expandAABB(prepared.sceneAABB, 1);
     return prepared;
-}
-
-Kernel::FT parseIntegerKernelFT(const std::string &text)
-{
-    bool negative = false;
-    std::size_t offset = 0;
-    if (!text.empty() && text[0] == '-')
-    {
-        negative = true;
-        offset = 1;
-    }
-
-    Kernel::FT value(0);
-    for (std::size_t i = offset; i < text.size(); ++i)
-    {
-        if (text[i] < '0' || text[i] > '9')
-            throw std::runtime_error("Invalid integer text while converting to CGAL exact number.");
-        value = value * 10 + static_cast<int>(text[i] - '0');
-    }
-
-    return negative ? -value : value;
-}
-
-Kernel::FT toKernelFT(const ember::Integer &numerator, const ember::Integer &denominator)
-{
-    return parseIntegerKernelFT(ember::integerToString(numerator)) /
-           parseIntegerKernelFT(ember::integerToString(denominator));
-}
-
-std::string homPointKey(const ember::HomPoint4i &point)
-{
-    const ember::HomPoint4i primitive = ember::primitiveHomPoint(point);
-    return ember::integerToString(primitive.x) + "/" +
-           ember::integerToString(primitive.y) + "/" +
-           ember::integerToString(primitive.z) + "/" +
-           ember::integerToString(primitive.w);
-}
-
-Kernel::Point_3 toKernelPoint(const ember::PlanePoint3i &point)
-{
-    if (!point.hasUniqueIntersection() || ember::isZero(point.x.w))
-        throw std::runtime_error("Polygon contains a vertex without a unique finite homogeneous point.");
-
-    return Kernel::Point_3(
-               toKernelFT(point.x.x, point.x.w),
-               toKernelFT(point.x.y, point.x.w),
-               toKernelFT(point.x.z, point.x.w));
-}
-
-Kernel::FT coordinateByAxis(const Kernel::Point_3 &point, int axis)
-{
-    if (axis == 0)
-        return point.x();
-    if (axis == 1)
-        return point.y();
-    return point.z();
-}
-
-int chooseSegmentSortAxis(const Kernel::Point_3 &start, const Kernel::Point_3 &end)
-{
-    if (start.x() != end.x())
-        return 0;
-    if (start.y() != end.y())
-        return 1;
-    return 2;
-}
-
-bool pointIsOnSegment(
-    const Kernel::Point_3 &start,
-    const Kernel::Point_3 &point,
-    const Kernel::Point_3 &end)
-{
-    return CGAL::collinear(start, point, end) &&
-           CGAL::collinear_are_ordered_along_line(start, point, end);
-}
-
-bool isDegenerateTriangle(
-    const std::vector<Kernel::Point_3> &points,
-    std::size_t a,
-    std::size_t b,
-    std::size_t c)
-{
-    return a == b || b == c || a == c ||
-           CGAL::collinear(points[a], points[b], points[c]);
-}
-
-bool hasNondegenerateTriple(
-    const std::vector<Kernel::Point_3> &points,
-    const std::vector<std::size_t> &face)
-{
-    if (face.size() < 3)
-        return false;
-    for (std::size_t i = 0; i < face.size(); ++i)
-    {
-        const std::size_t a = face[(i + face.size() - 1) % face.size()];
-        const std::size_t b = face[i];
-        const std::size_t c = face[(i + 1) % face.size()];
-        if (!isDegenerateTriangle(points, a, b, c))
-            return true;
-    }
-    return false;
-}
-
-void appendConvexEarTriangles(
-    const std::vector<Kernel::Point_3> &points,
-    const std::vector<std::size_t> &face,
-    std::vector<std::vector<std::size_t>> &triangles,
-    const char *label,
-    std::size_t polygonIndex)
-{
-    std::vector<std::size_t> remaining = face;
-    while (remaining.size() > 3)
-    {
-        bool clipped = false;
-        for (std::size_t i = 0; i < remaining.size(); ++i)
-        {
-            const std::size_t a = remaining[(i + remaining.size() - 1) % remaining.size()];
-            const std::size_t b = remaining[i];
-            const std::size_t c = remaining[(i + 1) % remaining.size()];
-            if (isDegenerateTriangle(points, a, b, c))
-                continue;
-            std::vector<std::size_t> candidateRemaining = remaining;
-            candidateRemaining.erase(candidateRemaining.begin() + static_cast<std::ptrdiff_t>(i));
-            if (candidateRemaining.size() >= 3 && !hasNondegenerateTriple(points, candidateRemaining))
-                continue;
-
-            triangles.push_back({a, b, c});
-            remaining = std::move(candidateRemaining);
-            clipped = true;
-            break;
-        }
-        if (!clipped)
-            throw std::runtime_error(
-                std::string("Failed to triangulate ") + label + " polygon " + std::to_string(polygonIndex) +
-                " after exact edge refinement; remaining_vertices=" + std::to_string(remaining.size()) + ".");
-    }
-
-    if (!isDegenerateTriangle(points, remaining[0], remaining[1], remaining[2]))
-        triangles.push_back({remaining[0], remaining[1], remaining[2]});
-}
-
-NefPolyhedron makeNefFromPolygons(
-    const std::vector<ember::Polygon256> &polygons,
-    const char *label)
-{
-    if (polygons.empty())
-        return NefPolyhedron(NefPolyhedron::EMPTY);
-
-    std::vector<Kernel::Point_3> points;
-    std::vector<std::vector<std::size_t>> polygonFaces;
-    std::map<std::string, std::size_t> pointIndexByKey;
-
-    auto getPointIndex = [&](const ember::PlanePoint3i &point) -> std::size_t
-    {
-        const std::string key = homPointKey(point.x);
-        const auto found = pointIndexByKey.find(key);
-        if (found != pointIndexByKey.end())
-            return found->second;
-
-        const std::size_t index = points.size();
-        pointIndexByKey.emplace(key, index);
-        points.push_back(toKernelPoint(point));
-        return index;
-    };
-
-    for (const ember::Polygon256 &polygon : polygons)
-    {
-        const std::vector<ember::PlanePoint3i> &vertices = polygon.vertices();
-        if (vertices.size() < 3)
-            throw std::runtime_error("Polygon has fewer than three vertices.");
-
-        std::vector<std::size_t> face;
-        face.reserve(vertices.size());
-        for (const ember::PlanePoint3i &vertex : vertices)
-            face.push_back(getPointIndex(vertex));
-
-        polygonFaces.push_back(std::move(face));
-    }
-
-    std::vector<std::vector<std::size_t>> triangles;
-    for (std::size_t polygonIndex = 0; polygonIndex < polygonFaces.size(); ++polygonIndex)
-    {
-        const std::vector<std::size_t> &face = polygonFaces[polygonIndex];
-        std::vector<std::size_t> refinedFace;
-        refinedFace.reserve(face.size());
-        for (std::size_t edgeIndex = 0; edgeIndex < face.size(); ++edgeIndex)
-        {
-            const std::size_t startIndex = face[edgeIndex];
-            const std::size_t endIndex = face[(edgeIndex + 1) % face.size()];
-            refinedFace.push_back(startIndex);
-
-            std::vector<std::size_t> edgeInteriorPoints;
-            const Kernel::Point_3 &start = points[startIndex];
-            const Kernel::Point_3 &end = points[endIndex];
-            for (std::size_t candidateIndex = 0; candidateIndex < points.size(); ++candidateIndex)
-            {
-                if (candidateIndex == startIndex || candidateIndex == endIndex)
-                    continue;
-                if (pointIsOnSegment(start, points[candidateIndex], end))
-                    edgeInteriorPoints.push_back(candidateIndex);
-            }
-
-            const int sortAxis = chooseSegmentSortAxis(start, end);
-            const bool ascending = coordinateByAxis(start, sortAxis) < coordinateByAxis(end, sortAxis);
-            std::sort(
-                edgeInteriorPoints.begin(),
-                edgeInteriorPoints.end(),
-                [&](std::size_t lhs, std::size_t rhs)
-                {
-                    const Kernel::FT lhsCoord = coordinateByAxis(points[lhs], sortAxis);
-                    const Kernel::FT rhsCoord = coordinateByAxis(points[rhs], sortAxis);
-                    return ascending ? lhsCoord < rhsCoord : rhsCoord < lhsCoord;
-                });
-
-            refinedFace.insert(refinedFace.end(), edgeInteriorPoints.begin(), edgeInteriorPoints.end());
-        }
-
-        refinedFace.erase(
-            std::unique(refinedFace.begin(), refinedFace.end()),
-            refinedFace.end());
-        if (refinedFace.size() > 1 && refinedFace.front() == refinedFace.back())
-            refinedFace.pop_back();
-        if (refinedFace.size() < 3)
-            continue;
-
-        appendConvexEarTriangles(points, refinedFace, triangles, label, polygonIndex);
-    }
-
-    if (triangles.empty())
-        return NefPolyhedron(NefPolyhedron::EMPTY);
-
-    SurfaceMesh mesh;
-    CGAL::Polygon_mesh_processing::polygon_soup_to_polygon_mesh(points, triangles, mesh);
-    if (mesh.number_of_faces() == 0)
-        return NefPolyhedron(NefPolyhedron::EMPTY);
-    if (CGAL::is_closed(mesh) && CGAL::is_triangle_mesh(mesh) &&
-            CGAL::Polygon_mesh_processing::does_bound_a_volume(mesh))
-    {
-        CGAL::Polygon_mesh_processing::orient_to_bound_a_volume(mesh);
-    }
-
-    return NefPolyhedron(mesh).regularization();
-}
-
-NefPolyhedron applyBoolean(const NefPolyhedron &lhs, const NefPolyhedron &rhs, BoolOp op)
-{
-    switch (op)
-    {
-    case BoolOp::Union:
-        return (lhs + rhs).regularization();
-    case BoolOp::Intersection:
-        return (lhs * rhs).regularization();
-    case BoolOp::Difference:
-        return (lhs - rhs).regularization();
-    }
-
-    return NefPolyhedron(NefPolyhedron::EMPTY);
 }
 
 void feedSha1(boost::uuids::detail::sha1 &sha, const std::string &value)
@@ -736,9 +526,9 @@ NefPolyhedron loadOrBuildOracle(
     }
 
     report.cacheHit = false;
-    const NefPolyhedron lhs = makeNefFromPolygons(prepared.lhsPolygons, "lhs");
-    const NefPolyhedron rhs = makeNefFromPolygons(prepared.rhsPolygons, "rhs");
-    const NefPolyhedron oracle = applyBoolean(lhs, rhs, options.operation);
+    const NefPolyhedron lhs = ember::app::makeNefFromPolygons(prepared.lhsPolygons, "lhs");
+    const NefPolyhedron rhs = ember::app::makeNefFromPolygons(prepared.rhsPolygons, "rhs");
+    const NefPolyhedron oracle = ember::app::applyBoolean(lhs, rhs, options.operation);
     saveNef(oracle, nefPath);
     writeMetadata(metadataPath, key, prepared, options.operation);
     return oracle;
@@ -753,6 +543,50 @@ ember::BoolProblem solveCandidate(const VerifyOptions &options, const PreparedPr
     problem.setOperands(prepared.lhsPolygons, prepared.rhsPolygons);
     problem.solve(prepared.sceneAABB);
     return problem;
+}
+
+NefPolyhedron buildCandidateNef(
+    const VerifyOptions &options,
+    const std::vector<ember::Polygon256> &fragments)
+{
+    switch (options.candidateMode)
+    {
+    case CandidateMode::FragmentsNef:
+        return ember::app::makeNefFromPolygons(fragments, "candidate");
+    case CandidateMode::ExportConforming:
+    {
+        ember::ExactMeshData exactMesh;
+        std::string error;
+        if (!ember::buildExactMeshFromPolygonSoup(
+                    fragments,
+                    exactMesh,
+                    error,
+                    ember::PolygonSoupTopologyMode::Conforming))
+        {
+            throw std::runtime_error("Failed to build conforming candidate mesh: " + error);
+        }
+
+        return ember::app::makeNefFromExactMesh(exactMesh, "candidate");
+    }
+    case CandidateMode::ExportNef:
+    {
+        ember::ExactMeshData exactMesh;
+        std::string error;
+        if (!ember::buildExactMeshFromPolygonSoup(
+                    fragments,
+                    exactMesh,
+                    error,
+                    ember::PolygonSoupTopologyMode::Conforming))
+        {
+            throw std::runtime_error("Failed to build Nef postprocess candidate mesh: " + error);
+        }
+
+        const NefPolyhedron candidate = ember::app::makeNefFromExactMesh(exactMesh, "candidate");
+        return candidate.regularization();
+    }
+    }
+
+    return ember::app::makeNefFromPolygons(fragments, "candidate");
 }
 
 void writeReport(const std::filesystem::path &path, const VerificationReport &report)
@@ -774,6 +608,7 @@ void writeReport(const std::filesystem::path &path, const VerificationReport &re
            << "lhs_polygons=" << report.lhsPolygons << '\n'
            << "rhs_polygons=" << report.rhsPolygons << '\n'
            << "result_fragments=" << report.resultFragments << '\n'
+           << "candidate_mode=" << report.candidateMode << '\n'
            << std::fixed << std::setprecision(6)
            << "prepare_ms=" << report.prepareMs << '\n'
            << "solve_ms=" << report.solveMs << '\n'
@@ -834,6 +669,7 @@ int main(int argc, char **argv)
         const Clock::time_point solveEnd = Clock::now();
         report.solveMs = elapsedMilliseconds(solveStart, solveEnd);
         report.resultFragments = problem.resultFragments().size();
+        report.candidateMode = toString(options.candidateMode);
 
         report.oracleKey = computeOracleKey(prepared, options.operation);
         const Clock::time_point oracleStart = Clock::now();
@@ -842,7 +678,7 @@ int main(int argc, char **argv)
         report.oracleMs = elapsedMilliseconds(oracleStart, oracleEnd);
 
         const Clock::time_point compareStart = Clock::now();
-        const NefPolyhedron candidate = makeNefFromPolygons(problem.resultFragments(), "candidate");
+        const NefPolyhedron candidate = buildCandidateNef(options, problem.resultFragments());
         const bool equal = (candidate ^ oracle).regularization().is_empty();
         const Clock::time_point compareEnd = Clock::now();
         report.compareMs = elapsedMilliseconds(compareStart, compareEnd);
@@ -856,6 +692,7 @@ int main(int argc, char **argv)
                   << " lhs_polygons=" << report.lhsPolygons
                   << " rhs_polygons=" << report.rhsPolygons
                   << " result_fragments=" << report.resultFragments
+                  << " candidate_mode=" << report.candidateMode
                   << " cache_hit=" << (report.cacheHit ? 1 : 0)
                   << " oracle_key=" << report.oracleKey
                   << " oracle_path=" << report.oraclePath.string()

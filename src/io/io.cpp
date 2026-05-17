@@ -2106,6 +2106,146 @@ bool writePolygonSoupMesh(
     return failIo(outError, "Unsupported mesh file format.");
 }
 
+bool writeObjMeshData(
+    const ObjMeshData &mesh,
+    const std::string &path,
+    std::size_t &outFaceCount,
+    std::string &outError)
+{
+    outFaceCount = 0;
+    outError.clear();
+    if (!ensureOutputDirectoryExists(path, "OBJ", outError))
+        return false;
+
+    std::ofstream output(path, std::ios::trunc);
+    if (!output)
+        return failIo(outError, "Failed to open OBJ output file for writing: " + path);
+
+    output << "# Ember mesh export\n";
+    for (const ObjVertex &vertex : mesh.vertices)
+    {
+        output << "v "
+               << std::setprecision(std::numeric_limits<double>::max_digits10)
+               << vertex.x << " " << vertex.y << " " << vertex.z << "\n";
+    }
+
+    for (std::size_t faceIndex = 0; faceIndex < mesh.faces.size(); ++faceIndex)
+    {
+        const std::vector<std::size_t> &face = mesh.faces[faceIndex];
+        if (face.size() < 3u)
+            return failIo(outError, "OBJ mesh export found a face with fewer than three vertices.");
+
+        output << "f";
+        for (const std::size_t vertexIndex : face)
+        {
+            if (vertexIndex >= mesh.vertices.size())
+                return failIo(outError, "OBJ mesh export found an out-of-range face vertex index.");
+            output << " " << (vertexIndex + 1u);
+        }
+        output << "\n";
+    }
+
+    if (!output)
+        return failIo(outError, "Failed to finish writing OBJ output file: " + path);
+
+    outFaceCount = mesh.faces.size();
+    return true;
+}
+
+bool writeStlMeshData(
+    const ObjMeshData &mesh,
+    const std::string &path,
+    std::size_t &outFaceCount,
+    std::string &outError)
+{
+    outFaceCount = 0;
+    outError.clear();
+    if (!ensureOutputDirectoryExists(path, "STL", outError))
+        return false;
+
+    std::vector<StlTriangle> triangles;
+    for (const std::vector<std::size_t> &face : mesh.faces)
+    {
+        if (face.size() < 3u)
+            return failIo(outError, "STL mesh export found a face with fewer than three vertices.");
+        for (const std::size_t vertexIndex : face)
+        {
+            if (vertexIndex >= mesh.vertices.size())
+                return failIo(outError, "STL mesh export found an out-of-range face vertex index.");
+        }
+
+        const ObjVertex anchor = mesh.vertices[face[0]];
+        for (std::size_t i = 1; i + 1u < face.size(); ++i)
+        {
+            triangles.push_back(StlTriangle{
+                anchor,
+                mesh.vertices[face[i]],
+                mesh.vertices[face[i + 1u]]});
+        }
+    }
+    if (triangles.size() > static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max()))
+        return failIo(outError, "STL export triangle count exceeds the 32-bit facet count limit.");
+
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    if (!output)
+        return failIo(outError, "Failed to open STL output file for writing: " + path);
+
+    std::array<char, 80> header{};
+    const std::string headerText = "Ember mesh triangulated STL export";
+    std::memcpy(
+        header.data(),
+        headerText.data(),
+        std::min(header.size(), headerText.size()));
+    output.write(header.data(), static_cast<std::streamsize>(header.size()));
+    writeLittleEndianUInt32(output, static_cast<std::uint32_t>(triangles.size()));
+
+    for (const StlTriangle &triangle : triangles)
+    {
+        const ObjVertex normal = computeTriangleNormal(triangle);
+        writeLittleEndianFloat32(output, static_cast<float>(normal.x));
+        writeLittleEndianFloat32(output, static_cast<float>(normal.y));
+        writeLittleEndianFloat32(output, static_cast<float>(normal.z));
+
+        writeLittleEndianFloat32(output, static_cast<float>(triangle.a.x));
+        writeLittleEndianFloat32(output, static_cast<float>(triangle.a.y));
+        writeLittleEndianFloat32(output, static_cast<float>(triangle.a.z));
+        writeLittleEndianFloat32(output, static_cast<float>(triangle.b.x));
+        writeLittleEndianFloat32(output, static_cast<float>(triangle.b.y));
+        writeLittleEndianFloat32(output, static_cast<float>(triangle.b.z));
+        writeLittleEndianFloat32(output, static_cast<float>(triangle.c.x));
+        writeLittleEndianFloat32(output, static_cast<float>(triangle.c.y));
+        writeLittleEndianFloat32(output, static_cast<float>(triangle.c.z));
+        writeLittleEndianUInt16(output, 0u);
+    }
+
+    if (!output)
+        return failIo(outError, "Failed to finish writing STL output file: " + path);
+
+    outFaceCount = triangles.size();
+    return true;
+}
+
+bool writeMesh(
+    const ObjMeshData &mesh,
+    const std::string &path,
+    std::size_t &outFaceCount,
+    std::string &outError)
+{
+    MeshFileFormat format = MeshFileFormat::Obj;
+    if (!detectMeshFileFormatFromPath(path, format, outError))
+        return false;
+
+    switch (format)
+    {
+    case MeshFileFormat::Obj:
+        return writeObjMeshData(mesh, path, outFaceCount, outError);
+    case MeshFileFormat::Stl:
+        return writeStlMeshData(mesh, path, outFaceCount, outError);
+    }
+
+    return failIo(outError, "Unsupported mesh file format.");
+}
+
 bool buildObjMeshFromPolygonSoup(
     const std::vector<Polygon256> &fragments,
     ObjMeshData &outMesh,
@@ -2148,6 +2288,32 @@ bool buildObjMeshFromPolygonSoup(
 
     outMesh.faces = std::move(recovered.faces);
 
+    return true;
+}
+
+bool buildExactMeshFromPolygonSoup(
+    const std::vector<Polygon256> &fragments,
+    ExactMeshData &outMesh,
+    std::string &outError,
+    PolygonSoupTopologyMode topologyMode)
+{
+    outMesh = ExactMeshData();
+    outError.clear();
+
+    RecoveredPolygonSoupData recovered;
+    if (!recoverPolygonSoupData(fragments, recovered, outError))
+    {
+        outError = "Failed to prepare exact mesh from polygon soup: " + outError;
+        return false;
+    }
+    if (!applyTopologyMode(recovered, topologyMode, outError))
+    {
+        outError = "Failed to apply polygon soup topology recovery: " + outError;
+        return false;
+    }
+
+    outMesh.vertices = std::move(recovered.uniqueVertices);
+    outMesh.faces = std::move(recovered.faces);
     return true;
 }
 }

@@ -19,7 +19,7 @@
 当前对外流水线是：
 
 ```text
-OBJ/STL -> 共享 scale + 浮点输入AABB -> Polygon soup -> BoolProblem(校验/懒顶点缓存) -> SubdivisionSolver -> resultFragments -> 可选输出拓扑恢复 -> OBJ n-gon / STL triangles
+OBJ/STL -> 共享 scale + 浮点输入AABB -> Polygon soup -> BoolProblem(校验/懒顶点缓存) -> SubdivisionSolver -> resultFragments -> 可选输出拓扑恢复 -> 可选 CGAL Nef 后处理 -> OBJ n-gon / STL triangles
 ```
 
 其中职责边界是：
@@ -27,7 +27,7 @@ OBJ/STL -> 共享 scale + 浮点输入AABB -> Polygon soup -> BoolProblem(校验
 - `main.cpp` 只负责 CLI、按扩展名读写 OBJ/STL、共享量化尺度选择、合并输入 AABB、驱动 `BoolProblem`。
 - `BoolProblem` 是公开门面，只保存输入、布尔配置和最终结果。
 - `SubdivisionSolver` 独占递归树、AABB、参考点传播、叶片片段、分类片段和结果汇总。
-- `writePolygonSoupMesh()` 按扩展名分发：`.obj` 保持 n 边面，`.stl` 在 I/O 边界层做扇形三角化；默认 `raw` 模式不改变 polygon soup，非默认模式只在导出前做 T 形连接修复和可选凸共面合并。
+- `writePolygonSoupMesh()` 按扩展名分发：`.obj` 保持 n 边面，`.stl` 在 I/O 边界层做扇形三角化；默认 `raw` 模式不改变 polygon soup，非默认模式只在导出前做 T 形连接修复和可选凸共面合并。`--output-postprocess nef` 会在应用层把所选导出拓扑再交给 CGAL Nef 正则化。
 
 ```mermaid
 flowchart TD
@@ -40,18 +40,21 @@ flowchart TD
     G --> H["BoolProblem::solve(sceneAABB)"]
     H --> I["SubdivisionSolver::solve()"]
     I --> J["resultFragments()"]
-    J --> K["writePolygonSoupMesh()"]
+    J --> K["导出准备"]
     K --> K1{"--output-topology"}
-    K1 -->|"raw"| L["OBJ n-gon 或 STL triangles 输出"]
+    K1 -->|"raw"| P{"--output-postprocess"}
     K1 -->|"conforming / merge"| M["精确 T-junction 修复 / 凸共面合并"]
-    M --> L
+    M --> P
+    P -->|"none"| L["OBJ n-gon 或 STL triangles 输出"]
+    P -->|"nef"| N["CGAL Nef regularization"]
+    N --> L
 ```
 
 ## 2. 应用层到 BoolProblem
 
 `src/application/main.cpp` 的外层顺序比较固定：
 
-1. 解析 `--lhs --rhs --op --out --scale --leaf-threshold --threads --output-topology`。
+1. 解析 `--lhs --rhs --op --out --scale --leaf-threshold --threads --output-topology --output-postprocess`。
 2. 按扩展名读取左右输入网格（OBJ/STL）；左右输入由应用层并行调度。
 3. 选择共享 `scale`，把左右输入放进同一个整数坐标系。
 4. 用 `computeScaledMeshAABB()` 对输入网格浮点顶点执行 `floor(coord * scale)` / `ceil(coord * scale)`，得到左右输入 AABB；左右 AABB 与 polygon soup 构建在应用层并行执行。
@@ -69,13 +72,14 @@ flowchart TD
 - `BoolProblem` 不再暴露直接注入任意 `WNTV` polygon 集合的公开入口，公开输入边界固定为二元操作数。
 - 根场景 AABB 来自共享 `scale` 后的输入网格浮点顶点上/下取整，不再由 `SubdivisionSolver` 从 256 位多边形顶点反推。
 - STL 输入由 vendored `third_party/stl_reader/stl_reader.h` 负责 ASCII/binary 识别和三角顶点去重；应用层构建 polygon soup 时仍会启用 `triangulateNonCoplanarFaces=true`。
-- 最终结果导出到 `.obj` 时默认保持 polygon soup / n-gon 语义，可能包含论文允许的 T 形连接；`--output-topology conforming` 会复用已有精确顶点补齐边上的 T 点，`--output-topology conforming-merge-convex` 还会保守合并同向共面且合并后仍为凸多边形的相邻面，包括被 T 点切开的连续 subdivision / arrangement 裁剪边链。导出到 `.stl` 时同样先应用所选拓扑策略，再在外层三角化。
+- 最终结果导出到 `.obj` 时默认保持 polygon soup / n-gon 语义，可能包含论文允许的 T 形连接；`--output-topology conforming` 会复用已有精确顶点补齐边上的 T 点，`--output-topology conforming-merge-convex` 还会保守合并同向共面且合并后仍为凸多边形的相邻面，包括被 T 点切开的连续 subdivision / arrangement 裁剪边链。该共面合并目前只是保守原型，不是完整共面区域重建。
+- `--output-postprocess nef` 会把所选拓扑恢复结果以精确顶点/面传给 `src/application/nef_postprocess.cpp`，再通过 CGAL Nef 正则化后转回轻量面网格输出；这条路径适合论文临时展示和 verifier 对接，但会引入明显 CGAL 开销，并且只清理导出拓扑，不修复 solver 已经算错的集合结果。
 
 ### 2.1 CGAL Nef verifier 的语义边界
 
 `src/application/verify.cpp` 复用同一条输入准备路径：`readMesh()`、`chooseSharedScale()`、`computeScaledMeshAABB()` 和启用 `triangulateNonCoplanarFaces=true` 的 `buildPolygonSoup()`。因此 `re-EMBER_verify` 校验的是“量化后的 `Polygon256` 左右输入”上的精确布尔集合，而不是原始浮点 OBJ/STL 在 CAD 语义里的真实实体。
 
-verifier 会用这批量化 polygon soup 同时做两件事：一边运行 `BoolProblem` 并直接读取 `resultFragments()`，避免 OBJ double 导出/回读造成二次误差；另一边把左右输入精确转成 CGAL Nef oracle 并缓存。候选结果转 CGAL mesh 前会在 exact rational 点域中补齐面片之间的 T-junction，把落在某条边上的全局顶点插入该面的边界循环，再三角化成共形 surface mesh。最终判定使用候选 Nef 与 oracle Nef 的正则化对称差是否为空；这只比较实体集合，不要求 face count、片段切分方式或 OBJ 顶点顺序一致。
+verifier 会用这批量化 polygon soup 同时做两件事：一边运行 `BoolProblem` 并读取 `resultFragments()`；另一边把左右输入精确转成 CGAL Nef oracle 并缓存。候选结果默认以 `--candidate-mode fragments-nef` 直接转 Nef，避免 OBJ double 导出/回读造成二次误差；也可以用 `export-conforming` 测试 T-junction 修复后的精确导出拓扑，或用 `export-nef` 测试 Nef 后处理路径。候选结果转 CGAL mesh 前会在 exact rational 点域中补齐面片之间的 T-junction，把落在某条边上的全局顶点插入该面的边界循环，再三角化成共形 surface mesh。最终判定使用候选 Nef 与 oracle Nef 的正则化对称差是否为空；这只比较实体集合，不要求 face count、片段切分方式或 OBJ 顶点顺序一致。
 
 ## 3. BoolProblem 门面流程
 
