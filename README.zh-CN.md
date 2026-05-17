@@ -18,16 +18,24 @@
 所有构建产物都放在 `build/` 下。
 
 ```powershell
-cmake -S . -B build
-cmake --build build --config Debug --target re-EMBER_tests
-ctest --test-dir build -C Debug --output-on-failure --timeout 120
-cmake --build build --config Debug --target re-EMBER
+$clang = "$env:USERPROFILE\scoop\apps\llvm\current\bin\clang-cl.exe"
+$rc = "$env:USERPROFILE\scoop\apps\llvm\current\bin\llvm-rc.exe"
+$ninja = "D:\Program Files\VisualStudio\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe"
+cmake -S . -B build -G Ninja `
+  -DCMAKE_MAKE_PROGRAM="$ninja" `
+  -DCMAKE_CXX_COMPILER="$clang" `
+  -DCMAKE_RC_COMPILER="$rc" `
+  -DCMAKE_BUILD_TYPE=Debug
+cmake --build build --target re-EMBER_tests
+ctest --test-dir build --output-on-failure --timeout 120
+cmake --build build --target re-EMBER
 ```
 
-如果缺少 `TBB`，先安装：
+默认支持的本地构建组合是 clang-cl + Boost.Multiprecision。如果缺少 `TBB` 或 LLVM，先安装：
 
 ```powershell
 vcpkg install tbb:x64-windows
+scoop install llvm
 ```
 
 ## 运行
@@ -64,8 +72,8 @@ build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\mo
 - `-Configuration` 选择 profiling 构建类型。
 - `-Iterations`、`-TimeoutSeconds`、`-BuildTimeoutSeconds`、`-ReportTimeoutSeconds` 控制运行超时。
 - `-LeafThreshold` 会传给求解器；`-Threads` 同时设置应用层 task arena 大小和求解线程数。
-- `-NoTracy` 跳过 Tracy 采样，使用 `build\profile_notracy\`。
-- `-EnableMathTracy` 额外打开底层 `math256` Tracy 区间，并使用 `build\profile_tracy_math\`。
+- `-NoTracy` 跳过 Tracy 采样，使用 `build\profile_clang_notracy\`。
+- `-EnableMathTracy` 额外打开底层 `math256` Tracy 区间，并使用 `build\profile_clang_tracy_math\`。
 - `-SkipBuild` 复用已有的 profiling 构建树。
 - `-UnwrapZoneFilter` 会导出指定热点 zone 的逐事件 CSV。
 - `-WorkloadPriority`、`-UsePCores` 和 `-WorkloadAffinityMask` 控制被计时进程的调度方式。

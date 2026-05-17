@@ -18,16 +18,24 @@
 All build artifacts go under `build/`.
 
 ```powershell
-cmake -S . -B build
-cmake --build build --config Debug --target re-EMBER_tests
-ctest --test-dir build -C Debug --output-on-failure --timeout 120
-cmake --build build --config Debug --target re-EMBER
+$clang = "$env:USERPROFILE\scoop\apps\llvm\current\bin\clang-cl.exe"
+$rc = "$env:USERPROFILE\scoop\apps\llvm\current\bin\llvm-rc.exe"
+$ninja = "D:\Program Files\VisualStudio\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe"
+cmake -S . -B build -G Ninja `
+  -DCMAKE_MAKE_PROGRAM="$ninja" `
+  -DCMAKE_CXX_COMPILER="$clang" `
+  -DCMAKE_RC_COMPILER="$rc" `
+  -DCMAKE_BUILD_TYPE=Debug
+cmake --build build --target re-EMBER_tests
+ctest --test-dir build --output-on-failure --timeout 120
+cmake --build build --target re-EMBER
 ```
 
-If `TBB` is missing, install it first:
+The default supported local configuration is clang-cl plus Boost.Multiprecision. If `TBB` or LLVM is missing, install them first:
 
 ```powershell
 vcpkg install tbb:x64-windows
+scoop install llvm
 ```
 
 ## Run
@@ -64,8 +72,8 @@ Application-layer parallelism uses the same `--threads` limit for coarse left/ri
 - `-Configuration` chooses the profiling build type.
 - `-Iterations`, `-TimeoutSeconds`, `-BuildTimeoutSeconds`, and `-ReportTimeoutSeconds` control runtime limits.
 - `-LeafThreshold` is passed through to the solver; `-Threads` sets the application-layer task arena size and solver thread count.
-- `-NoTracy` skips Tracy capture and uses `build\profile_notracy\`.
-- `-EnableMathTracy` also enables low-level `math256` Tracy zones and uses `build\profile_tracy_math\`.
+- `-NoTracy` skips Tracy capture and uses `build\profile_clang_notracy\`.
+- `-EnableMathTracy` also enables low-level `math256` Tracy zones and uses `build\profile_clang_tracy_math\`.
 - `-SkipBuild` reuses an already prepared profiling tree.
 - `-UnwrapZoneFilter` exports per-event CSVs for selected hotspot zones.
 - `-WorkloadPriority`, `-UsePCores`, and `-WorkloadAffinityMask` control workload scheduling.
