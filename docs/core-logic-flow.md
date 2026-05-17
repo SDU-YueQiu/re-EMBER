@@ -68,6 +68,12 @@ flowchart TD
 - STL 输入由 vendored `third_party/stl_reader/stl_reader.h` 负责 ASCII/binary 识别和三角顶点去重；应用层构建 polygon soup 时仍会启用 `triangulateNonCoplanarFaces=true`。
 - 最终结果导出到 `.obj` 时保持 polygon soup / n-gon 语义；导出到 `.stl` 时则在外层做三角化。
 
+### 2.1 CGAL Nef verifier 的语义边界
+
+`src/application/verify.cpp` 复用同一条输入准备路径：`readMesh()`、`chooseSharedScale()`、`computeScaledMeshAABB()` 和启用 `triangulateNonCoplanarFaces=true` 的 `buildPolygonSoup()`。因此 `re-EMBER_verify` 校验的是“量化后的 `Polygon256` 左右输入”上的精确布尔集合，而不是原始浮点 OBJ/STL 在 CAD 语义里的真实实体。
+
+verifier 会用这批量化 polygon soup 同时做两件事：一边运行 `BoolProblem` 并直接读取 `resultFragments()`，避免 OBJ double 导出/回读造成二次误差；另一边把左右输入精确转成 CGAL Nef oracle 并缓存。候选结果转 CGAL mesh 前会在 exact rational 点域中补齐面片之间的 T-junction，把落在某条边上的全局顶点插入该面的边界循环，再三角化成共形 surface mesh。最终判定使用候选 Nef 与 oracle Nef 的正则化对称差是否为空；这只比较实体集合，不要求 face count、片段切分方式或 OBJ 顶点顺序一致。
+
 ## 3. BoolProblem 门面流程
 
 `BoolProblem::solve(sceneAABB)` 本身很薄。主流程是五件事：

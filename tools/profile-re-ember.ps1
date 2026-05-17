@@ -13,12 +13,17 @@ param(
     [int]$TimeoutSeconds = 300,
     [int]$BuildTimeoutSeconds = 900,
     [int]$ReportTimeoutSeconds = 120,
+    [int]$VerifyTimeoutSeconds = 600,
     [int]$TracyPort = 8086,
     [int]$TracyAttachWaitMilliseconds = 1500,
     [string[]]$UnwrapZoneFilter = @(),
     [switch]$EnableMathTracy,
     [switch]$SkipBuild,
     [switch]$NoTracy,
+    [switch]$VerifyWithOracle,
+    [string]$VerifierPath,
+    [string]$OracleCacheDir,
+    [switch]$RefreshOracle,
     [switch]$NoInputAssumptions,
     [ValidateSet("Normal", "AboveNormal", "High")][string]$WorkloadPriority = "Normal",
     [string]$WorkloadAffinityMask,
@@ -74,6 +79,7 @@ Notes:
   - Use -UnwrapZoneFilter <zone-name> to export per-event CSVs for specific hotspots only.
   - Use -NoTracy only for timing-only runs without zone capture; that mode uses build\profile_clang_notracy\ automatically.
   - Automatic profiling builds use clang-cl with the Boost.Multiprecision integer backend.
+  - Use -VerifyWithOracle to run re-EMBER_verify once per workload after timing; verification time is not included in timings.csv.
   - OBJ workloads are assumed to satisfy NSI/NNC input assumptions by default.
   - Use -NoInputAssumptions only when profiling intentionally invalid or adversarial OBJ inputs.
   - The script uses all logical processors by default. Use -Threads <N> to force a different total solve thread count; pass 0 only when intentionally testing the solver auto-thread mode.
@@ -94,6 +100,10 @@ if ($EnableMathTracy -and $NoTracy) {
 
 if ($Threads -lt 0) {
     throw "-Threads must be 0 or a positive integer."
+}
+
+if ($VerifyTimeoutSeconds -le 0) {
+    throw "-VerifyTimeoutSeconds must be a positive integer."
 }
 
 if (($Lhs -and -not $Rhs) -or ($Rhs -and -not $Lhs)) {
@@ -932,6 +942,53 @@ function Resolve-ReEmberExecutablePath {
     return $null
 }
 
+function Get-ReEmberVerifierCandidates {
+    param(
+        [string]$BuildDir,
+        [string]$BuildConfiguration
+    )
+
+    $candidates = New-Object System.Collections.Generic.List[string]
+    $cachePath = Join-Path $BuildDir "CMakeCache.txt"
+
+    if (Test-CMakeMultiConfig $cachePath) {
+        $candidates.Add((Join-Path $BuildDir ("{0}\re-EMBER_verify.exe" -f $BuildConfiguration)))
+    }
+    else {
+        $candidates.Add((Join-Path $BuildDir "re-EMBER_verify.exe"))
+        $candidates.Add((Join-Path $BuildDir ("{0}\re-EMBER_verify.exe" -f $BuildConfiguration)))
+    }
+
+    return $candidates | Select-Object -Unique
+}
+
+function Resolve-ReEmberVerifierPath {
+    param(
+        [string]$BuildDir,
+        [string]$BuildConfiguration
+    )
+
+    if ($VerifierPath) {
+        return (Resolve-Path -LiteralPath $VerifierPath).Path
+    }
+
+    if ($script:UsingExplicitExecutable) {
+        $sibling = Join-Path (Split-Path -Parent $script:ExePath) "re-EMBER_verify.exe"
+        if (Test-Path -LiteralPath $sibling) {
+            return (Resolve-Path -LiteralPath $sibling).Path
+        }
+        throw "-VerifyWithOracle requires -VerifierPath when -ExecutablePath has no sibling re-EMBER_verify.exe."
+    }
+
+    foreach ($candidate in Get-ReEmberVerifierCandidates $BuildDir $BuildConfiguration) {
+        if (Test-Path -LiteralPath $candidate) {
+            return (Resolve-Path -LiteralPath $candidate).Path
+        }
+    }
+
+    return $null
+}
+
 function Convert-PathForCMake {
     param([string]$Path)
 
@@ -1028,6 +1085,9 @@ function Invoke-CMakeBuild {
     }
     $args.Add("--target")
     $args.Add("re-EMBER")
+    if ($VerifyWithOracle) {
+        $args.Add("re-EMBER_verify")
+    }
 
     Invoke-External "cmake" $args.ToArray() (Join-Path $PerfRoot "cmake_build.stdout.txt") (Join-Path $PerfRoot "cmake_build.stderr.txt") $BuildTimeoutSeconds | Out-Null
 }
@@ -1266,6 +1326,106 @@ function Invoke-ReEmberWorkload {
         StderrPath = $result.StderrPath
         MetricsPath = $metricsPath
         Metrics = $metrics
+    }
+}
+
+function Read-KeyValueReport {
+    param([string]$Path)
+
+    $values = @{}
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $values
+    }
+
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*?)\s*$') {
+            $values[$matches[1]] = $matches[2]
+        }
+    }
+
+    return $values
+}
+
+function Get-ReEmberVerifierArguments {
+    param(
+        [object]$Workload,
+        [string]$ReportPath
+    )
+
+    $arguments = @(
+        "--lhs", $Workload.Lhs,
+        "--rhs", $Workload.Rhs,
+        "--op", $Workload.Op,
+        "--leaf-threshold", [string]$LeafThreshold,
+        "--report-out", $ReportPath
+    )
+
+    if ($Threads -gt 0) {
+        $arguments += @("--threads", [string]$Threads)
+    }
+    if ($OracleCacheDir) {
+        $arguments += @("--oracle-cache-dir", (Resolve-OutputPath $OracleCacheDir))
+    }
+    if ($RefreshOracle) {
+        $arguments += "--refresh-oracle"
+    }
+    if (-not $NoInputAssumptions) {
+        $arguments += @(
+            "--assume-lhs-nsi",
+            "--assume-lhs-nnc",
+            "--assume-rhs-nsi",
+            "--assume-rhs-nnc"
+        )
+    }
+
+    return $arguments
+}
+
+function Invoke-ReEmberVerifierWorkload {
+    param(
+        [string]$VerifierExePath,
+        [object]$Workload
+    )
+
+    $stdoutPath = Join-Path $PerfRoot ("verify_{0}.stdout.txt" -f $Workload.Name)
+    $stderrPath = Join-Path $PerfRoot ("verify_{0}.stderr.txt" -f $Workload.Name)
+    $reportPath = Join-Path $PerfRoot ("verify_{0}.report.txt" -f $Workload.Name)
+    $result = Invoke-External `
+        $VerifierExePath `
+        (Get-ReEmberVerifierArguments $Workload $reportPath) `
+        $stdoutPath `
+        $stderrPath `
+        $VerifyTimeoutSeconds `
+        $null `
+        -IgnoreExit
+
+    $report = Read-KeyValueReport $reportPath
+    $passed = ($result.ExitCode -eq 0) -and $report.ContainsKey("passed") -and ([int]$report["passed"] -eq 1)
+    $errorText = ""
+    if ($report.ContainsKey("error")) {
+        $errorText = $report["error"]
+    }
+    elseif (-not (Test-Path -LiteralPath $reportPath)) {
+        $errorText = "verifier did not write a report; check stdout/stderr"
+    }
+
+    return [pscustomobject]@{
+        workload = $Workload.Name
+        exit_code = $result.ExitCode
+        passed = $passed
+        cache_hit = $(if ($report.ContainsKey("cache_hit")) { [int]$report["cache_hit"] } else { 0 })
+        oracle_key = $(if ($report.ContainsKey("oracle_key")) { $report["oracle_key"] } else { "" })
+        oracle_path = $(if ($report.ContainsKey("oracle_path")) { $report["oracle_path"] } else { "" })
+        result_fragments = $(if ($report.ContainsKey("result_fragments")) { [int]$report["result_fragments"] } else { 0 })
+        prepare_ms = $(if ($report.ContainsKey("prepare_ms")) { [double]$report["prepare_ms"] } else { 0 })
+        solve_ms = $(if ($report.ContainsKey("solve_ms")) { [double]$report["solve_ms"] } else { 0 })
+        oracle_ms = $(if ($report.ContainsKey("oracle_ms")) { [double]$report["oracle_ms"] } else { 0 })
+        compare_ms = $(if ($report.ContainsKey("compare_ms")) { [double]$report["compare_ms"] } else { 0 })
+        error = $errorText
+        elapsed_ms = $result.ElapsedMs
+        report_path = $reportPath
+        stdout_path = $stdoutPath
+        stderr_path = $stderrPath
     }
 }
 
@@ -1859,9 +2019,11 @@ function Write-Reports {
         [object[]]$InclusiveZoneRows,
         [object[]]$SelfZoneRows,
         [object[]]$UnwrapExports,
+        [object[]]$VerificationRows,
         [string]$TimingCsvPath,
         [string]$InclusiveZonesCsvPath,
-        [string]$SelfZonesCsvPath
+        [string]$SelfZonesCsvPath,
+        [string]$VerificationCsvPath
     )
 
     $inclusiveAggregates = @(Get-ZoneAggregates $InclusiveZoneRows)
@@ -1886,6 +2048,9 @@ function Write-Reports {
     }
     if ($UnwrapExports.Count -gt 0) {
         $reportLines.Add(("tracy_unwrap_root={0}" -f $UnwrapRoot))
+    }
+    if ($VerificationCsvPath) {
+        $reportLines.Add(("verification_csv={0}" -f $VerificationCsvPath))
     }
     $reportLines.Add("")
 
@@ -1963,6 +2128,26 @@ function Write-Reports {
         "avg_results"
     ) -Rows ($workloadRows.ToArray())
     $reportLines.Add("")
+
+    if ($VerificationCsvPath) {
+        $reportLines.Add("## CGAL Oracle 校验")
+        $reportLines.Add("")
+        $reportLines.Add("校验在计时迭代结束后每个 workload 运行一次，不计入 timings.csv；oracle 基于 re-EMBER 量化后的 Polygon256 输入缓存。")
+        $reportLines.Add("")
+        Add-MarkdownTable -Lines $reportLines -Headers @(
+            "workload",
+            "passed",
+            "cache_hit",
+            "result_fragments",
+            "prepare_ms",
+            "solve_ms",
+            "oracle_ms",
+            "compare_ms",
+            "error",
+            "report_path"
+        ) -Rows @($VerificationRows | Sort-Object workload)
+        $reportLines.Add("")
+    }
 
     $reportLines.Add("## 流水线 Inclusive 时间")
     if ($InclusiveZoneRows.Count -gt 0) {
@@ -2111,6 +2296,12 @@ function Write-Reports {
     if ($UnwrapExports.Count -gt 0) {
         $summaryLines.Add(("tracy_unwrap_root={0}" -f $UnwrapRoot))
     }
+    if ($VerificationCsvPath) {
+        $summaryLines.Add(("verification_csv={0}" -f $VerificationCsvPath))
+        foreach ($row in ($VerificationRows | Sort-Object workload)) {
+            $summaryLines.Add(("verification workload={0} passed={1} cache_hit={2} oracle_key={3} error={4} report={5}" -f $row.workload, $row.passed, $row.cache_hit, $row.oracle_key, $row.error, $row.report_path))
+        }
+    }
     $summaryLines.Add(("report={0}" -f $reportPath))
     if ($overallTimingSummary) {
         $summaryLines.Add(("overall_workload_count={0}" -f $overallTimingSummary.workload_count))
@@ -2191,6 +2382,16 @@ try {
         }
     }
 
+    $script:VerifierExePath = $null
+    if ($VerifyWithOracle) {
+        $script:VerifierExePath = Resolve-ReEmberVerifierPath $BuildRoot $Configuration
+        if (-not $script:VerifierExePath) {
+            $expectedVerifierLocations = Get-ReEmberVerifierCandidates $BuildRoot $Configuration
+            throw ("Missing verifier after build. Checked: {0}" -f ($expectedVerifierLocations -join ", "))
+        }
+        Write-Info ("Using verifier executable: {0}" -f $script:VerifierExePath)
+    }
+
     $script:ResolvedTracyPort = $null
     if (-not $NoTracy) {
         $script:ResolvedTracyPort = Resolve-TracyPort -PreferredPort $TracyPort -WasExplicit $TracyPortWasExplicit
@@ -2218,6 +2419,11 @@ try {
         inputRoot = $script:ResolvedInputRoot
         configuration = $Configuration
         executable = $script:ExePath
+        verifier = $script:VerifierExePath
+        verifyWithOracle = [bool]$VerifyWithOracle
+        verifyTimeoutSeconds = $VerifyTimeoutSeconds
+        oracleCacheDir = $(if ($OracleCacheDir) { (Resolve-OutputPath $OracleCacheDir) } else { $null })
+        refreshOracle = [bool]$RefreshOracle
         usingExplicitExecutable = $script:UsingExplicitExecutable
         leafThreshold = $LeafThreshold
         requestedThreads = $(if ($Threads -gt 0) { $Threads } else { "auto" })
@@ -2269,6 +2475,21 @@ try {
     $timingCsvPath = Join-Path $PerfRoot "timings.csv"
     $timingRows | Export-Csv -LiteralPath $timingCsvPath -NoTypeInformation -Encoding UTF8
 
+    $verificationRows = New-Object System.Collections.Generic.List[object]
+    $verificationCsvPath = $null
+    if ($VerifyWithOracle) {
+        foreach ($workload in $workloads) {
+            Write-Info ("Verifying workload {0} with CGAL oracle" -f $workload.Name)
+            $verificationRows.Add((Invoke-ReEmberVerifierWorkload $script:VerifierExePath $workload))
+        }
+
+        $verificationCsvPath = Join-Path $PerfRoot "verification.csv"
+        $verificationRows | Export-Csv -LiteralPath $verificationCsvPath -NoTypeInformation -Encoding UTF8
+        $manifest | Add-Member -Force -NotePropertyName verificationCsv -NotePropertyValue $verificationCsvPath
+        $manifest | Add-Member -Force -NotePropertyName verificationResults -NotePropertyValue @($verificationRows.ToArray())
+        $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $PerfRoot "manifest.json") -Encoding UTF8
+    }
+
     $inclusiveZoneRows = @()
     $selfZoneRows = @()
     $unwrapExports = @()
@@ -2293,10 +2514,19 @@ try {
         -InclusiveZoneRows @($inclusiveZoneRows) `
         -SelfZoneRows @($selfZoneRows) `
         -UnwrapExports @($unwrapExports) `
+        -VerificationRows ($verificationRows.ToArray()) `
         -TimingCsvPath $timingCsvPath `
         -InclusiveZonesCsvPath $inclusiveZonesCsvPath `
-        -SelfZonesCsvPath $selfZonesCsvPath
+        -SelfZonesCsvPath $selfZonesCsvPath `
+        -VerificationCsvPath $verificationCsvPath
     Write-Info ("Done. See report: {0}" -f $reportPath)
+
+    if ($VerifyWithOracle) {
+        $failedVerifications = @($verificationRows | Where-Object { -not $_.passed })
+        if ($failedVerifications.Count -gt 0) {
+            throw ("CGAL oracle verification failed for: {0}. See {1}" -f (($failedVerifications | ForEach-Object { $_.workload }) -join ", "), $verificationCsvPath)
+        }
+    }
 }
 finally {
     if ($TranscriptStarted) {

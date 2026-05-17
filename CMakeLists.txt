@@ -40,6 +40,7 @@ endif()
 option(REEMBER_ENABLE_EIGEN "Link Eigen3 from vcpkg" OFF)
 option(REEMBER_ENABLE_CGAL "Link CGAL from vcpkg" OFF)
 option(REEMBER_BUILD_VISUAL_TEST "Build the libigl-based visual-test target" ON)
+option(REEMBER_BUILD_VERIFY "Build the CGAL Nef oracle verifier target" ON)
 option(REEMBER_ENABLE_TRACY "Enable optional Tracy profiler instrumentation" OFF)
 option(REEMBER_ENABLE_TRACY_MATH "Enable optional low-level math256 Tracy instrumentation" OFF)
 
@@ -55,6 +56,10 @@ set(REEMBER_APP_SOURCE
 
 set(REEMBER_VISUAL_TEST_SOURCE
   "${CMAKE_CURRENT_SOURCE_DIR}/src/application/visual_test.cpp"
+)
+
+set(REEMBER_VERIFY_SOURCE
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/application/verify.cpp"
 )
 
 set(REEMBER_LIBRARY_SOURCES
@@ -183,6 +188,14 @@ add_executable(re-EMBER_tests ${REEMBER_TEST_SOURCES} ${REEMBER_TEST_HEADERS})
 target_compile_definitions(re-EMBER_tests PRIVATE TINYOBJLOADER_USE_DOUBLE)
 target_link_libraries(re-EMBER_tests PRIVATE reember_lib)
 add_dependencies(re-EMBER_tests re-EMBER)
+
+if(REEMBER_BUILD_VERIFY)
+  find_package(CGAL CONFIG REQUIRED)
+
+  add_executable(re-EMBER_verify ${REEMBER_VERIFY_SOURCE})
+  target_compile_definitions(re-EMBER_verify PRIVATE TINYOBJLOADER_USE_DOUBLE)
+  target_link_libraries(re-EMBER_verify PRIVATE reember_lib CGAL::CGAL)
+endif()
 
 if(REEMBER_BUILD_VISUAL_TEST)
   find_package(Eigen3 CONFIG REQUIRED)
