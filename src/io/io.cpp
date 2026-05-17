@@ -1152,9 +1152,11 @@ bool isConvexFace(
 
 std::vector<std::size_t> buildMergedBoundary(
     const std::vector<std::size_t> &lhs,
-    std::size_t lhsEdge,
+    std::size_t lhsFirstSharedEdge,
+    std::size_t lhsLastSharedEdge,
     const std::vector<std::size_t> &rhs,
-    std::size_t rhsEdge,
+    std::size_t rhsFirstSharedEdge,
+    std::size_t rhsLastSharedEdge,
     const std::vector<PolygonEdgeProvenance> &lhsProvenances,
     const std::vector<PolygonEdgeProvenance> &rhsProvenances,
     std::vector<PolygonEdgeProvenance> &outProvenances)
@@ -1164,18 +1166,17 @@ std::vector<std::size_t> buildMergedBoundary(
     boundary.reserve(lhs.size() + rhs.size() - 2u);
     outProvenances.reserve(lhs.size() + rhs.size() - 2u);
 
-    std::size_t index = (lhsEdge + 1u) % lhs.size();
-    while (true)
+    std::size_t index = (lhsLastSharedEdge + 1u) % lhs.size();
+    boundary.push_back(lhs[index]);
+    while (index != lhsFirstSharedEdge)
     {
-        boundary.push_back(lhs[index]);
-        if (index == lhsEdge)
-            break;
         outProvenances.push_back(lhsProvenances[index]);
         index = (index + 1u) % lhs.size();
+        boundary.push_back(lhs[index]);
     }
 
-    index = (rhsEdge + 1u) % rhs.size();
-    while (index != rhsEdge)
+    index = (rhsFirstSharedEdge + 1u) % rhs.size();
+    while (index != rhsLastSharedEdge)
     {
         outProvenances.push_back(rhsProvenances[index]);
         boundary.push_back(rhs[(index + 1u) % rhs.size()]);
@@ -1186,45 +1187,145 @@ std::vector<std::size_t> buildMergedBoundary(
     return boundary;
 }
 
+bool areReverseEdges(
+    const std::vector<std::size_t> &lhs,
+    std::size_t lhsEdge,
+    const std::vector<std::size_t> &rhs,
+    std::size_t rhsEdge)
+{
+    return lhs[lhsEdge] == rhs[(rhsEdge + 1u) % rhs.size()] &&
+           lhs[(lhsEdge + 1u) % lhs.size()] == rhs[rhsEdge];
+}
+
+struct SharedBoundaryChain
+{
+    std::size_t lhsFirstEdge = 0;
+    std::size_t lhsLastEdge = 0;
+    std::size_t rhsFirstEdge = 0;
+    std::size_t rhsLastEdge = 0;
+    std::size_t edgeCount = 0;
+};
+
+bool findSharedBoundaryChain(
+    const std::vector<std::size_t> &lhs,
+    std::size_t lhsEdge,
+    const std::vector<std::size_t> &rhs,
+    std::size_t rhsEdge,
+    SharedBoundaryChain &outChain)
+{
+    // T 形连接补齐后，一条 AABB 裁剪边可能变成多段连续反向子边；合并时要整段删除。
+    if (!areReverseEdges(lhs, lhsEdge, rhs, rhsEdge))
+        return false;
+
+    outChain.lhsFirstEdge = lhsEdge;
+    outChain.lhsLastEdge = lhsEdge;
+    outChain.rhsFirstEdge = rhsEdge;
+    outChain.rhsLastEdge = rhsEdge;
+    outChain.edgeCount = 1u;
+    const std::size_t maxSharedEdgeCount = std::min(lhs.size(), rhs.size());
+
+    while (true)
+    {
+        if (outChain.edgeCount >= maxSharedEdgeCount)
+            break;
+
+        const std::size_t lhsPrevious =
+            (outChain.lhsFirstEdge + lhs.size() - 1u) % lhs.size();
+        const std::size_t rhsNext = (outChain.rhsFirstEdge + 1u) % rhs.size();
+        if (!areReverseEdges(lhs, lhsPrevious, rhs, rhsNext))
+            break;
+
+        outChain.lhsFirstEdge = lhsPrevious;
+        outChain.rhsFirstEdge = rhsNext;
+        ++outChain.edgeCount;
+    }
+
+    while (true)
+    {
+        if (outChain.edgeCount >= maxSharedEdgeCount)
+            break;
+
+        const std::size_t lhsNext = (outChain.lhsLastEdge + 1u) % lhs.size();
+        const std::size_t rhsPrevious =
+            (outChain.rhsLastEdge + rhs.size() - 1u) % rhs.size();
+        if (!areReverseEdges(lhs, lhsNext, rhs, rhsPrevious))
+            break;
+
+        outChain.lhsLastEdge = lhsNext;
+        outChain.rhsLastEdge = rhsPrevious;
+        ++outChain.edgeCount;
+    }
+
+    return outChain.edgeCount < lhs.size() && outChain.edgeCount < rhs.size();
+}
+
+bool sharedBoundaryChainHasGeneratedEdge(
+    const SharedBoundaryChain &chain,
+    const std::vector<PolygonEdgeProvenance> &lhsProvenances,
+    const std::vector<PolygonEdgeProvenance> &rhsProvenances)
+{
+    if (lhsProvenances.empty() || rhsProvenances.empty())
+        return false;
+
+    std::size_t index = chain.lhsFirstEdge;
+    for (std::size_t count = 0; count < chain.edgeCount; ++count)
+    {
+        if (index < lhsProvenances.size() && isGeneratedClipEdge(lhsProvenances[index]))
+            return true;
+        index = (index + 1u) % lhsProvenances.size();
+    }
+
+    index = chain.rhsLastEdge;
+    for (std::size_t count = 0; count < chain.edgeCount; ++count)
+    {
+        if (index < rhsProvenances.size() && isGeneratedClipEdge(rhsProvenances[index]))
+            return true;
+        index = (index + 1u) % rhsProvenances.size();
+    }
+
+    return false;
+}
+
 bool tryMergeFaces(
     const std::vector<PlanePoint3i> &vertices,
     const std::vector<ApproxPoint3> &approxVertices,
     const Plane3i &plane,
     const std::vector<std::size_t> &lhs,
+    std::size_t lhsEdge,
     const std::vector<std::size_t> &rhs,
+    std::size_t rhsEdge,
     const std::vector<PolygonEdgeProvenance> &lhsProvenances,
     const std::vector<PolygonEdgeProvenance> &rhsProvenances,
     std::vector<std::size_t> &outMerged,
     std::vector<PolygonEdgeProvenance> &outProvenances)
 {
-    for (std::size_t lhsEdge = 0; lhsEdge < lhs.size(); ++lhsEdge)
-    {
-        const std::size_t lhsStart = lhs[lhsEdge];
-        const std::size_t lhsEnd = lhs[(lhsEdge + 1u) % lhs.size()];
-        for (std::size_t rhsEdge = 0; rhsEdge < rhs.size(); ++rhsEdge)
-        {
-            const std::size_t rhsStart = rhs[rhsEdge];
-            const std::size_t rhsEnd = rhs[(rhsEdge + 1u) % rhs.size()];
-            if (lhsStart != rhsEnd || lhsEnd != rhsStart)
-                continue;
+    SharedBoundaryChain chain;
+    if (!findSharedBoundaryChain(lhs, lhsEdge, rhs, rhsEdge, chain))
+        return false;
+    if (!sharedBoundaryChainHasGeneratedEdge(chain, lhsProvenances, rhsProvenances))
+        return false;
 
-            std::vector<PolygonEdgeProvenance> provenances;
-            std::vector<std::size_t> boundary =
-                buildMergedBoundary(lhs, lhsEdge, rhs, rhsEdge, lhsProvenances, rhsProvenances, provenances);
-            if (!removeRedundantCollinearVertices(vertices, approxVertices, plane, boundary, provenances))
-                continue;
-            if (!isConvexFace(vertices, approxVertices, plane, boundary))
-                continue;
-            if (provenances.size() != boundary.size())
-                continue;
+    std::vector<PolygonEdgeProvenance> provenances;
+    std::vector<std::size_t> boundary = buildMergedBoundary(
+                                            lhs,
+                                            chain.lhsFirstEdge,
+                                            chain.lhsLastEdge,
+                                            rhs,
+                                            chain.rhsFirstEdge,
+                                            chain.rhsLastEdge,
+                                            lhsProvenances,
+                                            rhsProvenances,
+                                            provenances);
+    if (!removeRedundantCollinearVertices(vertices, approxVertices, plane, boundary, provenances))
+        return false;
+    if (!isConvexFace(vertices, approxVertices, plane, boundary))
+        return false;
+    if (provenances.size() != boundary.size())
+        return false;
 
-            outMerged = std::move(boundary);
-            outProvenances = std::move(provenances);
-            return true;
-        }
-    }
-
-    return false;
+    outMerged = std::move(boundary);
+    outProvenances = std::move(provenances);
+    return true;
 }
 
 void mergeConvexCoplanarFaces(RecoveredPolygonSoupData &data)
@@ -1272,16 +1373,6 @@ void mergeConvexCoplanarFaces(RecoveredPolygonSoupData &data)
                         continue;
                     if (consumed[lhsOwner.face] || consumed[rhsOwner.face])
                         continue;
-                    const bool lhsGenerated =
-                        lhsOwner.face < data.faceEdgeProvenances.size() &&
-                        lhsOwner.edge < data.faceEdgeProvenances[lhsOwner.face].size() &&
-                        isGeneratedClipEdge(data.faceEdgeProvenances[lhsOwner.face][lhsOwner.edge]);
-                    const bool rhsGenerated =
-                        rhsOwner.face < data.faceEdgeProvenances.size() &&
-                        rhsOwner.edge < data.faceEdgeProvenances[rhsOwner.face].size() &&
-                        isGeneratedClipEdge(data.faceEdgeProvenances[rhsOwner.face][rhsOwner.edge]);
-                    if (!lhsGenerated && !rhsGenerated)
-                        continue;
                     if (makePlaneKey(data.facePlanes[lhsOwner.face]) != makePlaneKey(data.facePlanes[rhsOwner.face]))
                         continue;
 
@@ -1307,7 +1398,9 @@ void mergeConvexCoplanarFaces(RecoveredPolygonSoupData &data)
                                 approxVertices,
                                 data.facePlanes[keep],
                                 keepFace,
+                                keepEdge,
                                 removeFace,
+                                removeEdge,
                                 data.faceEdgeProvenances[keep],
                                 data.faceEdgeProvenances[remove],
                                 merged,
