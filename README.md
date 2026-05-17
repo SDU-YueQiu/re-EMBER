@@ -99,5 +99,6 @@ The script writes `build\performance\run_<timestamp>\` with `summary.txt`, `timi
 ## Notes
 
 - `build\Debug\re-EMBER_tests.exe` runs the repository tests.
+- `build\Debug\visual-test.exe` exposes the same Ember output topology and Nef post-process controls in the interactive panel.
 - `--threads 1` forces a serial run across application-layer preparation and solving when you need to debug.
 - `--timings-out <file>` writes the timing summary for a single run.

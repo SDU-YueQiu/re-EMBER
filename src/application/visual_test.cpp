@@ -4,6 +4,8 @@
  */
 #include "core/bool_problem.h"
 #include "io/io.h"
+#include "nef_postprocess.h"
+#include "output_modes.h"
 
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>
 #include <CGAL/Nef_polyhedron_3.h>
@@ -147,6 +149,7 @@ struct UiState
     std::uint64_t emberManualScale = kVisualTestManualScale;
     std::size_t leafThreshold = kLeafThreshold;
     ember::PolygonSoupTopologyMode emberOutputTopology = ember::PolygonSoupTopologyMode::Raw;
+    ember::app::OutputPostprocessMode emberOutputPostprocess = ember::app::OutputPostprocessMode::None;
     bool previewDirty = false;
     bool solveRequested = false;
     bool continuousSolve = false;
@@ -580,11 +583,25 @@ bool computeEmberResult(SceneData &scene, const UiState &ui, ResultStats &outSta
         PolygonSoupExportOptions exportOptions;
         exportOptions.coordinateScale = scene.emberSharedScale;
         exportOptions.topologyMode = ui.emberOutputTopology;
-        if (!ember::buildObjMeshFromPolygonSoup(
-                    problem.resultFragments(),
-                    scene.resultDisplayMesh,
-                    outError,
-                    exportOptions))
+        bool converted = false;
+        if (ui.emberOutputPostprocess == ember::app::OutputPostprocessMode::Nef)
+        {
+            converted = ember::app::buildNefPostprocessedMeshFromPolygons(
+                            problem.resultFragments(),
+                            ui.emberOutputTopology,
+                            scene.emberSharedScale,
+                            scene.resultDisplayMesh,
+                            outError);
+        }
+        else
+        {
+            converted = ember::buildObjMeshFromPolygonSoup(
+                            problem.resultFragments(),
+                            scene.resultDisplayMesh,
+                            outError,
+                            exportOptions);
+        }
+        if (!converted)
         {
             outError = "Failed to convert the EMBER result polygon soup to an OBJ mesh: " + outError;
             return false;
@@ -995,6 +1012,17 @@ int main()
             changed = true;
         }
 
+        const char *postprocessItems[] = {"none", "nef"};
+        int postprocessIndex =
+            proposed.emberOutputPostprocess == ember::app::OutputPostprocessMode::Nef ? 1 : 0;
+        if (ImGui::Combo("output postprocess", &postprocessIndex, postprocessItems, 2))
+        {
+            proposed.emberOutputPostprocess =
+                postprocessIndex == 1 ? ember::app::OutputPostprocessMode::Nef :
+                ember::app::OutputPostprocessMode::None;
+            changed = true;
+        }
+
         changed = drawDoubleSliderInput(
                       "tool scale",
                       proposed.pose.scale,
@@ -1075,6 +1103,7 @@ int main()
             ImGui::Text("shared_scale=%llu", static_cast<unsigned long long>(ui.stats.sharedScale));
             ImGui::Text("leaf_threshold=%zu", ui.leafThreshold);
             ImGui::Text("output_topology=%s", ember::toString(ui.emberOutputTopology));
+            ImGui::Text("output_postprocess=%s", ember::app::toString(ui.emberOutputPostprocess));
         }
         ImGui::Text("lhs=%s", scene.workpiecePath.c_str());
         ImGui::Text("rhs=%s", scene.toolPath.c_str());
