@@ -7,6 +7,8 @@
 #include "io/io.h"
 #include "nef_postprocess.h"
 
+#include <CGAL/boost/graph/convert_nef_polyhedron_to_polygon_mesh.h>
+#include <CGAL/boost/graph/iterator.h>
 #include <CGAL/IO/Nef_polyhedron_iostream_3.h>
 #include <CGAL/version.h>
 
@@ -17,11 +19,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <map>
 #include <iomanip>
 #include <iostream>
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -44,6 +48,14 @@ enum class CandidateMode
     ExportNef
 };
 
+enum class NefCompareOp
+{
+    Xor,
+    CandidateMinusOracle,
+    OracleMinusCandidate,
+    Skip
+};
+
 struct VerifyOptions
 {
     std::string lhsPath;
@@ -57,6 +69,8 @@ struct VerifyOptions
     CandidateMode candidateMode = CandidateMode::FragmentsNef;
     std::filesystem::path oracleCacheDir = std::filesystem::path("build") / "oracle_cache" / "nef";
     bool refreshOracle = false;
+    bool diagnoseNef = false;
+    NefCompareOp nefCompareOp = NefCompareOp::Xor;
     std::filesystem::path reportPath;
 };
 
@@ -80,6 +94,7 @@ struct VerificationReport
     std::size_t rhsPolygons = 0;
     std::size_t resultFragments = 0;
     std::string candidateMode;
+    std::string nefCompareOp;
     std::uint64_t sharedScale = 0;
     double prepareMs = 0.0;
     double solveMs = 0.0;
@@ -102,7 +117,9 @@ void printUsage()
             << "[--assume-lhs-nsi] [--assume-lhs-nnc] "
             << "[--assume-rhs-nsi] [--assume-rhs-nnc] "
             << "[--candidate-mode fragments-nef|export-conforming|export-nef] "
-            << "[--oracle-cache-dir <dir>] [--refresh-oracle] [--report-out <file>]"
+            << "[--oracle-cache-dir <dir>] [--refresh-oracle] "
+            << "[--diagnose-nef] [--nef-compare-op xor|candidate-minus-oracle|oracle-minus-candidate|skip] "
+            << "[--report-out <file>]"
             << std::endl;
 }
 
@@ -175,6 +192,23 @@ const char *toString(CandidateMode mode)
     return "fragments-nef";
 }
 
+const char *toString(NefCompareOp op)
+{
+    switch (op)
+    {
+    case NefCompareOp::Xor:
+        return "xor";
+    case NefCompareOp::CandidateMinusOracle:
+        return "candidate-minus-oracle";
+    case NefCompareOp::OracleMinusCandidate:
+        return "oracle-minus-candidate";
+    case NefCompareOp::Skip:
+        return "skip";
+    }
+
+    return "xor";
+}
+
 bool parseCandidateMode(const std::string &token, CandidateMode &outMode)
 {
     if (token == "fragments-nef")
@@ -196,6 +230,32 @@ bool parseCandidateMode(const std::string &token, CandidateMode &outMode)
     return false;
 }
 
+bool parseNefCompareOp(const std::string &token, NefCompareOp &outOp)
+{
+    if (token == "xor")
+    {
+        outOp = NefCompareOp::Xor;
+        return true;
+    }
+    if (token == "candidate-minus-oracle")
+    {
+        outOp = NefCompareOp::CandidateMinusOracle;
+        return true;
+    }
+    if (token == "oracle-minus-candidate")
+    {
+        outOp = NefCompareOp::OracleMinusCandidate;
+        return true;
+    }
+    if (token == "skip")
+    {
+        outOp = NefCompareOp::Skip;
+        return true;
+    }
+
+    return false;
+}
+
 bool parseArgs(int argc, char **argv, VerifyOptions &outOptions)
 {
     outOptions = VerifyOptions();
@@ -206,7 +266,8 @@ bool parseArgs(int argc, char **argv, VerifyOptions &outOptions)
         const std::string arg(argv[i]);
         if (arg == "--lhs" || arg == "--rhs" || arg == "--op" ||
                 arg == "--scale" || arg == "--leaf-threshold" || arg == "--threads" ||
-                arg == "--candidate-mode" || arg == "--oracle-cache-dir" || arg == "--report-out")
+                arg == "--candidate-mode" || arg == "--oracle-cache-dir" ||
+                arg == "--nef-compare-op" || arg == "--report-out")
         {
             if (i + 1 >= argc)
             {
@@ -268,6 +329,14 @@ bool parseArgs(int argc, char **argv, VerifyOptions &outOptions)
                     return false;
                 }
             }
+            else if (arg == "--nef-compare-op")
+            {
+                if (!parseNefCompareOp(value, outOptions.nefCompareOp))
+                {
+                    std::cerr << "Unsupported Nef compare operation: " << value << std::endl;
+                    return false;
+                }
+            }
             else if (arg == "--report-out")
                 outOptions.reportPath = value;
 
@@ -277,6 +346,11 @@ bool parseArgs(int argc, char **argv, VerifyOptions &outOptions)
         if (arg == "--refresh-oracle")
         {
             outOptions.refreshOracle = true;
+            continue;
+        }
+        if (arg == "--diagnose-nef")
+        {
+            outOptions.diagnoseNef = true;
             continue;
         }
         if (arg == "--assume-lhs-nsi")
@@ -371,6 +445,426 @@ PreparedProblem prepareProblem(const VerifyOptions &options)
     ember::mergeAABB(prepared.sceneAABB, rhsAABB);
     ember::expandAABB(prepared.sceneAABB, 1);
     return prepared;
+}
+
+ember::app::ExactKernel::FT parseExactKernelInteger(const std::string &text)
+{
+    bool negative = false;
+    std::size_t offset = 0;
+    if (!text.empty() && text[0] == '-')
+    {
+        negative = true;
+        offset = 1;
+    }
+
+    ember::app::ExactKernel::FT value(0);
+    for (std::size_t i = offset; i < text.size(); ++i)
+    {
+        if (text[i] < '0' || text[i] > '9')
+            throw std::runtime_error("Invalid integer text while building Nef diagnostics.");
+        value = value * 10 + static_cast<int>(text[i] - '0');
+    }
+
+    return negative ? -value : value;
+}
+
+ember::app::ExactKernel::FT toExactKernelFT(
+    const ember::Integer &numerator,
+    const ember::Integer &denominator)
+{
+    return parseExactKernelInteger(ember::integerToString(numerator)) /
+           parseExactKernelInteger(ember::integerToString(denominator));
+}
+
+std::string homPointKey(const ember::HomPoint4i &point)
+{
+    const ember::HomPoint4i primitive = ember::primitiveHomPoint(point);
+    return ember::integerToString(primitive.x) + "/" +
+           ember::integerToString(primitive.y) + "/" +
+           ember::integerToString(primitive.z) + "/" +
+           ember::integerToString(primitive.w);
+}
+
+ember::app::ExactKernel::Point_3 toExactKernelPoint(const ember::PlanePoint3i &point)
+{
+    if (!point.hasUniqueIntersection() || ember::isZero(point.x.w))
+        throw std::runtime_error("Nef diagnostics found a non-finite exact point.");
+
+    return ember::app::ExactKernel::Point_3(
+               toExactKernelFT(point.x.x, point.x.w),
+               toExactKernelFT(point.x.y, point.x.w),
+               toExactKernelFT(point.x.z, point.x.w));
+}
+
+struct IndexedExactMesh
+{
+    std::size_t sourceVertexCount = 0;
+    std::vector<ember::app::ExactKernel::Point_3> points;
+    std::vector<std::vector<std::size_t>> faces;
+};
+
+struct ExactMeshDiagnostics
+{
+    std::size_t sourceVertices = 0;
+    std::size_t uniqueVertices = 0;
+    std::size_t faces = 0;
+    std::size_t shortFaces = 0;
+    std::size_t facesWithDuplicateRefs = 0;
+    std::size_t degenerateFaces = 0;
+    std::size_t duplicateFaceVertexSets = 0;
+    std::size_t uniqueEdges = 0;
+    std::size_t boundaryEdges = 0;
+    std::size_t nonmanifoldEdges = 0;
+    std::size_t sameDirectionPairedEdges = 0;
+    std::size_t edgesWithInteriorVertices = 0;
+    std::size_t edgeInteriorVertexHits = 0;
+};
+
+std::string indexListKey(std::vector<std::size_t> indices)
+{
+    std::sort(indices.begin(), indices.end());
+    std::ostringstream out;
+    for (const std::size_t index : indices)
+        out << index << ',';
+    return out.str();
+}
+
+std::vector<std::size_t> cleanFace(const std::vector<std::size_t> &face)
+{
+    std::vector<std::size_t> cleaned;
+    cleaned.reserve(face.size());
+    for (const std::size_t index : face)
+    {
+        if (cleaned.empty() || cleaned.back() != index)
+            cleaned.push_back(index);
+    }
+    if (cleaned.size() > 1u && cleaned.front() == cleaned.back())
+        cleaned.pop_back();
+    return cleaned;
+}
+
+bool isDegenerateTriangle(
+    const std::vector<ember::app::ExactKernel::Point_3> &points,
+    std::size_t a,
+    std::size_t b,
+    std::size_t c)
+{
+    return a == b || b == c || a == c ||
+           CGAL::collinear(points[a], points[b], points[c]);
+}
+
+bool hasNondegenerateTriple(
+    const std::vector<ember::app::ExactKernel::Point_3> &points,
+    const std::vector<std::size_t> &face)
+{
+    if (face.size() < 3u)
+        return false;
+    for (std::size_t i = 0; i < face.size(); ++i)
+    {
+        const std::size_t a = face[(i + face.size() - 1u) % face.size()];
+        const std::size_t b = face[i];
+        const std::size_t c = face[(i + 1u) % face.size()];
+        if (!isDegenerateTriangle(points, a, b, c))
+            return true;
+    }
+    return false;
+}
+
+bool pointIsStrictlyOnSegment(
+    const ember::app::ExactKernel::Point_3 &start,
+    const ember::app::ExactKernel::Point_3 &point,
+    const ember::app::ExactKernel::Point_3 &end)
+{
+    return point != start && point != end &&
+           CGAL::collinear(start, point, end) &&
+           CGAL::collinear_are_ordered_along_line(start, point, end);
+}
+
+IndexedExactMesh makeIndexedExactMesh(const ember::ExactMeshData &mesh)
+{
+    IndexedExactMesh indexed;
+    indexed.sourceVertexCount = mesh.vertices.size();
+    indexed.faces.reserve(mesh.faces.size());
+
+    std::map<std::string, std::size_t> indexByPoint;
+    std::vector<std::size_t> remap(mesh.vertices.size(), 0u);
+    for (std::size_t vertexIndex = 0; vertexIndex < mesh.vertices.size(); ++vertexIndex)
+    {
+        const std::string key = homPointKey(mesh.vertices[vertexIndex].x);
+        const auto found = indexByPoint.find(key);
+        if (found != indexByPoint.end())
+        {
+            remap[vertexIndex] = found->second;
+            continue;
+        }
+
+        const std::size_t pointIndex = indexed.points.size();
+        indexByPoint.emplace(key, pointIndex);
+        remap[vertexIndex] = pointIndex;
+        indexed.points.push_back(toExactKernelPoint(mesh.vertices[vertexIndex]));
+    }
+
+    for (const std::vector<std::size_t> &sourceFace : mesh.faces)
+    {
+        std::vector<std::size_t> face;
+        face.reserve(sourceFace.size());
+        for (const std::size_t vertexIndex : sourceFace)
+        {
+            if (vertexIndex >= remap.size())
+                throw std::runtime_error("Nef diagnostics found an out-of-range exact mesh index.");
+            face.push_back(remap[vertexIndex]);
+        }
+        indexed.faces.push_back(std::move(face));
+    }
+
+    return indexed;
+}
+
+ExactMeshDiagnostics computeMeshDiagnostics(const IndexedExactMesh &mesh)
+{
+    ExactMeshDiagnostics diag;
+    diag.sourceVertices = mesh.sourceVertexCount;
+    diag.uniqueVertices = mesh.points.size();
+    diag.faces = mesh.faces.size();
+
+    std::map<std::pair<std::size_t, std::size_t>, std::size_t> undirectedEdges;
+    std::map<std::pair<std::size_t, std::size_t>, std::size_t> directedEdges;
+    std::map<std::string, std::size_t> faceVertexSets;
+
+    for (const std::vector<std::size_t> &sourceFace : mesh.faces)
+    {
+        if (sourceFace.size() < 3u)
+            ++diag.shortFaces;
+
+        std::set<std::size_t> refs(sourceFace.begin(), sourceFace.end());
+        if (refs.size() != sourceFace.size())
+            ++diag.facesWithDuplicateRefs;
+
+        const std::vector<std::size_t> face = cleanFace(sourceFace);
+        if (!hasNondegenerateTriple(mesh.points, face))
+        {
+            ++diag.degenerateFaces;
+            continue;
+        }
+
+        ++faceVertexSets[indexListKey(face)];
+        for (std::size_t i = 0; i < face.size(); ++i)
+        {
+            const std::size_t a = face[i];
+            const std::size_t b = face[(i + 1u) % face.size()];
+            if (a == b)
+                continue;
+
+            ++directedEdges[{a, b}];
+            ++undirectedEdges[{std::min(a, b), std::max(a, b)}];
+        }
+    }
+
+    for (const auto &[key, count] : faceVertexSets)
+    {
+        (void)key;
+        if (count > 1u)
+            diag.duplicateFaceVertexSets += count - 1u;
+    }
+
+    diag.uniqueEdges = undirectedEdges.size();
+    for (const auto &[edge, count] : undirectedEdges)
+    {
+        if (count == 1u)
+            ++diag.boundaryEdges;
+        else if (count > 2u)
+            ++diag.nonmanifoldEdges;
+
+        if (count == 2u)
+        {
+            const std::size_t forwardCount = directedEdges[{edge.first, edge.second}];
+            const std::size_t reverseCount = directedEdges[{edge.second, edge.first}];
+            if (forwardCount == 2u || reverseCount == 2u)
+                ++diag.sameDirectionPairedEdges;
+        }
+
+        bool hasInteriorPoint = false;
+        const auto &start = mesh.points[edge.first];
+        const auto &end = mesh.points[edge.second];
+        for (std::size_t pointIndex = 0; pointIndex < mesh.points.size(); ++pointIndex)
+        {
+            if (pointIndex == edge.first || pointIndex == edge.second)
+                continue;
+            if (pointIsStrictlyOnSegment(start, mesh.points[pointIndex], end))
+            {
+                hasInteriorPoint = true;
+                ++diag.edgeInteriorVertexHits;
+            }
+        }
+        if (hasInteriorPoint)
+            ++diag.edgesWithInteriorVertices;
+    }
+
+    return diag;
+}
+
+void printMeshDiagnostics(const char *label, const ExactMeshDiagnostics &diag)
+{
+    std::cerr << "[nef-diagnose] " << label
+              << " source_vertices=" << diag.sourceVertices
+              << " unique_vertices=" << diag.uniqueVertices
+              << " faces=" << diag.faces
+              << " short_faces=" << diag.shortFaces
+              << " duplicate_ref_faces=" << diag.facesWithDuplicateRefs
+              << " degenerate_faces=" << diag.degenerateFaces
+              << " duplicate_face_vertex_sets=" << diag.duplicateFaceVertexSets
+              << " unique_edges=" << diag.uniqueEdges
+              << " boundary_edges=" << diag.boundaryEdges
+              << " nonmanifold_edges=" << diag.nonmanifoldEdges
+              << " same_direction_paired_edges=" << diag.sameDirectionPairedEdges
+              << " t_junction_edges=" << diag.edgesWithInteriorVertices
+              << " t_junction_hits=" << diag.edgeInteriorVertexHits
+              << std::endl;
+}
+
+void diagnosePolygonSoup(
+    const char *label,
+    const std::vector<ember::Polygon256> &polygons,
+    ember::PolygonSoupTopologyMode topologyMode)
+{
+    ember::ExactMeshData mesh;
+    std::string error;
+    if (!ember::buildExactMeshFromPolygonSoup(polygons, mesh, error, topologyMode))
+    {
+        std::cerr << "[nef-diagnose] " << label << " build_failed=" << error << std::endl;
+        return;
+    }
+
+    printMeshDiagnostics(label, computeMeshDiagnostics(makeIndexedExactMesh(mesh)));
+}
+
+IndexedExactMesh makeIndexedSurfaceMesh(const ember::app::SurfaceMesh &surfaceMesh)
+{
+    IndexedExactMesh indexed;
+    indexed.sourceVertexCount = surfaceMesh.number_of_vertices();
+    indexed.points.resize(surfaceMesh.number_of_vertices());
+    for (const auto vertex : surfaceMesh.vertices())
+        indexed.points[static_cast<std::size_t>(vertex.idx())] = surfaceMesh.point(vertex);
+
+    indexed.faces.reserve(surfaceMesh.number_of_faces());
+    for (const auto faceDescriptor : surfaceMesh.faces())
+    {
+        std::vector<std::size_t> face;
+        for (const auto vertex : CGAL::vertices_around_face(surfaceMesh.halfedge(faceDescriptor), surfaceMesh))
+            face.push_back(static_cast<std::size_t>(vertex.idx()));
+        indexed.faces.push_back(std::move(face));
+    }
+
+    return indexed;
+}
+
+std::optional<IndexedExactMesh> diagnoseNef(const char *label, const NefPolyhedron &nef)
+{
+    std::cerr << "[nef-diagnose] " << label
+              << " nef_empty=" << (nef.is_empty() ? 1 : 0)
+              << " nef_simple=" << (nef.is_simple() ? 1 : 0)
+              << std::endl;
+    if (nef.is_empty() || !nef.is_simple())
+        return std::nullopt;
+
+    ember::app::SurfaceMesh surfaceMesh;
+    NefPolyhedron copy = nef;
+    CGAL::convert_nef_polyhedron_to_polygon_mesh(copy, surfaceMesh, false);
+    IndexedExactMesh indexed = makeIndexedSurfaceMesh(surfaceMesh);
+    printMeshDiagnostics((std::string(label) + "_surface").c_str(), computeMeshDiagnostics(indexed));
+    return indexed;
+}
+
+std::map<std::string, std::size_t> makeFaceVertexSetMultiset(
+    const IndexedExactMesh &mesh,
+    const std::vector<std::size_t> *remap)
+{
+    std::map<std::string, std::size_t> multiset;
+    for (const std::vector<std::size_t> &sourceFace : mesh.faces)
+    {
+        std::vector<std::size_t> face = cleanFace(sourceFace);
+        if (remap != nullptr)
+        {
+            for (std::size_t &index : face)
+                index = (*remap)[index];
+        }
+        ++multiset[indexListKey(face)];
+    }
+    return multiset;
+}
+
+bool equivalentSurfaceMeshes(
+    const IndexedExactMesh &candidate,
+    const IndexedExactMesh &oracle,
+    std::string &outReason)
+{
+    if (candidate.points.size() != oracle.points.size())
+    {
+        outReason = "different vertex count";
+        return false;
+    }
+    if (candidate.faces.size() != oracle.faces.size())
+    {
+        outReason = "different face count";
+        return false;
+    }
+
+    std::vector<std::size_t> candidateToOracle(candidate.points.size(), 0u);
+    std::vector<bool> oracleUsed(oracle.points.size(), false);
+    for (std::size_t candidateIndex = 0; candidateIndex < candidate.points.size(); ++candidateIndex)
+    {
+        bool found = false;
+        for (std::size_t oracleIndex = 0; oracleIndex < oracle.points.size(); ++oracleIndex)
+        {
+            if (oracleUsed[oracleIndex])
+                continue;
+            if (candidate.points[candidateIndex] == oracle.points[oracleIndex])
+            {
+                candidateToOracle[candidateIndex] = oracleIndex;
+                oracleUsed[oracleIndex] = true;
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+        {
+            outReason = "candidate vertex has no exact oracle match";
+            return false;
+        }
+    }
+
+    const std::map<std::string, std::size_t> candidateFaces =
+        makeFaceVertexSetMultiset(candidate, &candidateToOracle);
+    const std::map<std::string, std::size_t> oracleFaces =
+        makeFaceVertexSetMultiset(oracle, nullptr);
+    if (candidateFaces != oracleFaces)
+    {
+        outReason = "different exact face vertex sets";
+        return false;
+    }
+
+    outReason = "exact surface vertex and face sets match";
+    return true;
+}
+
+bool runNefCompare(
+    const NefPolyhedron &candidate,
+    const NefPolyhedron &oracle,
+    NefCompareOp op)
+{
+    switch (op)
+    {
+    case NefCompareOp::Xor:
+        return (candidate ^ oracle).regularization().is_empty();
+    case NefCompareOp::CandidateMinusOracle:
+        return (candidate - oracle).regularization().is_empty();
+    case NefCompareOp::OracleMinusCandidate:
+        return (oracle - candidate).regularization().is_empty();
+    case NefCompareOp::Skip:
+        return false;
+    }
+
+    return false;
 }
 
 void feedSha1(boost::uuids::detail::sha1 &sha, const std::string &value)
@@ -613,6 +1107,7 @@ void writeReport(const std::filesystem::path &path, const VerificationReport &re
            << "rhs_polygons=" << report.rhsPolygons << '\n'
            << "result_fragments=" << report.resultFragments << '\n'
            << "candidate_mode=" << report.candidateMode << '\n'
+           << "nef_compare_op=" << report.nefCompareOp << '\n'
            << std::fixed << std::setprecision(6)
            << "prepare_ms=" << report.prepareMs << '\n'
            << "solve_ms=" << report.solveMs << '\n'
@@ -674,16 +1169,46 @@ int main(int argc, char **argv)
         report.solveMs = elapsedMilliseconds(solveStart, solveEnd);
         report.resultFragments = problem.resultFragments().size();
         report.candidateMode = toString(options.candidateMode);
+        report.nefCompareOp = toString(options.nefCompareOp);
+
+        if (options.diagnoseNef)
+        {
+            diagnosePolygonSoup("lhs_raw", prepared.lhsPolygons, ember::PolygonSoupTopologyMode::Raw);
+            diagnosePolygonSoup("rhs_raw", prepared.rhsPolygons, ember::PolygonSoupTopologyMode::Raw);
+            diagnosePolygonSoup("candidate_raw", problem.resultFragments(), ember::PolygonSoupTopologyMode::Raw);
+            diagnosePolygonSoup("candidate_conforming", problem.resultFragments(), ember::PolygonSoupTopologyMode::Conforming);
+        }
 
         report.oracleKey = computeOracleKey(prepared, options.operation);
         const Clock::time_point oracleStart = Clock::now();
         const NefPolyhedron oracle = loadOrBuildOracle(options, prepared, report.oracleKey, report);
         const Clock::time_point oracleEnd = Clock::now();
         report.oracleMs = elapsedMilliseconds(oracleStart, oracleEnd);
+        std::optional<IndexedExactMesh> oracleSurface;
+        if (options.diagnoseNef)
+            oracleSurface = diagnoseNef("oracle", oracle);
 
         const Clock::time_point compareStart = Clock::now();
         const NefPolyhedron candidate = buildCandidateNef(options, problem.resultFragments());
-        const bool equal = (candidate ^ oracle).regularization().is_empty();
+        std::optional<IndexedExactMesh> candidateSurface;
+        if (options.diagnoseNef)
+        {
+            candidateSurface = diagnoseNef("candidate", candidate);
+            if (candidateSurface && oracleSurface)
+            {
+                std::string surfaceReason;
+                const bool surfacesEqual = equivalentSurfaceMeshes(*candidateSurface, *oracleSurface, surfaceReason);
+                std::cerr << "[nef-diagnose] exact_surface_equal=" << (surfacesEqual ? 1 : 0)
+                          << " reason=\"" << surfaceReason << "\"" << std::endl;
+            }
+            std::cerr << "[nef-diagnose] compare_begin op=" << toString(options.nefCompareOp) << std::endl;
+        }
+        const bool equal = options.nefCompareOp == NefCompareOp::Skip ?
+                           false :
+                           runNefCompare(candidate, oracle, options.nefCompareOp);
+        if (options.diagnoseNef)
+            std::cerr << "[nef-diagnose] compare_end op=" << toString(options.nefCompareOp)
+                      << " empty=" << (equal ? 1 : 0) << std::endl;
         const Clock::time_point compareEnd = Clock::now();
         report.compareMs = elapsedMilliseconds(compareStart, compareEnd);
         report.passed = equal;
@@ -697,6 +1222,7 @@ int main(int argc, char **argv)
                   << " rhs_polygons=" << report.rhsPolygons
                   << " result_fragments=" << report.resultFragments
                   << " candidate_mode=" << report.candidateMode
+                  << " nef_compare_op=" << toString(options.nefCompareOp)
                   << " cache_hit=" << (report.cacheHit ? 1 : 0)
                   << " oracle_key=" << report.oracleKey
                   << " oracle_path=" << report.oraclePath.string()

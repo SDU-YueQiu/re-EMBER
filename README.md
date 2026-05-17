@@ -59,6 +59,8 @@ build\Debug\re-EMBER_verify.exe --lhs assets\models\workpiece_block.obj --rhs as
 
 The oracle is exact over the quantized `Polygon256` input used by re-EMBER. It does not claim to validate the original floating OBJ/STL CAD intent before import and quantization. Oracle Nef files are cached under `build\oracle_cache\nef\` by default; pass `--refresh-oracle` to rebuild a cached entry. `--candidate-mode fragments-nef|export-conforming|export-nef` selects whether the candidate is compared from raw result fragments, from the conforming export topology, or from the Nef export topology path; this does not change the oracle cache key.
 
+For CGAL Nef failures, `--diagnose-nef` prints exact mesh topology statistics before and after Nef construction. Pair it with `--nef-compare-op skip` to avoid the final CGAL overlay, or with `candidate-minus-oracle` / `oracle-minus-candidate` / `xor` to isolate which Nef comparison operation stalls or fails. This diagnostic path can be slow and is intended for correctness investigation, not performance timing.
+
 ## CLI options
 
 - `--lhs <file.obj|file.stl>` and `--rhs <file.obj|file.stl>` pick the left and right operands.

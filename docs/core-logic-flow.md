@@ -76,6 +76,8 @@ flowchart TD
 
 verifier 会用这批量化 polygon soup 同时做两件事：一边运行 `BoolProblem` 并读取 `resultFragments()`；另一边把左右输入精确转成 CGAL Nef oracle 并缓存。候选结果默认以 `--candidate-mode fragments-nef` 直接转 Nef，避免 OBJ double 导出/回读造成二次误差；也可以用 `export-conforming` 测试 T-junction 修复后的精确导出拓扑，或用 `export-nef` 测试 Nef 后处理路径。候选结果转 CGAL mesh 前会在 exact rational 点域中补齐面片之间的 T-junction，把落在某条边上的全局顶点插入该面的边界循环，再三角化成共形 surface mesh。最终判定使用候选 Nef 与 oracle Nef 的正则化对称差是否为空；这只比较实体集合，不要求 face count、片段切分方式或 OBJ 顶点顺序一致。
 
+排查 CGAL Nef 崩溃或长时间卡住时，可以加 `--diagnose-nef --nef-compare-op skip` 先跳过最终 overlay，只输出左右输入、候选 raw soup、候选 conforming soup、candidate Nef surface 和 oracle Nef surface 的 exact 拓扑统计；其中包括边界边、非流形边、同向成对边、重复面、退化面和 T-junction 命中数。诊断还会在 simple Nef 能转回 surface mesh 时做一次不经过 Nef 布尔 overlay 的 exact surface 等价比较。若该比较相等而 `candidate-minus-oracle`、`oracle-minus-candidate` 或 `xor` 卡住/崩溃，问题应归入 CGAL Nef overlay 的鲁棒性边界，而不是 `resultFragments()` 与 oracle 的集合差异。
+
 ## 3. BoolProblem 门面流程
 
 `BoolProblem::solve(sceneAABB)` 本身很薄。主流程是五件事：
