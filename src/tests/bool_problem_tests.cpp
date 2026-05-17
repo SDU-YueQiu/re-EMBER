@@ -429,7 +429,7 @@ void runBoolProblemTests()
 
         const std::vector<ember::LeafClassificationPathCandidate> axisCandidates =
             ember::enumerateLeafClassificationAxisPathCandidatesFromPoints(reference, targetPoints, box);
-        assert(axisCandidates.size() == 1u);
+        assert(axisCandidates.size() == 6u);
         for (const ember::LeafClassificationPathCandidate &candidate : axisCandidates)
         {
             assert(!candidate.path.empty());
@@ -475,10 +475,13 @@ void runBoolProblemTests()
 
         const std::vector<ember::LeafClassificationPathCandidate> axisCandidates =
             ember::enumerateLeafClassificationAxisPathCandidatesFromPoints(reference, targetPoints, box);
-        assert(axisCandidates.size() == 1u);
-        assert(!axisCandidates.front().path.empty());
-        assert(ember::areSamePlanePoint(axisCandidates.front().path.front().getStartPointRef(), reference));
-        assert(ember::areSamePlanePoint(axisCandidates.front().path.back().getEndPointRef(), target));
+        assert(axisCandidates.size() == 6u);
+        for (const ember::LeafClassificationPathCandidate &candidate : axisCandidates)
+        {
+            assert(!candidate.path.empty());
+            assert(ember::areSamePlanePoint(candidate.path.front().getStartPointRef(), reference));
+            assert(ember::areSamePlanePoint(candidate.path.back().getEndPointRef(), target));
+        }
 
         const std::vector<ember::LeafClassificationPathCandidate> planeReplacementCandidates =
             ember::enumerateLeafClassificationPlaneReplacementPathCandidatesFromPoints(reference, targetPoints, box);

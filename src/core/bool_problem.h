@@ -56,6 +56,7 @@ struct BoolSolveMetrics
     std::size_t leafThresholdStopCount = 0;         ///< 因叶子阈值停止细分的节点数。
     std::size_t aabbNotSplittableStopCount = 0;     ///< 因 AABB 不可再切分停止细分的节点数。
     std::size_t splitFailureStopCount = 0;          ///< 因切分候选失败停止细分的节点数。
+    std::size_t leafClassificationRetrySubdivisionCount = 0; ///< 叶片分类仅因路径候选无效而放弃当前叶子、继续细分的次数。
     std::size_t wntvAwareSplitCount = 0;            ///< 命中 WNTV 感知切分的次数。
     std::size_t centerRangeSplitCount = 0;          ///< 命中中心范围切分的次数。
     std::size_t midpointSplitCount = 0;             ///< 回退到中点切分的次数。

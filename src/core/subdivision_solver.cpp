@@ -86,6 +86,7 @@ void accumulateSolveMetrics(BoolSolveMetrics &target, const BoolSolveMetrics &so
     target.leafThresholdStopCount += source.leafThresholdStopCount;
     target.aabbNotSplittableStopCount += source.aabbNotSplittableStopCount;
     target.splitFailureStopCount += source.splitFailureStopCount;
+    target.leafClassificationRetrySubdivisionCount += source.leafClassificationRetrySubdivisionCount;
     target.wntvAwareSplitCount += source.wntvAwareSplitCount;
     target.centerRangeSplitCount += source.centerRangeSplitCount;
     target.midpointSplitCount += source.midpointSplitCount;
@@ -1076,6 +1077,22 @@ const BoolSolveMetrics &SubdivisionSolver::solveMetrics() const noexcept
     return solveMetrics_;
 }
 
+LeafClassificationFailure::LeafClassificationFailure(std::string message, traceStatus status)
+    : std::runtime_error(std::move(message)),
+      status_(status)
+{
+}
+
+traceStatus LeafClassificationFailure::status() const noexcept
+{
+    return status_;
+}
+
+bool LeafClassificationFailure::isRecoverableBySubdivision() const noexcept
+{
+    return status_ == PATH_INVALID;
+}
+
 void SubdivisionSolver::initializeRootReference()
 {
     reference_.point = getAABBCornerPoint(aabb_, false, false, false);
@@ -1139,15 +1156,37 @@ bool SubdivisionSolver::tryFinishStoppedSubdivisionNode()
         return false;
 
     const bool stoppedByLeafThreshold = polygonCount_ <= leafPolygonThreshold_;
-    if (stoppedByLeafThreshold)
-        ++solveMetrics_.leafThresholdStopCount;
-    else
-        ++solveMetrics_.aabbNotSplittableStopCount;
-
+    try
     {
         REEMBER_PROFILE_ZONE("SubdivisionSolver::tryFinishStoppedSubdivisionNode_finishCurrentNodeAsLeaf");
         finishCurrentNodeAsLeaf();
     }
+    catch (const LeafClassificationFailure &failure)
+    {
+        if (!stoppedByLeafThreshold ||
+            !hasSplittableAxis(aabb_) ||
+            !failure.isRecoverableBySubdivision())
+        {
+            throw;
+        }
+
+        REEMBER_PROFILE_ZONE("SubdivisionSolver::retrySubdivisionAfterLeafClassificationPathInvalid");
+        ++solveMetrics_.leafClassificationRetrySubdivisionCount;
+        isLeaf_ = false;
+        leafFragmentsAliasPolygons_ = false;
+        leafFragments_.clear();
+        classifiedFragments_.clear();
+        resultFragments_.clear();
+        leafFragmentCount_ = 0;
+        classifiedFragmentCount_ = 0;
+        resultFragmentCount_ = 0;
+        return false;
+    }
+
+    if (stoppedByLeafThreshold)
+        ++solveMetrics_.leafThresholdStopCount;
+    else
+        ++solveMetrics_.aabbNotSplittableStopCount;
     return true;
 }
 
