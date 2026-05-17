@@ -14,6 +14,7 @@
 namespace ember
 {
 using Integer = boost::multiprecision::int256_t;
+using WideInteger = boost::multiprecision::int512_t;
 struct Plane3i;
 
 inline std::string integerToString(const Integer& value)
@@ -177,10 +178,20 @@ inline HomPoint4i primitiveHomPoint(const HomPoint4i& point) noexcept
     return HomPoint4i(x, y, z, w);
 }
 
+inline bool isZeroHomPoint(const HomPoint4i& point) noexcept
+{
+    return isZero(point.x) && isZero(point.y) && isZero(point.z) && isZero(point.w);
+}
+
+inline WideInteger wideProduct(const Integer& lhs, const Integer& rhs) noexcept
+{
+    return WideInteger(lhs) * WideInteger(rhs);
+}
+
 /**
- * @brief 将齐次点约为 primitive 后比较四个分量。
+ * @brief 用 512 位中间乘积比较两个齐次点是否比例等价。
  *
- * @note 避免使用交叉相乘比较比例等价；该乘法在 int256_t 下可能溢出并误判相等。
+ * @note 坐标分量为 int256_t，两个分量相乘需要最多 510 位；不能用 int256_t 交叉相乘。
  */
 inline bool areSameHomPoint(const HomPoint4i& lhs, const HomPoint4i& rhs) noexcept
 {
@@ -188,9 +199,17 @@ inline bool areSameHomPoint(const HomPoint4i& lhs, const HomPoint4i& rhs) noexce
     if (lhs.hasSameComponents(rhs))
         return true;
 
-    const HomPoint4i lhsPrimitive = primitiveHomPoint(lhs);
-    const HomPoint4i rhsPrimitive = primitiveHomPoint(rhs);
-    return lhsPrimitive.hasSameComponents(rhsPrimitive);
+    const bool lhsZero = isZeroHomPoint(lhs);
+    const bool rhsZero = isZeroHomPoint(rhs);
+    if (lhsZero || rhsZero)
+        return lhsZero && rhsZero;
+
+    return wideProduct(lhs.x, rhs.y) == wideProduct(rhs.x, lhs.y) &&
+           wideProduct(lhs.x, rhs.z) == wideProduct(rhs.x, lhs.z) &&
+           wideProduct(lhs.x, rhs.w) == wideProduct(rhs.x, lhs.w) &&
+           wideProduct(lhs.y, rhs.z) == wideProduct(rhs.y, lhs.z) &&
+           wideProduct(lhs.y, rhs.w) == wideProduct(rhs.y, lhs.w) &&
+           wideProduct(lhs.z, rhs.w) == wideProduct(rhs.z, lhs.w);
 }
 
 struct Vec3i
