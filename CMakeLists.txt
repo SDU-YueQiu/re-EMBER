@@ -228,6 +228,9 @@ if(REEMBER_BUILD_VISUAL_TEST)
 
   add_executable(visual-test
     ${REEMBER_VISUAL_TEST_SOURCE}
+    ${REEMBER_APP_HEADERS}
+    ${REEMBER_NEF_POSTPROCESS_SOURCE}
+    ${REEMBER_NEF_POSTPROCESS_HEADERS}
   )
   target_compile_definitions(visual-test PRIVATE REEMBER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
   target_link_libraries(visual-test
