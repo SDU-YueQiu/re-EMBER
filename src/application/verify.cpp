@@ -51,6 +51,7 @@ enum class CandidateMode
 enum class NefCompareOp
 {
     Xor,
+    Equal,
     CandidateMinusOracle,
     OracleMinusCandidate,
     Skip
@@ -120,7 +121,7 @@ void printUsage()
             << "[--assume-rhs-nsi] [--assume-rhs-nnc] "
             << "[--candidate-mode fragments-nef|export-conforming|export-nef] "
             << "[--oracle-cache-dir <dir>] [--refresh-oracle] "
-            << "[--diagnose-nef] [--nef-compare-op xor|candidate-minus-oracle|oracle-minus-candidate|skip] "
+            << "[--diagnose-nef] [--nef-compare-op xor|equal|candidate-minus-oracle|oracle-minus-candidate|skip] "
             << "[--disable-surface-compare] "
             << "[--report-out <file>]"
             << std::endl;
@@ -201,6 +202,8 @@ const char *toString(NefCompareOp op)
     {
     case NefCompareOp::Xor:
         return "xor";
+    case NefCompareOp::Equal:
+        return "equal";
     case NefCompareOp::CandidateMinusOracle:
         return "candidate-minus-oracle";
     case NefCompareOp::OracleMinusCandidate:
@@ -238,6 +241,11 @@ bool parseNefCompareOp(const std::string &token, NefCompareOp &outOp)
     if (token == "xor")
     {
         outOp = NefCompareOp::Xor;
+        return true;
+    }
+    if (token == "equal")
+    {
+        outOp = NefCompareOp::Equal;
         return true;
     }
     if (token == "candidate-minus-oracle")
@@ -902,6 +910,8 @@ bool runNefCompare(
     {
     case NefCompareOp::Xor:
         return (candidate ^ oracle).regularization().is_empty();
+    case NefCompareOp::Equal:
+        return candidate == oracle;
     case NefCompareOp::CandidateMinusOracle:
         return (candidate - oracle).regularization().is_empty();
     case NefCompareOp::OracleMinusCandidate:
