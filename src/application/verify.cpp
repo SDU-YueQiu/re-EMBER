@@ -1102,7 +1102,22 @@ NefPolyhedron buildCandidateNef(
     switch (options.candidateMode)
     {
     case CandidateMode::FragmentsNef:
-        return ember::app::makeNefFromPolygons(fragments, "candidate");
+    {
+        ember::ExactMeshData exactMesh;
+        std::string error;
+        if (!ember::buildExactMeshFromPolygonSoup(
+                    fragments,
+                    exactMesh,
+                    error,
+                    ember::PolygonSoupTopologyMode::Conforming))
+        {
+            throw std::runtime_error("Failed to build conforming fragments-nef candidate mesh: " + error);
+        }
+
+        ember::app::NefBuildOptions options;
+        options.refineEdgeInteriorPoints = false;
+        return ember::app::makeNefFromExactMesh(exactMesh, "candidate", options);
+    }
     case CandidateMode::ExportConforming:
     {
         ember::ExactMeshData exactMesh;
