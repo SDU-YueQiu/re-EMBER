@@ -86,11 +86,6 @@ inline int axisOrderKey(SplitAxis3i axis) noexcept
     return 0;
 }
 
-inline bool areSamePlaneEquation(const Plane3i &lhs, const Plane3i &rhs) noexcept
-{
-    return lhs.a == rhs.a && lhs.b == rhs.b && lhs.c == rhs.c && lhs.d == rhs.d;
-}
-
 inline bool tryExtractExactIntegerPoint(
     const PlanePoint3i &point,
     Integer &x,
@@ -281,6 +276,17 @@ inline PlanePoint3i getAABBCornerPoint(const AABB3i &box, bool useXMax, bool use
                useXMax ? box.xMax : box.xMin,
                useYMax ? box.yMax : box.yMin,
                useZMax ? box.zMax : box.zMin);
+}
+
+inline PlanePoint3i getAABBCenterPoint(const AABB3i &box) noexcept
+{
+    if (!isValidAABB(box))
+        return PlanePoint3i();
+
+    return PlanePoint3i(
+               Plane3i(2, 0, 0, -(box.xMin + box.xMax)),
+               Plane3i(0, 2, 0, -(box.yMin + box.yMax)),
+               Plane3i(0, 0, 2, -(box.zMin + box.zMax)));
 }
 
 inline std::array<Plane3i, 6> makeAABBPlanes(const AABB3i &box) noexcept

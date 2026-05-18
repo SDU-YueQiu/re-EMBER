@@ -4,6 +4,12 @@
 
 `re-EMBER` is a C++17 prototype for the EMBER boolean-mesh pipeline. The repository focuses on exact integer geometry, local arrangements, WNV/WNTV classification, and robust binary mesh booleans.
 
+## Geometry kernel contract
+
+The core boolean path is being constrained to the fixed-width homogeneous integer model used by EMBER and by Nehring-Wirxel et al. 2021. Core geometry code may construct and classify only through the paper primitive set: integer planes, axis-aligned AABB planes, three-plane homogeneous intersections, vertex-vs-plane classification, integer vertex signed-distance tests, and clipping against already valid planes.
+
+Input OBJ/STL coordinates are quantized to signed 26-bit integer coordinates unless `--scale` is explicitly supplied. Within the core solver, `int512_t` and `cpp_int` are not allowed to decide algorithmic branches; they are reserved for tests, debug oracles, diagnostics, and I/O post-processing. Operations that are not closed under the 256-bit budget, such as arbitrary homogeneous-point averaging, midpoint/difference construction, coordinate-plane reconstruction from fractional homogeneous points, and new planes derived from output homogeneous vertices, must fail explicitly instead of silently acting as fallback geometry.
+
 ## What is in this repo
 
 - `src/application/main.cpp` provides the command-line entry point.

@@ -79,6 +79,11 @@ inline bool arePlaneNormalsParallel(const Plane3i &p, const Plane3i &q) noexcept
     return isZero(normalCross.x) && isZero(normalCross.y) && isZero(normalCross.z);
 }
 
+inline bool areSamePlaneEquation(const Plane3i &lhs, const Plane3i &rhs) noexcept
+{
+    return lhs.a == rhs.a && lhs.b == rhs.b && lhs.c == rhs.c && lhs.d == rhs.d;
+}
+
 inline Integer normalDeterminant(const Plane3i &p, const Plane3i &q, const Plane3i &r) noexcept
 {
     return determinant(p.normal(), q.normal(), r.normal());
