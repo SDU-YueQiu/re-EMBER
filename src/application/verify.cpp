@@ -551,6 +551,36 @@ std::vector<std::size_t> cleanFace(const std::vector<std::size_t> &face)
     return cleaned;
 }
 
+std::string faceCycleKeyForRotation(
+    const std::vector<std::size_t> &face,
+    std::size_t start,
+    int step)
+{
+    std::ostringstream out;
+    const std::size_t n = face.size();
+    std::size_t index = start;
+    for (std::size_t i = 0; i < n; ++i)
+    {
+        out << face[index] << ',';
+        index = step > 0 ? (index + 1u) % n : (index + n - 1u) % n;
+    }
+    return out.str();
+}
+
+std::string canonicalFaceCycleKey(const std::vector<std::size_t> &face)
+{
+    if (face.empty())
+        return std::string();
+
+    std::string best = faceCycleKeyForRotation(face, 0u, 1);
+    for (std::size_t start = 0; start < face.size(); ++start)
+    {
+        best = std::min(best, faceCycleKeyForRotation(face, start, 1));
+        best = std::min(best, faceCycleKeyForRotation(face, start, -1));
+    }
+    return best;
+}
+
 bool isDegenerateTriangle(
     const std::vector<ember::app::ExactKernel::Point_3> &points,
     std::size_t a,
@@ -791,7 +821,7 @@ std::optional<IndexedExactMesh> diagnoseNef(const char *label, const NefPolyhedr
     return indexed;
 }
 
-std::map<std::string, std::size_t> makeFaceVertexSetMultiset(
+std::map<std::string, std::size_t> makeFaceCycleMultiset(
     const IndexedExactMesh &mesh,
     const std::vector<std::size_t> *remap)
 {
@@ -804,7 +834,7 @@ std::map<std::string, std::size_t> makeFaceVertexSetMultiset(
             for (std::size_t &index : face)
                 index = (*remap)[index];
         }
-        ++multiset[indexListKey(face)];
+        ++multiset[canonicalFaceCycleKey(face)];
     }
     return multiset;
 }
@@ -850,16 +880,16 @@ bool equivalentSurfaceMeshes(
     }
 
     const std::map<std::string, std::size_t> candidateFaces =
-        makeFaceVertexSetMultiset(candidate, &candidateToOracle);
+        makeFaceCycleMultiset(candidate, &candidateToOracle);
     const std::map<std::string, std::size_t> oracleFaces =
-        makeFaceVertexSetMultiset(oracle, nullptr);
+        makeFaceCycleMultiset(oracle, nullptr);
     if (candidateFaces != oracleFaces)
     {
-        outReason = "different exact face vertex sets";
+        outReason = "different exact face cycles";
         return false;
     }
 
-    outReason = "exact surface vertex and face sets match";
+    outReason = "exact surface vertices and face cycles match";
     return true;
 }
 
