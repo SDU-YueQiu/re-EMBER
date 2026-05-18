@@ -13,6 +13,7 @@
 #include "geometry/clipping.h"
 #include "algorithm/bsp.h"
 #include "algorithm/path_candidates.h"
+#include "math/fixed_int256.h"
 #include "math/paper_kernel.h"
 
 using ember::Integer;
@@ -27,6 +28,29 @@ using ember::Integer;
             throw std::runtime_error("math256_tests assertion failed: " #expr);     \
         }                                                                           \
     } while (false)
+
+namespace
+{
+boost::multiprecision::cpp_int toCppInt(const ember::fixed::FixedInt256 &value)
+{
+    boost::multiprecision::cpp_int result = 0;
+    for (std::size_t i = 4; i-- > 0;)
+    {
+        result <<= 64;
+        result += value.limb(i);
+    }
+    if (value.isNegative())
+        result -= boost::multiprecision::cpp_int(1) << 256;
+    return result;
+}
+
+void assertFixedEquals(
+    const ember::fixed::FixedInt256 &value,
+    const boost::multiprecision::cpp_int &expected)
+{
+    assert(toCppInt(value) == expected);
+}
+}
 
 void runMath256Tests()
 {
@@ -115,6 +139,69 @@ void runMath256Tests()
         const ember::HomPoint4i differentPointWithLargeWeight(0, 0, 0, Integer(1) << 56);
         assert(!ember::areSameHomPoint(overflowSensitivePoint, differentPointWithLargeWeight));
     }
+
+    {
+        using ember::fixed::FixedInt256;
+
+        FixedInt256 out;
+        assert(ember::fixed::addChecked(FixedInt256(7), FixedInt256(-3), out));
+        assertFixedEquals(out, 4);
+        assert(ember::fixed::subChecked(FixedInt256(7), FixedInt256(11), out));
+        assertFixedEquals(out, -4);
+        assert(ember::fixed::multiplyChecked(FixedInt256(-1234567), FixedInt256(7654321), out));
+        assertFixedEquals(out, boost::multiprecision::cpp_int(-1234567) * 7654321);
+
+        const FixedInt256 two32(std::int64_t(1) << 32);
+        assert(ember::fixed::multiplyChecked(two32, two32, out));
+        assertFixedEquals(out, boost::multiprecision::cpp_int(1) << 64);
+
+        const FixedInt256 uint64Max = FixedInt256::fromRawLimbs({
+            0xffffffffffffffffull,
+            0,
+            0,
+            0});
+        assert(ember::fixed::multiplyChecked(uint64Max, uint64Max, out));
+        const boost::multiprecision::cpp_int uint64MaxOracle =
+            (boost::multiprecision::cpp_int(1) << 64) - 1;
+        assertFixedEquals(out, uint64MaxOracle * uint64MaxOracle);
+
+        const FixedInt256 maxPositive = FixedInt256::fromRawLimbs({
+            0xffffffffffffffffull,
+            0xffffffffffffffffull,
+            0xffffffffffffffffull,
+            0x7fffffffffffffffull});
+        assert(!ember::fixed::addChecked(maxPositive, FixedInt256(1), out));
+
+        const FixedInt256 minNegative = FixedInt256::fromRawLimbs({
+            0,
+            0,
+            0,
+            std::uint64_t(1) << 63});
+        assert(!ember::fixed::negateChecked(minNegative, out));
+        assert(ember::fixed::subChecked(minNegative, minNegative, out));
+        assertFixedEquals(out, 0);
+        assert(!ember::fixed::subChecked(FixedInt256(0), minNegative, out));
+
+        const FixedInt256 two200 = FixedInt256::fromRawLimbs({
+            0,
+            0,
+            0,
+            std::uint64_t(1) << 8});
+        assert(!ember::fixed::multiplyChecked(two200, FixedInt256(std::int64_t(1) << 60), out));
+
+        assert(ember::fixed::determinant3x3Checked(
+            FixedInt256(2), FixedInt256(3), FixedInt256(1),
+            FixedInt256(4), FixedInt256(1), FixedInt256(-2),
+            FixedInt256(-1), FixedInt256(5), FixedInt256(3),
+            out));
+        assertFixedEquals(out, 17);
+
+        assert(ember::fixed::dot4Checked(
+            FixedInt256(1), FixedInt256(2), FixedInt256(3), FixedInt256(1),
+            FixedInt256(2), FixedInt256(-3), FixedInt256(5), FixedInt256(-11),
+            out));
+        assertFixedEquals(out, 0);
+    }
 
     {
         const Vec3i ex(1, 0, 0);

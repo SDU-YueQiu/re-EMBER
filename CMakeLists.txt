@@ -110,6 +110,7 @@ set(REEMBER_LIBRARY_HEADERS
   "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/plane_geometry256.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/polygon_ops.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/io/io.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/math/fixed_int256.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/math/math256.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/math/paper_kernel.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/math/winding_number_f.h"
