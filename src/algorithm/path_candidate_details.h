@@ -20,7 +20,6 @@ namespace ember
 {
 namespace detail
 {
-inline Plane3i makeCoordinatePlaneFromPoint(const PlanePoint3i &point, SplitAxis3i axis) noexcept;
 inline bool buildPlaneReplacementSegment(
     const PlanePoint3i &startPoint,
     const PlanePoint3i &endPoint,
@@ -31,6 +30,22 @@ inline bool buildAnyBoundedPlaneReplacementBridgePath(
     const PlanePoint3i &targetPoint,
     const AABB3i &box,
     std::vector<Segment256> &outPath);
+
+/**
+ * @brief 为整数坐标点构造三个轴对齐坐标平面。
+ */
+inline std::array<Plane3i, 3> makeIntegerCoordinatePlanes(
+    const Integer &x,
+    const Integer &y,
+    const Integer &z) noexcept
+{
+    return {
+        Plane3i(1, 0, 0, -x),
+        Plane3i(0, 1, 0, -y),
+        Plane3i(0, 0, 1, -z)
+    };
+}
+
 inline bool buildAxisAlignedSegment(
     const Integer &x0,
     const Integer &y0,
@@ -502,9 +517,13 @@ inline bool buildLeafClassificationCentroidTargetPoint(const Polygon256 &polygon
     if (!buildRoundedCentroidPoint(polygon, centroid))
         return false;
 
-    const Plane3i centroidXPlane = makeCoordinatePlaneFromPoint(centroid, SplitAxis3i::X);
-    const Plane3i centroidYPlane = makeCoordinatePlaneFromPoint(centroid, SplitAxis3i::Y);
-    const Plane3i centroidZPlane = makeCoordinatePlaneFromPoint(centroid, SplitAxis3i::Z);
+    Integer centroidX;
+    Integer centroidY;
+    Integer centroidZ;
+    if (!tryExtractExactIntegerPoint(centroid, centroidX, centroidY, centroidZ))
+        return false;
+    const std::array<Plane3i, 3> centroidPlanes =
+        makeIntegerCoordinatePlanes(centroidX, centroidY, centroidZ);
 
     SplitAxis3i axis = SplitAxis3i::X;
     Integer bestAxisMagnitude = absInteger(polygon.plane.a);
@@ -521,11 +540,11 @@ inline bool buildLeafClassificationCentroidTargetPoint(const Polygon256 &polygon
     switch (axis)
     {
     case SplitAxis3i::X:
-        return buildAxisProbeInteriorPoint(polygon, axis, centroidYPlane, centroidZPlane, outPoint);
+        return buildAxisProbeInteriorPoint(polygon, axis, centroidPlanes[1], centroidPlanes[2], outPoint);
     case SplitAxis3i::Y:
-        return buildAxisProbeInteriorPoint(polygon, axis, centroidXPlane, centroidZPlane, outPoint);
+        return buildAxisProbeInteriorPoint(polygon, axis, centroidPlanes[0], centroidPlanes[2], outPoint);
     case SplitAxis3i::Z:
-        return buildAxisProbeInteriorPoint(polygon, axis, centroidXPlane, centroidYPlane, outPoint);
+        return buildAxisProbeInteriorPoint(polygon, axis, centroidPlanes[0], centroidPlanes[1], outPoint);
     }
 
     return false;
@@ -865,104 +884,11 @@ inline LeafClassificationInsetPointSequence enumerateLeafClassificationInsetPoin
 }
 
 /**
- * @brief 用所有顶点的齐次坐标正权重求和，构造一个精确严格内部点。
- *
- * 有效严格凸多边形的每条边至少有一个非邻接顶点在负侧。所有有限顶点
- * 以正权重相加后仍在支撑平面内，并且对每条边的符号严格为负。
- */
-inline void appendHomogeneousVertexAverageInteriorPointCandidate(
-    const Polygon256 &polygon,
-    std::vector<PlanePoint3i> &candidates)
-{
-    const std::vector<PlanePoint3i> &cachedVertices = polygon.vertices();
-    const std::size_t n = cachedVertices.size();
-    if (n < 3)
-        return;
-
-    HomPoint4i average;
-    for (const PlanePoint3i &vertex : cachedVertices)
-    {
-        if (!vertex.hasUniqueIntersection() || vertex.x.w <= 0)
-            return;
-
-        average.x += vertex.x.x;
-        average.y += vertex.x.y;
-        average.z += vertex.x.z;
-        average.w += vertex.x.w;
-        average = primitiveHomPoint(average);
-    }
-
-    const PlanePoint3i candidate = makePointFromHomogeneousCoordinates(average);
-    appendUniqueStrictInteriorPoint(candidates, polygon, candidate);
-}
-
-/**
- * @brief 枚举若干组边平面函数值相等的精确内部点候选。
- *
- * 对极薄或远离原点的片段，整数 `+1` inset 可能因 headroom 限制仍过粗。
- * 这里不放大原平面系数，而是在支撑平面内求 `e_i = e_j = e_k` 的点，
- * 再统一交给 `containsStrictly()` 过滤，避免把边界点当作分类目标。
- */
-inline void appendEqualizedEdgeInteriorPointCandidates(
-    const Polygon256 &polygon,
-    std::vector<PlanePoint3i> &candidates)
-{
-    std::size_t maxTotalCandidates = 64;
-    const std::size_t n = polygon.edgePlanes.size();
-    if (n < 3)
-        return;
-
-    for (std::size_t i = 0; i + 2 < n && candidates.size() < maxTotalCandidates; ++i)
-    {
-        for (std::size_t j = i + 1; j + 1 < n && candidates.size() < maxTotalCandidates; ++j)
-        {
-            for (std::size_t k = j + 1; k < n && candidates.size() < maxTotalCandidates; ++k)
-            {
-                const Plane3i firstEqualizer =
-                    subtractPlaneEquation(polygon.edgePlanes[i], polygon.edgePlanes[j]);
-                const Plane3i secondEqualizer =
-                    subtractPlaneEquation(polygon.edgePlanes[j], polygon.edgePlanes[k]);
-                if (isZeroPlaneEquation(firstEqualizer) || isZeroPlaneEquation(secondEqualizer))
-                    continue;
-                if (!hasUniqueIntersection(polygon.plane, firstEqualizer, secondEqualizer))
-                    continue;
-
-                const PlanePoint3i candidate(polygon.plane, firstEqualizer, secondEqualizer);
-                appendUniqueStrictInteriorPoint(candidates, polygon, candidate);
-            }
-        }
-    }
-}
-
-/**
  * @brief 用三个平面恢复一个 `PlanePoint3i`。
  */
 inline PlanePoint3i makePointFromPlanes(const std::array<Plane3i, 3> &planes) noexcept
 {
     return PlanePoint3i(planes[0], planes[1], planes[2]);
-}
-
-/**
- * @brief 为一个齐次点的指定坐标构造轴对齐坐标平面。
- *
- * 若该点某坐标为 `p / w`，则返回 `w * x - p = 0` 一类平面。
- */
-inline Plane3i makeCoordinatePlaneFromPoint(const PlanePoint3i &point, SplitAxis3i axis) noexcept
-{
-    if (!point.hasUniqueIntersection() || isZero(point.x.w))
-        return Plane3i();
-
-    switch (axis)
-    {
-    case SplitAxis3i::X:
-        return primitivePlane(Plane3i(point.x.w, 0, 0, -point.x.x));
-    case SplitAxis3i::Y:
-        return primitivePlane(Plane3i(0, point.x.w, 0, -point.x.y));
-    case SplitAxis3i::Z:
-        return primitivePlane(Plane3i(0, 0, point.x.w, -point.x.z));
-    }
-
-    return Plane3i();
 }
 
 /**
@@ -1051,102 +977,6 @@ inline bool buildAxisAlignedCoordinatePath(
     for (std::size_t i = 0; i < segmentCount; ++i)
         outPath.push_back(std::move(segmentBuffer[i]));
     return true;
-}
-
-/**
- * @brief 按坐标轴顺序构造 1 到 3 段轴对齐路径。
- */
-inline bool buildAxisAlignedCoordinatePath(
-    const PlanePoint3i &startPoint,
-    const PlanePoint3i &targetPoint,
-    const std::vector<SplitAxis3i> &axisOrder,
-    std::vector<Segment256> &outPath)
-{
-    const std::array<Plane3i, 3> startCoordinatePlanes = {
-        makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::X),
-        makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::Y),
-        makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::Z)
-    };
-    const std::array<Plane3i, 3> targetCoordinatePlanes = {
-        makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::X),
-        makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Y),
-        makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Z)
-    };
-    return buildAxisAlignedCoordinatePath(
-               startPoint,
-               targetPoint,
-               startCoordinatePlanes,
-               targetCoordinatePlanes,
-               axisOrder,
-               outPath);
-}
-
-/**
- * @brief 构造不受某个 AABB 约束的轴对齐齐次坐标路径。
- */
-inline bool buildAxisAlignedFreeCoordinatePath(
-    const PlanePoint3i &startPoint,
-    const PlanePoint3i &targetPoint,
-    const std::array<SplitAxis3i, 3> &axisOrder,
-    std::size_t axisCount,
-    std::vector<Segment256> &outPath)
-{
-    std::array<Plane3i, 3> currentCoordinatePlanes = {
-        makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::X),
-        makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::Y),
-        makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::Z)
-    };
-    const std::array<Plane3i, 3> targetCoordinatePlanes = {
-        makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::X),
-        makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Y),
-        makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Z)
-    };
-
-    PlanePoint3i currentPoint = startPoint;
-    outPath.clear();
-    for (std::size_t axisIndex = 0; axisIndex < axisCount; ++axisIndex)
-    {
-        const SplitAxis3i axis = axisOrder[axisIndex];
-        const int coordinateIndex = axisOrderKey(axis);
-        if (areSamePlaneEquation(currentCoordinatePlanes[coordinateIndex], targetCoordinatePlanes[coordinateIndex]))
-            continue;
-
-        const std::array<Plane3i, 3> startCoordinatePlanes = currentCoordinatePlanes;
-        currentCoordinatePlanes[coordinateIndex] = targetCoordinatePlanes[coordinateIndex];
-
-        const PlanePoint3i nextPoint = makePointFromPlanes(currentCoordinatePlanes);
-        if (!nextPoint.hasUniqueIntersection())
-        {
-            outPath.clear();
-            return false;
-        }
-
-        Segment256 segment;
-        if (!buildAxisAlignedSegmentFromCoordinatePlanes(startCoordinatePlanes, currentCoordinatePlanes, axis, segment))
-        {
-            outPath.clear();
-            return false;
-        }
-
-        outPath.push_back(std::move(segment));
-        currentPoint = nextPoint;
-    }
-
-    return areSamePlanePoint(currentPoint, targetPoint);
-}
-
-inline bool buildAxisAlignedFreeCoordinatePath(
-    const PlanePoint3i &startPoint,
-    const PlanePoint3i &targetPoint,
-    const std::vector<SplitAxis3i> &axisOrder,
-    std::vector<Segment256> &outPath)
-{
-    std::array<SplitAxis3i, 3> axisOrderArray = {};
-    const std::size_t axisCount = std::min<std::size_t>(axisOrder.size(), axisOrderArray.size());
-    for (std::size_t axisIndex = 0; axisIndex < axisCount; ++axisIndex)
-        axisOrderArray[axisIndex] = axisOrder[axisIndex];
-
-    return buildAxisAlignedFreeCoordinatePath(startPoint, targetPoint, axisOrderArray, axisCount, outPath);
 }
 
 /**
@@ -1435,6 +1265,10 @@ inline std::vector<PlanePoint3i> enumerateAABBInteriorBridgePoints(
     std::vector<PlanePoint3i> points;
     if (!referencePoint.hasUniqueIntersection() || !isValidAABB(box))
         return points;
+
+    const PlanePoint3i centerPoint = getAABBCenterPoint(box);
+    if (centerPoint.hasUniqueIntersection())
+        points.push_back(centerPoint);
 
     Integer referenceX;
     Integer referenceY;
@@ -1948,7 +1782,55 @@ inline bool buildPlaneReplacementPath(
                planeReplacementOrderArray,
                planeReplacementCount,
                outPath);
-}
+}
+
+/**
+ * @brief 构造未裁剪到 AABB 内的平面替换路径。
+ *
+ * @note 仅用于子参考点跨 split boundary 传播；调用方必须用精确 tracing 验证路径。
+ */
+inline bool buildRawPlaneReplacementPath(
+    const PlanePoint3i &refPoint,
+    const PlanePoint3i &targetPoint,
+    const std::array<int, 3> &planeReplacementOrder,
+    std::size_t planeReplacementCount,
+    std::vector<Segment256> &outPath)
+{
+    std::array<Plane3i, 3> currentPlanes = {refPoint.p, refPoint.q, refPoint.r};
+    const Plane3i targetPlanes[3] = {targetPoint.p, targetPoint.q, targetPoint.r};
+    PlanePoint3i currentPoint = refPoint;
+    outPath.clear();
+
+    for (std::size_t orderIndex = 0; orderIndex < planeReplacementCount; ++orderIndex)
+    {
+        const int replacedIndex = planeReplacementOrder[orderIndex];
+        currentPlanes[replacedIndex] = targetPlanes[replacedIndex];
+        const PlanePoint3i nextPoint = makePointFromPlanes(currentPlanes);
+        if (!nextPoint.hasUniqueIntersection())
+        {
+            outPath.clear();
+            return false;
+        }
+
+        Segment256 segment;
+        if (!buildPlaneReplacementSegment(currentPoint, nextPoint, replacedIndex, segment))
+        {
+            outPath.clear();
+            return false;
+        }
+
+        outPath.push_back(std::move(segment));
+        currentPoint = nextPoint;
+    }
+
+    if (!areSamePlanePoint(currentPoint, targetPoint))
+    {
+        outPath.clear();
+        return false;
+    }
+
+    return true;
+}
 
 }
 }

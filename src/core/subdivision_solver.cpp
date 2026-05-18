@@ -903,18 +903,18 @@ struct ChildReferenceSearchState
 enum class ChildReferenceCandidatePhase
 {
     Fast,
-    Exhaustive
+    Exhaustive,
+    PlaneReplacement
 };
 
-bool tryTraceChildReferenceCandidate(
-    std::size_t depth,
+bool tryTraceChildReferencePathCandidate(
     const PlanePoint3i &sourcePoint,
-    bool sourceReferenceIsStrictInterior,
+    const PlanePoint3i &targetPoint,
+    const std::vector<Segment256> &path,
     const refPoint &sourceRef,
     const std::vector<Polygon256> &nodePolygons,
     const std::vector<Plane3i> &childSupportPlanes,
     ChildReferenceCandidatePhase candidatePhase,
-    const detail::AABBPathCandidateSeed &candidateSeed,
     BoolSolveMetrics &solveMetrics,
     ChildReferenceSearchState &searchState)
 {
@@ -925,16 +925,24 @@ bool tryTraceChildReferenceCandidate(
     }
     else
     {
-        REEMBER_PROFILE_ZONE("SubdivisionSolver::childReferenceExhaustiveCandidate");
-        ++solveMetrics.childReferenceExhaustiveCandidateCount;
+        if (candidatePhase == ChildReferenceCandidatePhase::Exhaustive)
+        {
+            REEMBER_PROFILE_ZONE("SubdivisionSolver::childReferenceExhaustiveCandidate");
+            ++solveMetrics.childReferenceExhaustiveCandidateCount;
+        }
+        else
+        {
+            REEMBER_PROFILE_ZONE("SubdivisionSolver::childReferencePlaneReplacementCandidate");
+            ++solveMetrics.childReferenceExhaustiveCandidateCount;
+        }
     }
 
     ++solveMetrics.childReferenceCandidateCount;
 
-    if (isPointOnAnySupportPlane(candidateSeed.targetPoint, childSupportPlanes))
+    if (isPointOnAnySupportPlane(targetPoint, childSupportPlanes))
         return true;
 
-    if (!detail::buildAABBPathFromSeed(sourcePoint, candidateSeed, searchState.candidatePath))
+    if (path.empty() && !areSamePlanePoint(sourcePoint, targetPoint))
         return true;
 
     WNV propagatedWNV;
@@ -947,14 +955,14 @@ bool tryTraceChildReferenceCandidate(
         }
         else
         {
-            REEMBER_PROFILE_ZONE("SubdivisionSolver::childReferenceExhaustiveCandidateTrace");
+            REEMBER_PROFILE_ZONE("SubdivisionSolver::childReferenceFallbackCandidateTrace");
             ++solveMetrics.childReferenceExhaustiveCandidateTriedCount;
         }
 
         ++solveMetrics.childReferenceCandidateTriedCount;
         status = detail::tracePathWNVAllowSubdivisionClipCrossingTrusted(
                      sourceRef,
-                     searchState.candidatePath,
+                     path,
                      nodePolygons,
                      propagatedWNV,
                      &solveMetrics);
@@ -963,7 +971,7 @@ bool tryTraceChildReferenceCandidate(
     {
         REEMBER_PROFILE_ZONE("SubdivisionSolver::childReferenceTraceSuccess");
         ++solveMetrics.childReferenceTraceCount;
-        searchState.outReference.point = candidateSeed.targetPoint;
+        searchState.outReference.point = targetPoint;
         searchState.outReference.wnv = std::move(propagatedWNV);
         return false;
     }
@@ -975,6 +983,31 @@ bool tryTraceChildReferenceCandidate(
     }
 
     return true;
+}
+
+bool tryTraceChildReferenceCandidate(
+    const PlanePoint3i &sourcePoint,
+    const refPoint &sourceRef,
+    const std::vector<Polygon256> &nodePolygons,
+    const std::vector<Plane3i> &childSupportPlanes,
+    ChildReferenceCandidatePhase candidatePhase,
+    const detail::AABBPathCandidateSeed &candidateSeed,
+    BoolSolveMetrics &solveMetrics,
+    ChildReferenceSearchState &searchState)
+{
+    if (!detail::buildAABBPathFromSeed(sourcePoint, candidateSeed, searchState.candidatePath))
+        return true;
+
+    return tryTraceChildReferencePathCandidate(
+               sourcePoint,
+               candidateSeed.targetPoint,
+               searchState.candidatePath,
+               sourceRef,
+               nodePolygons,
+               childSupportPlanes,
+               candidatePhase,
+               solveMetrics,
+               searchState);
 }
 }
 
@@ -1405,6 +1438,10 @@ bool SubdivisionSolver::createChildrenFromSplit(const AABBSplit3i &split)
             std::ostringstream message;
             message << "Failed to propagate left child reference depth=" << depth_
                     << " candidate_polygons=" << splitPlan.left.supportPlanes.size()
+                    << " child_aabb=[" << split.left.xMin << "," << split.left.xMax
+                    << ";" << split.left.yMin << "," << split.left.yMax
+                    << ";" << split.left.zMin << "," << split.left.zMax << "]"
+                    << " reference=" << reference_.point
                     << ".";
             throw std::runtime_error(message.str());
         }
@@ -1486,22 +1523,18 @@ bool SubdivisionSolver::makeChildReference(
     if (tryReuseChildReference(childBox, childSupportPlanes, outReference))
         return true;
 
-    const bool sourceReferenceIsStrictInterior = isPointStrictlyInsideAABB(reference_.point, childBox);
     const refPoint sourceRef(reference_.point, reference_.wnv);
     outReference = SubdivisionRefState();
     ChildReferenceSearchState searchState{outReference};
     searchState.candidatePath.reserve(3);
     auto processCandidateSeed =
         [this,
-         sourceReferenceIsStrictInterior,
          &sourceRef,
          &childSupportPlanes,
          &searchState](ChildReferenceCandidatePhase candidatePhase, const detail::AABBPathCandidateSeed &candidateSeed)
     {
         return tryTraceChildReferenceCandidate(
-                   depth_,
                    reference_.point,
-                   sourceReferenceIsStrictInterior,
                    sourceRef,
                    polygons_,
                    childSupportPlanes,
@@ -1533,6 +1566,47 @@ bool SubdivisionSolver::makeChildReference(
         {
             return processCandidateSeed(ChildReferenceCandidatePhase::Exhaustive, candidateSeed);
         });
+    }
+    if (outReference.point.hasUniqueIntersection())
+        return true;
+
+    if (!searchState.hardFailure)
+    {
+        REEMBER_PROFILE_ZONE("SubdivisionSolver::makeChildReferencePlaneReplacementCandidates");
+        const std::vector<PlanePoint3i> targetPoints =
+            detail::enumerateAABBInteriorBridgePoints(reference_.point, childBox);
+        for (const PlanePoint3i &targetPoint : targetPoints)
+        {
+            std::array<int, 3> order = {0, 1, 2};
+            do
+            {
+                std::vector<Segment256> path;
+                path.reserve(3);
+                if (!detail::buildRawPlaneReplacementPath(
+                            reference_.point,
+                            targetPoint,
+                            order,
+                            order.size(),
+                            path))
+                    continue;
+
+                if (!tryTraceChildReferencePathCandidate(
+                            reference_.point,
+                            targetPoint,
+                            path,
+                            sourceRef,
+                            polygons_,
+                            childSupportPlanes,
+                            ChildReferenceCandidatePhase::PlaneReplacement,
+                            solveMetrics_,
+                            searchState))
+                    break;
+                if (searchState.hardFailure)
+                    break;
+            } while (std::next_permutation(order.begin(), order.end()));
+            if (outReference.point.hasUniqueIntersection() || searchState.hardFailure)
+                break;
+        }
     }
     if (outReference.point.hasUniqueIntersection())
         return true;

@@ -12,6 +12,8 @@
 #include "geometry/plane_geometry256.h"
 #include "geometry/clipping.h"
 #include "algorithm/bsp.h"
+#include "algorithm/path_candidates.h"
+#include "math/paper_kernel.h"
 
 using ember::Integer;
 using ember::Vec3i;
@@ -28,6 +30,74 @@ using ember::Integer;
 
 void runMath256Tests()
 {
+    {
+        using ember::paper::axisAlignedPlane;
+        using ember::paper::classifyIntegerVertex;
+        using ember::paper::classifyVertex;
+        using ember::paper::intersect3Planes;
+        using ember::paper::isWithinInputCoordinateBound;
+        using ember::paper::planeFromPointNormal;
+        using ember::paper::verifyClassifyVertexWithOracle;
+
+        const Integer max26 = (Integer(1) << 25) - 1;
+        const Integer min26 = -(Integer(1) << 25);
+        assert(isWithinInputCoordinateBound(Vec3i(max26, min26, 17)));
+        assert(!isWithinInputCoordinateBound(Vec3i(Integer(1) << 25, 0, 0)));
+
+        const ember::Plane3i px = axisAlignedPlane(ember::SplitAxis3i::X, 3, 1);
+        const ember::Plane3i py = axisAlignedPlane(ember::SplitAxis3i::Y, -2, 1);
+        const ember::Plane3i pz = axisAlignedPlane(ember::SplitAxis3i::Z, 5, 1);
+        const ember::HomPoint4i point = intersect3Planes(px, py, pz);
+        assert(point.x == Integer(3));
+        assert(point.y == Integer(-2));
+        assert(point.z == Integer(5));
+        assert(point.w == Integer(1));
+
+        assert(classifyIntegerVertex(Vec3i(4, -2, 5), px) > 0);
+        assert(classifyIntegerVertex(Vec3i(3, -2, 5), px) == 0);
+        assert(classifyIntegerVertex(Vec3i(2, -2, 5), px) < 0);
+
+        const ember::Plane3i diagonal = planeFromPointNormal(Vec3i(1, 2, 3), Vec3i(2, -3, 5));
+        assert(classifyVertex(point, diagonal) == point.classify(diagonal));
+        assert(verifyClassifyVertexWithOracle(px, py, pz, diagonal).ok);
+
+        const ember::Plane3i tiltedA = planeFromPointNormal(Vec3i(11, -7, 3), Vec3i(13, 5, -2));
+        const ember::Plane3i tiltedB = planeFromPointNormal(Vec3i(-4, 9, 8), Vec3i(-3, 17, 6));
+        const ember::Plane3i tiltedC = planeFromPointNormal(Vec3i(6, 2, -5), Vec3i(7, -11, 19));
+        const ember::Plane3i tiltedS = planeFromPointNormal(Vec3i(1, -3, 12), Vec3i(-23, 3, 5));
+        if (ember::hasUniqueIntersection(tiltedA, tiltedB, tiltedC))
+            assert(verifyClassifyVertexWithOracle(tiltedA, tiltedB, tiltedC, tiltedS).ok);
+    }
+
+    {
+        const ember::PlanePoint3i integerStart(
+            ember::Plane3i(1, 0, 0, 0),
+            ember::Plane3i(0, 1, 0, 0),
+            ember::Plane3i(0, 0, 1, 0));
+        const ember::PlanePoint3i rationalTarget(
+            ember::Plane3i(2, 0, 0, -1),
+            ember::Plane3i(0, 1, 0, 0),
+            ember::Plane3i(0, 0, 1, 0));
+        ember::AABB3i box;
+        box.xMin = -1;
+        box.xMax = 1;
+        box.yMin = -1;
+        box.yMax = 1;
+        box.zMin = -1;
+        box.zMax = 1;
+        box.valid = true;
+
+        std::size_t emitted = ember::enumerateLeafClassificationAxisPathCandidatesFromPoints(
+            integerStart,
+            std::vector<ember::PlanePoint3i>{rationalTarget},
+            box,
+            [](const ember::LeafClassificationPathCandidate &)
+        {
+            return true;
+        });
+        assert(emitted == 0u);
+    }
+
     {
         assert(ember::absMagnitude(Integer(-7)) == Integer(7));
         assert(ember::gcdMagnitude(Integer(-18), Integer(24)) == Integer(6));

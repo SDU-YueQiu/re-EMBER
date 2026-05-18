@@ -32,8 +32,7 @@ namespace detail
 enum class AABBPathBuildMode
 {
     Empty,
-    Corner,
-    FreeCoordinate
+    Corner
 };
 
 struct AABBPathCandidateSeed
@@ -145,69 +144,6 @@ inline bool visitIntegerAABBPathTargetSeeds(
     return true;
 }
 
-template <typename SeedVisitor>
-inline bool visitFreeCoordinateAABBPathTargetSeeds(
-    const PlanePoint3i &startPoint,
-    const PlanePoint3i &targetPoint,
-    std::size_t &emitted,
-    SeedVisitor &visitor)
-{
-    if (!targetPoint.hasUniqueIntersection())
-        return true;
-
-    const std::array<Plane3i, 3> startCoordinatePlanes = {
-        makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::X),
-        makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::Y),
-        makeCoordinatePlaneFromPoint(startPoint, SplitAxis3i::Z)
-    };
-    const std::array<Plane3i, 3> targetCoordinatePlanes = {
-        makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::X),
-        makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Y),
-        makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Z)
-    };
-
-    std::array<SplitAxis3i, 3> changedAxes = {};
-    std::size_t axisCount = 0;
-    if (!areSamePlaneEquation(startCoordinatePlanes[0], targetCoordinatePlanes[0]))
-        changedAxes[axisCount++] = SplitAxis3i::X;
-    if (!areSamePlaneEquation(startCoordinatePlanes[1], targetCoordinatePlanes[1]))
-        changedAxes[axisCount++] = SplitAxis3i::Y;
-    if (!areSamePlaneEquation(startCoordinatePlanes[2], targetCoordinatePlanes[2]))
-        changedAxes[axisCount++] = SplitAxis3i::Z;
-
-    if (axisCount == 0)
-    {
-        return emitAABBPathCandidateSeed(
-                   targetPoint,
-                   changedAxes,
-                   0,
-                   AABBPathBuildMode::Empty,
-                   emitted,
-                   visitor);
-    }
-
-    std::sort(
-        changedAxes.begin(),
-        changedAxes.begin() + static_cast<std::ptrdiff_t>(axisCount),
-        axisOrderLess);
-    do
-    {
-        if (!emitAABBPathCandidateSeed(
-                    targetPoint,
-                    changedAxes,
-                    axisCount,
-                    AABBPathBuildMode::FreeCoordinate,
-                    emitted,
-                    visitor))
-            return false;
-    } while (std::next_permutation(
-                 changedAxes.begin(),
-                 changedAxes.begin() + static_cast<std::ptrdiff_t>(axisCount),
-                 axisOrderLess));
-
-    return true;
-}
-
 inline bool buildAABBPathFromSeed(
     const PlanePoint3i &startPoint,
     const AABBPathCandidateSeed &seed,
@@ -220,8 +156,6 @@ inline bool buildAABBPathFromSeed(
         return areSamePlanePoint(startPoint, seed.targetPoint);
     case AABBPathBuildMode::Corner:
         return buildAxisAlignedCornerPath(startPoint, seed.targetPoint, seed.axisOrder, seed.axisCount, outPath);
-    case AABBPathBuildMode::FreeCoordinate:
-        return buildAxisAlignedFreeCoordinatePath(startPoint, seed.targetPoint, seed.axisOrder, seed.axisCount, outPath);
     }
 
     outPath.clear();
@@ -377,18 +311,7 @@ inline std::size_t visitExhaustiveAABBPathCandidateSeeds(
     Integer preferredX, preferredY, preferredZ;
     if (!tryExtractExactIntegerPoint(startPoint, startX, startY, startZ) ||
             !tryExtractExactIntegerPoint(preferredTarget, preferredX, preferredY, preferredZ))
-    {
-        const PlanePoint3i centerPoint(
-            Plane3i(2, 0, 0, -(targetBox.xMin + targetBox.xMax)),
-            Plane3i(0, 2, 0, -(targetBox.yMin + targetBox.yMax)),
-            Plane3i(0, 0, 2, -(targetBox.zMin + targetBox.zMax)));
-        if (!visitFreeCoordinateAABBPathTargetSeeds(startPoint, preferredTarget, emitted, visitor))
-            return emitted;
-        if (!areSamePlanePoint(centerPoint, preferredTarget) &&
-                !visitFreeCoordinateAABBPathTargetSeeds(startPoint, centerPoint, emitted, visitor))
-            return emitted;
         return emitted;
-    }
 
     std::vector<Integer> xChoices;
     std::vector<Integer> yChoices;
@@ -497,14 +420,6 @@ inline std::size_t visitExhaustiveAABBPathCandidateSeeds(
             return emitted;
     }
 
-    const PlanePoint3i centerPoint(
-        Plane3i(2, 0, 0, -(targetBox.xMin + targetBox.xMax)),
-        Plane3i(0, 2, 0, -(targetBox.yMin + targetBox.yMax)),
-        Plane3i(0, 0, 2, -(targetBox.zMin + targetBox.zMax)));
-    if (!areSamePlanePoint(centerPoint, preferredTarget) &&
-            !visitFreeCoordinateAABBPathTargetSeeds(startPoint, centerPoint, emitted, visitor))
-        return emitted;
-
     return emitted;
 }
 }
@@ -527,25 +442,31 @@ inline std::size_t enumerateLeafClassificationAxisPathCandidatesFromPoints(
     if (!referencePoint.hasUniqueIntersection() || !isValidAABB(box))
         return emitted;
 
-    const std::array<Plane3i, 3> referenceCoordinatePlanes = {
-        detail::makeCoordinatePlaneFromPoint(referencePoint, SplitAxis3i::X),
-        detail::makeCoordinatePlaneFromPoint(referencePoint, SplitAxis3i::Y),
-        detail::makeCoordinatePlaneFromPoint(referencePoint, SplitAxis3i::Z)
-    };
+    Integer referenceX;
+    Integer referenceY;
+    Integer referenceZ;
+    if (!detail::tryExtractExactIntegerPoint(referencePoint, referenceX, referenceY, referenceZ))
+        return emitted;
+
+    const std::array<Plane3i, 3> referenceCoordinatePlanes =
+        detail::makeIntegerCoordinatePlanes(referenceX, referenceY, referenceZ);
     for (const PlanePoint3i &targetPoint : targetPoints)
     {
+        Integer targetX;
+        Integer targetY;
+        Integer targetZ;
+        if (!detail::tryExtractExactIntegerPoint(targetPoint, targetX, targetY, targetZ))
+            continue;
+
         std::vector<SplitAxis3i> axisOrder;
         axisOrder.reserve(3);
-        const std::array<Plane3i, 3> targetCoordinatePlanes = {
-            detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::X),
-            detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Y),
-            detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Z)
-        };
-        if (!detail::areSamePlaneEquation(referenceCoordinatePlanes[0], targetCoordinatePlanes[0]))
+        const std::array<Plane3i, 3> targetCoordinatePlanes =
+            detail::makeIntegerCoordinatePlanes(targetX, targetY, targetZ);
+        if (!areSamePlaneEquation(referenceCoordinatePlanes[0], targetCoordinatePlanes[0]))
             axisOrder.push_back(SplitAxis3i::X);
-        if (!detail::areSamePlaneEquation(referenceCoordinatePlanes[1], targetCoordinatePlanes[1]))
+        if (!areSamePlaneEquation(referenceCoordinatePlanes[1], targetCoordinatePlanes[1]))
             axisOrder.push_back(SplitAxis3i::Y);
-        if (!detail::areSamePlaneEquation(referenceCoordinatePlanes[2], targetCoordinatePlanes[2]))
+        if (!areSamePlaneEquation(referenceCoordinatePlanes[2], targetCoordinatePlanes[2]))
             axisOrder.push_back(SplitAxis3i::Z);
         if (axisOrder.empty())
             continue;
@@ -591,11 +512,11 @@ inline std::size_t enumerateLeafClassificationPlaneReplacementPathCandidatesFrom
     {
         std::array<int, 3> changedPlaneIndices = {};
         std::size_t changedPlaneCount = 0;
-        if (!detail::areSamePlaneEquation(referencePoint.p, targetPoint.p))
+        if (!areSamePlaneEquation(referencePoint.p, targetPoint.p))
             changedPlaneIndices[changedPlaneCount++] = 0;
-        if (!detail::areSamePlaneEquation(referencePoint.q, targetPoint.q))
+        if (!areSamePlaneEquation(referencePoint.q, targetPoint.q))
             changedPlaneIndices[changedPlaneCount++] = 1;
-        if (!detail::areSamePlaneEquation(referencePoint.r, targetPoint.r))
+        if (!areSamePlaneEquation(referencePoint.r, targetPoint.r))
             changedPlaneIndices[changedPlaneCount++] = 2;
         if (changedPlaneCount == 0)
             continue;
@@ -634,7 +555,8 @@ inline std::size_t enumerateLeafClassificationPlaneReplacementPathCandidatesFrom
     }
 
     return emitted;
-}
+
+}
 
 template <typename CandidateVisitor>
 inline std::size_t enumerateLeafClassificationPlaneReplacementPathCandidatesFromPoints(
@@ -723,11 +645,11 @@ inline std::size_t enumerateLeafClassificationExhaustivePlaneReplacementPathCand
 
             std::array<int, 3> changedPlaneIndices = {};
             std::size_t changedPlaneCount = 0;
-            if (!detail::areSamePlaneEquation(referencePoint.p, permutedTargetPoint.p))
+            if (!areSamePlaneEquation(referencePoint.p, permutedTargetPoint.p))
                 changedPlaneIndices[changedPlaneCount++] = 0;
-            if (!detail::areSamePlaneEquation(referencePoint.q, permutedTargetPoint.q))
+            if (!areSamePlaneEquation(referencePoint.q, permutedTargetPoint.q))
                 changedPlaneIndices[changedPlaneCount++] = 1;
-            if (!detail::areSamePlaneEquation(referencePoint.r, permutedTargetPoint.r))
+            if (!areSamePlaneEquation(referencePoint.r, permutedTargetPoint.r))
                 changedPlaneIndices[changedPlaneCount++] = 2;
             if (changedPlaneCount == 0)
                 continue;

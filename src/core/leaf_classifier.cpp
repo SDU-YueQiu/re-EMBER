@@ -329,24 +329,28 @@ bool buildAxisRepairPath(
     const PlanePoint3i &targetPoint,
     std::vector<Segment256> &outPath)
 {
-    const std::array<Plane3i, 3> referenceCoordinatePlanes = {
-        detail::makeCoordinatePlaneFromPoint(referencePoint, SplitAxis3i::X),
-        detail::makeCoordinatePlaneFromPoint(referencePoint, SplitAxis3i::Y),
-        detail::makeCoordinatePlaneFromPoint(referencePoint, SplitAxis3i::Z)
-    };
-    const std::array<Plane3i, 3> targetCoordinatePlanes = {
-        detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::X),
-        detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Y),
-        detail::makeCoordinatePlaneFromPoint(targetPoint, SplitAxis3i::Z)
-    };
+    Integer referenceX;
+    Integer referenceY;
+    Integer referenceZ;
+    Integer targetX;
+    Integer targetY;
+    Integer targetZ;
+    if (!detail::tryExtractExactIntegerPoint(referencePoint, referenceX, referenceY, referenceZ) ||
+            !detail::tryExtractExactIntegerPoint(targetPoint, targetX, targetY, targetZ))
+        return false;
+
+    const std::array<Plane3i, 3> referenceCoordinatePlanes =
+        detail::makeIntegerCoordinatePlanes(referenceX, referenceY, referenceZ);
+    const std::array<Plane3i, 3> targetCoordinatePlanes =
+        detail::makeIntegerCoordinatePlanes(targetX, targetY, targetZ);
 
     std::vector<SplitAxis3i> changedAxes;
     changedAxes.reserve(3);
-    if (!detail::areSamePlaneEquation(referenceCoordinatePlanes[0], targetCoordinatePlanes[0]))
+    if (!areSamePlaneEquation(referenceCoordinatePlanes[0], targetCoordinatePlanes[0]))
         changedAxes.push_back(SplitAxis3i::X);
-    if (!detail::areSamePlaneEquation(referenceCoordinatePlanes[1], targetCoordinatePlanes[1]))
+    if (!areSamePlaneEquation(referenceCoordinatePlanes[1], targetCoordinatePlanes[1]))
         changedAxes.push_back(SplitAxis3i::Y);
-    if (!detail::areSamePlaneEquation(referenceCoordinatePlanes[2], targetCoordinatePlanes[2]))
+    if (!areSamePlaneEquation(referenceCoordinatePlanes[2], targetCoordinatePlanes[2]))
         changedAxes.push_back(SplitAxis3i::Z);
     if (changedAxes.empty())
         return false;
@@ -386,11 +390,11 @@ bool buildPlaneReplacementRepairPath(
 {
     std::array<int, 3> changedPlaneIndices = {};
     std::size_t changedPlaneCount = 0;
-    if (!detail::areSamePlaneEquation(referencePoint.p, targetPoint.p))
+    if (!areSamePlaneEquation(referencePoint.p, targetPoint.p))
         changedPlaneIndices[changedPlaneCount++] = 0;
-    if (!detail::areSamePlaneEquation(referencePoint.q, targetPoint.q))
+    if (!areSamePlaneEquation(referencePoint.q, targetPoint.q))
         changedPlaneIndices[changedPlaneCount++] = 1;
-    if (!detail::areSamePlaneEquation(referencePoint.r, targetPoint.r))
+    if (!areSamePlaneEquation(referencePoint.r, targetPoint.r))
         changedPlaneIndices[changedPlaneCount++] = 2;
     if (changedPlaneCount == 0)
         return false;
@@ -551,11 +555,11 @@ void appendPlaneReplacementFailureDebug(
         }
 
         std::vector<int> changedPlaneIndices;
-        if (!detail::areSamePlaneEquation(referencePoint.p, permutedTargetPoint.p))
+        if (!areSamePlaneEquation(referencePoint.p, permutedTargetPoint.p))
             changedPlaneIndices.push_back(0);
-        if (!detail::areSamePlaneEquation(referencePoint.q, permutedTargetPoint.q))
+        if (!areSamePlaneEquation(referencePoint.q, permutedTargetPoint.q))
             changedPlaneIndices.push_back(1);
-        if (!detail::areSamePlaneEquation(referencePoint.r, permutedTargetPoint.r))
+        if (!areSamePlaneEquation(referencePoint.r, permutedTargetPoint.r))
             changedPlaneIndices.push_back(2);
         if (changedPlaneIndices.empty())
         {
@@ -834,22 +838,18 @@ bool attemptInsetPlaneReplacementCandidates(
 
     if (planeReplacementTargets.empty())
     {
-        if constexpr (kLeafClassificationDebug)
-            attemptStats.debugLog << "exact_fallback_point_generation=1\n";
-        detail::appendHomogeneousVertexAverageInteriorPointCandidate(fragment, planeReplacementTargets);
-        if (planeReplacementTargets.empty())
-            detail::appendEqualizedEdgeInteriorPointCandidates(fragment, planeReplacementTargets);
-        if (planeReplacementTargets.empty())
+        if (!attemptStats.centroidPointFound)
         {
-            if (!attemptStats.centroidPointFound)
-                return true;
-
             if constexpr (kLeafClassificationDebug)
-                attemptStats.debugLog << "reusing_centroid_target_for_plane_replacement=1\n";
-            planeReplacementTargets.push_back(attemptStats.centroidTargetPoint);
+                attemptStats.debugLog << "strict_kernel_no_closed_inset_target=1\n";
+            return true;
         }
 
-        tryAxisTargets(planeReplacementTargets, "inset_axis_candidate");
+        if constexpr (kLeafClassificationDebug)
+            attemptStats.debugLog << "strict_kernel_using_integer_centroid_target=1\n";
+        planeReplacementTargets.push_back(attemptStats.centroidTargetPoint);
+
+        tryAxisTargets(planeReplacementTargets, "centroid_axis_candidate");
         if (attemptStats.classified || !allowFallback)
             return allowFallback;
     }
