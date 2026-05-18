@@ -22,6 +22,7 @@
 ## 当前实现状态
 
 - `src/math/paper_kernel.h` 是论文 primitive 的受控入口。
+- `src/math/fixed_int256.h` 是实验性的自定义 256 位定长算术后端，只覆盖 checked 加减乘、3x3 行列式和 4D dot；当前先由测试 oracle 验证，尚未替换核心 `Integer`。
 - `math256_tests` 使用 `cpp_int` 只作为 oracle，验证 `classify_vertex` 与 4x4 行列式符号一致。
 - leaf classification 已移除 homogeneous average、equalized edge 和 free-coordinate path fallback。
 - axis path 只允许端点都能精确提取为整数坐标；分数齐次点必须走平面替换路径或显式失败。
@@ -29,4 +30,4 @@
 
 ## 迁移原则
 
-新增几何代码必须先说明它归属于允许图元之一。若需要新图元，先给出 256-bit 中间结果预算和失败策略，再接入核心求解器。`int512_t` / `cpp_int` 可以作为测试参考或 I/O 后处理，但不能把核心算法从固定宽度闭包里带出去。
+新增几何代码必须先说明它归属于允许图元之一。若需要新图元，先给出 256-bit 中间结果预算和失败策略，再接入核心求解器。`int512_t` / `cpp_int` 可以作为测试参考或 I/O 后处理，但不能把核心算法从固定宽度闭包里带出去。自定义定长 backend 必须先以可切换、可 oracle 校验的窄接口接入，不能一次性替换全局数值类型。
