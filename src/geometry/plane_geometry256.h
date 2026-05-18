@@ -75,6 +75,9 @@ inline std::ostream &operator<<(std::ostream &os, const Plane3i &p)
 
 inline bool arePlaneNormalsParallel(const Plane3i &p, const Plane3i &q) noexcept
 {
+    if (p.a == q.a && p.b == q.b && p.c == q.c)
+        return true;
+
     const auto normalCross = cross(p.normal(), q.normal());
     return isZero(normalCross.x) && isZero(normalCross.y) && isZero(normalCross.z);
 }
