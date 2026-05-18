@@ -14,6 +14,7 @@
 #include "algorithm/bsp.h"
 #include "algorithm/path_candidates.h"
 #include "math/fixed_int256.h"
+#include "math/fixed_paper_kernel.h"
 #include "math/paper_kernel.h"
 
 using ember::Integer;
@@ -201,6 +202,24 @@ void runMath256Tests()
             FixedInt256(2), FixedInt256(-3), FixedInt256(5), FixedInt256(-11),
             out));
         assertFixedEquals(out, 0);
+
+        const ember::fixed::Plane3 px = ember::fixed::planeFromInt64(1, 0, 0, -3);
+        const ember::fixed::Plane3 py = ember::fixed::planeFromInt64(0, 1, 0, 2);
+        const ember::fixed::Plane3 pz = ember::fixed::planeFromInt64(0, 0, 1, -5);
+        ember::fixed::HomPoint4 fixedPoint;
+        assert(ember::fixed::intersect3PlanesChecked(px, py, pz, fixedPoint));
+        assertFixedEquals(fixedPoint.x, 3);
+        assertFixedEquals(fixedPoint.y, -2);
+        assertFixedEquals(fixedPoint.z, 5);
+        assertFixedEquals(fixedPoint.w, 1);
+
+        int fixedSide = 0;
+        const ember::fixed::Plane3 diagonal = ember::fixed::planeFromInt64(2, -3, 5, -11);
+        assert(ember::fixed::classifyVertexChecked(fixedPoint, diagonal, fixedSide));
+        assert(fixedSide > 0);
+        const ember::fixed::Plane3 onPoint = ember::fixed::planeFromInt64(1, 1, 1, -6);
+        assert(ember::fixed::classifyVertexChecked(fixedPoint, onPoint, fixedSide));
+        assert(fixedSide == 0);
     }
 
     {

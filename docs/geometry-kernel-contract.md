@@ -22,7 +22,7 @@
 ## 当前实现状态
 
 - `src/math/paper_kernel.h` 是论文 primitive 的受控入口。
-- `src/math/fixed_int256.h` 是实验性的自定义 256 位定长算术后端，只覆盖 checked 加减乘、3x3 行列式和 4D dot；当前先由测试 oracle 验证，尚未替换核心 `Integer`。
+- `src/math/fixed_int256.h` / `src/math/fixed_paper_kernel.h` 是实验性的自定义 256 位定长算术后端，只覆盖 checked 加减乘、3x3 行列式、4D dot、三平面交点和点对平面分类；当前先由测试 oracle 验证，尚未替换核心 `Integer`。
 - `math256_tests` 使用 `cpp_int` 只作为 oracle，验证 `classify_vertex` 与 4x4 行列式符号一致。
 - leaf classification 已移除 homogeneous average、equalized edge 和 free-coordinate path fallback。
 - axis path 只允许端点都能精确提取为整数坐标；分数齐次点必须走平面替换路径或显式失败。
