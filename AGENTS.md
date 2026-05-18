@@ -30,6 +30,9 @@
 - `path_candidates.h` 保留公开候选类型和模板枚举入口；内部路径构造细节在 `path_candidate_details.h`。
 - 默认不改 `third_party/tracy`、`assets`、`reference`、`Doxyfile` 和构建产物。
 - 当前几何核心基于固定宽度整数运算；新增高阶代数或齐次点比较前必须先确认 256 位中间结果预算。
+- 底层数学基础以 `reference/Fast Exact Booleans for Iterated CSG using Octree-Embedded BSPs.md` 为准，尤其是 3.2、Table 1、4.1 和 4.5：核心图元优先限制在 `plane_from_points`、`are_planes_parallel`、`intersect_3_planes`、`classify_vertex/signed_distance`、AABB 轴平面和已有平面裁剪。
+- 优化顺序先参考论文已知方向，再做数学闭包分析，最后落到代码；不要凭热点直接引入未经论文证明的齐次点平均、中点、任意点差、坐标平面反推或由齐次输出点构造新平面。
+- 论文指出 `classify_vertex` 应复用 4D 齐次交点做点积，`intersect_3_planes` 是四个 3x3 行列式，`plane_from_points` 的 gcd/规范化主要属于导入或可能越界的平面构造；核心布尔分支不得依赖 `int512/cpp_int` 决策。
 
 ## 验证命令
 
