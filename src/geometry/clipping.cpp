@@ -168,18 +168,16 @@ bool computePolygonPlaneIntersection(
         return false;
 
     std::array<Plane3i, 2> intersectionCarriers;
-    std::array<HomPoint4i, 2> intersectionPoints;
     std::size_t intersectionCount = 0;
 
     auto appendIntersectionCarrier = [&](const Plane3i& carrier) -> bool
     {
-        const HomPoint4i point = intersectHomogeneousUnnormalized(source.plane, target, carrier);
-        if (isZero(point.w))
+        if (!hasUniqueIntersection(source.plane, target, carrier))
             return true;
 
         for (std::size_t existingIndex = 0; existingIndex < intersectionCount; ++existingIndex)
         {
-            if (areSameHomPoint(intersectionPoints[existingIndex], point))
+            if (areSamePlaneEquation(intersectionCarriers[existingIndex], carrier))
                 return true;
         }
 
@@ -187,7 +185,6 @@ bool computePolygonPlaneIntersection(
             return false;
 
         intersectionCarriers[intersectionCount] = carrier;
-        intersectionPoints[intersectionCount] = point;
         ++intersectionCount;
         return true;
     };
@@ -231,8 +228,7 @@ bool computePolygonPlaneIntersection(
         }
     }
 
-    if (intersectionCount != 2u ||
-            areSameHomPoint(intersectionPoints[0], intersectionPoints[1]))
+    if (intersectionCount != 2u)
         return false;
 
     p0 = intersectionCarriers[0];
