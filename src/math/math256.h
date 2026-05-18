@@ -83,7 +83,33 @@ inline Integer gcdMagnitude(const Integer& a, const Integer& b, const Integer& c
     if (hasUnitMagnitude(a) || hasUnitMagnitude(b) || hasUnitMagnitude(c) || hasUnitMagnitude(d))
         return 1;
 
-    return gcdMagnitude(gcdMagnitude(a, b), gcdMagnitude(c, d));
+    const bool aZero = isZero(a);
+    const bool bZero = isZero(b);
+    const bool cZero = isZero(c);
+    const bool dZero = isZero(d);
+    if (aZero && bZero && cZero)
+        return absMagnitude(d);
+    if (aZero && bZero && dZero)
+        return absMagnitude(c);
+    if (aZero && cZero && dZero)
+        return absMagnitude(b);
+    if (bZero && cZero && dZero)
+        return absMagnitude(a);
+
+    Integer result = 0;
+    if (!aZero)
+        result = absMagnitude(a);
+    if (!bZero)
+        result = isZero(result) ? absMagnitude(b) : gcdMagnitude(result, b);
+    if (result == 1)
+        return 1;
+    if (!cZero)
+        result = isZero(result) ? absMagnitude(c) : gcdMagnitude(result, c);
+    if (result == 1)
+        return 1;
+    if (!dZero)
+        result = isZero(result) ? absMagnitude(d) : gcdMagnitude(result, d);
+    return result;
 }
 
 inline Integer floorDiv(const Integer& a, const Integer& b) noexcept
@@ -196,6 +222,8 @@ inline WideInteger wideProduct(const Integer& lhs, const Integer& rhs) noexcept
 inline bool areSameHomPoint(const HomPoint4i& lhs, const HomPoint4i& rhs) noexcept
 {
     REEMBER_PROFILE_MATH_ZONE("math256::areSameHomPoint");
+    if (&lhs == &rhs)
+        return true;
     if (lhs.hasSameComponents(rhs))
         return true;
 
