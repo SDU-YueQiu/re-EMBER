@@ -18,6 +18,7 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -520,6 +521,55 @@ std::string makeHomogeneousPointKey(const HomPoint4i &point)
     return stream.str();
 }
 
+std::size_t mixHashValue(std::size_t seed, std::size_t value) noexcept
+{
+    return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6u) + (seed >> 2u));
+}
+
+std::size_t hashIntegerForKey(const Integer &value)
+{
+    constexpr std::size_t kBitsPerChunk = 64;
+    const Integer mask = (Integer(1) << kBitsPerChunk) - 1;
+    Integer magnitude = value < 0 ? -value : value;
+    std::size_t seed = value < 0 ? 0x517cc1b727220a95ull : 0x243f6a8885a308d3ull;
+    for (std::size_t shift = 0; shift < 256u; shift += kBitsPerChunk)
+    {
+        const Integer chunk = (magnitude >> shift) & mask;
+        seed = mixHashValue(seed, static_cast<std::size_t>(chunk.convert_to<std::uint64_t>()));
+    }
+    return seed;
+}
+
+struct HomogeneousPointKey
+{
+    HomPoint4i point;
+
+    explicit HomogeneousPointKey(const HomPoint4i &value) noexcept
+        : point(primitiveHomPoint(value))
+    {
+    }
+};
+
+struct HomogeneousPointKeyHash
+{
+    std::size_t operator()(const HomogeneousPointKey &key) const
+    {
+        std::size_t seed = hashIntegerForKey(key.point.x);
+        seed = mixHashValue(seed, hashIntegerForKey(key.point.y));
+        seed = mixHashValue(seed, hashIntegerForKey(key.point.z));
+        seed = mixHashValue(seed, hashIntegerForKey(key.point.w));
+        return seed;
+    }
+};
+
+struct HomogeneousPointKeyEqual
+{
+    bool operator()(const HomogeneousPointKey &lhs, const HomogeneousPointKey &rhs) const noexcept
+    {
+        return lhs.point.hasSameComponents(rhs.point);
+    }
+};
+
 std::string makePlaneKey(const Plane3i &plane)
 {
     const Plane3i primitive = primitivePlane(plane);
@@ -883,7 +933,11 @@ bool recoverPolygonSoupData(
             return failIo(outError, result.error);
     }
 
-    std::unordered_map<std::string, std::size_t> vertexIndexByKey;
+    std::unordered_map<
+        HomogeneousPointKey,
+        std::size_t,
+        HomogeneousPointKeyHash,
+        HomogeneousPointKeyEqual> vertexIndexByKey;
     std::size_t totalVertexSlotCount = 0;
     for (const Polygon256 &fragment : fragments)
         totalVertexSlotCount += fragment.edgeCount();
@@ -905,8 +959,8 @@ bool recoverPolygonSoupData(
         face.reserve(result.orderedVertices.size());
         for (const PlanePoint3i &vertex : result.orderedVertices)
         {
-            const std::string key = makeHomogeneousPointKey(vertex.x);
-            const auto [entry, inserted] = vertexIndexByKey.emplace(key, outData.uniqueVertices.size());
+            HomogeneousPointKey key(vertex.x);
+            const auto [entry, inserted] = vertexIndexByKey.emplace(std::move(key), outData.uniqueVertices.size());
             if (inserted)
                 outData.uniqueVertices.push_back(vertex);
 
@@ -1474,7 +1528,6 @@ void writeObjVertexLine(std::ostream &stream, const PlanePoint3i &vertex, std::u
     const ObjVertex point = homogeneousPointToObjVertex(vertex, coordinateScale);
 
     stream << "v "
-           << std::setprecision(std::numeric_limits<long double>::digits10 + 1)
            << point.x << " "
            << point.y << " "
            << point.z << "\n";
@@ -1958,6 +2011,7 @@ bool writePolygonSoupObj(
 
     // 默认保持多边形集合形态：写顶点，再逐面写 OBJ n 边面。
     output << "# Ember exact polygon soup export\n";
+    output << std::setprecision(std::numeric_limits<long double>::digits10 + 1);
     for (const PlanePoint3i &vertex : recovered.uniqueVertices)
         writeObjVertexLine(output, vertex, options.coordinateScale);
 

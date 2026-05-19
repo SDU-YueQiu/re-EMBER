@@ -430,6 +430,73 @@ inline std::size_t visitExhaustiveAABBPathCandidateSeeds(
  * @tparam CandidateVisitor 接收 `LeafClassificationPathCandidate` 的回调；返回 `false` 表示停止枚举。
  */
 template <typename CandidateVisitor>
+inline std::size_t enumerateLeafClassificationAxisPathCandidatesFromPoint(
+    const PlanePoint3i &referencePoint,
+    const PlanePoint3i &targetPoint,
+    const AABB3i &box,
+    CandidateVisitor &&visitor)
+{
+    REEMBER_PROFILE_ZONE("enumerateLeafClassificationAxisPathCandidatesFromPoints");
+
+    std::size_t emitted = 0;
+    if (!referencePoint.hasUniqueIntersection() || !isValidAABB(box))
+        return emitted;
+
+    Integer referenceX;
+    Integer referenceY;
+    Integer referenceZ;
+    if (!detail::tryExtractExactIntegerPoint(referencePoint, referenceX, referenceY, referenceZ))
+        return emitted;
+
+    detail::AxisProbeTarget axisProbeTarget;
+    if (detail::tryExtractAxisProbeTarget(targetPoint, axisProbeTarget))
+    {
+        std::vector<Segment256> path;
+        if (detail::buildAxisProbePath(referencePoint, axisProbeTarget, box, path))
+        {
+            ++emitted;
+            visitor(LeafClassificationPathCandidate{targetPoint, std::move(path)});
+        }
+        return emitted;
+    }
+
+    Integer targetX;
+    Integer targetY;
+    Integer targetZ;
+    if (!detail::tryExtractExactIntegerPoint(targetPoint, targetX, targetY, targetZ))
+        return emitted;
+
+    std::vector<SplitAxis3i> axisOrder;
+    axisOrder.reserve(3);
+    const std::array<Plane3i, 3> referenceCoordinatePlanes =
+        detail::makeIntegerCoordinatePlanes(referenceX, referenceY, referenceZ);
+    const std::array<Plane3i, 3> targetCoordinatePlanes =
+        detail::makeIntegerCoordinatePlanes(targetX, targetY, targetZ);
+    if (!areSamePlaneEquation(referenceCoordinatePlanes[0], targetCoordinatePlanes[0]))
+        axisOrder.push_back(SplitAxis3i::X);
+    if (!areSamePlaneEquation(referenceCoordinatePlanes[1], targetCoordinatePlanes[1]))
+        axisOrder.push_back(SplitAxis3i::Y);
+    if (!areSamePlaneEquation(referenceCoordinatePlanes[2], targetCoordinatePlanes[2]))
+        axisOrder.push_back(SplitAxis3i::Z);
+    if (axisOrder.empty())
+        return emitted;
+
+    std::vector<Segment256> path;
+    if (!detail::buildAxisAlignedCoordinatePath(
+                referencePoint,
+                targetPoint,
+                referenceCoordinatePlanes,
+                targetCoordinatePlanes,
+                axisOrder,
+                path))
+        return emitted;
+
+    ++emitted;
+    visitor(LeafClassificationPathCandidate{targetPoint, std::move(path)});
+    return emitted;
+}
+
+template <typename CandidateVisitor>
 inline std::size_t enumerateLeafClassificationAxisPathCandidatesFromPoints(
     const PlanePoint3i &referencePoint,
     const std::vector<PlanePoint3i> &targetPoints,
