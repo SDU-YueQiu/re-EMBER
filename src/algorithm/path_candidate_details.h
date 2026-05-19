@@ -819,8 +819,7 @@ inline bool tryBuildInsetPointCandidateAtVertex(
         insetA.d -= Integer(kInteriorSide) * offsetA;
         const int refASide = vertices[refIdxA].classify(insetA);
         const int boundaryASide = vertices[vertexIndex].classify(insetA);
-        if (vertices[refIdxA].classify(insetA) != kInteriorSide ||
-                vertices[vertexIndex].classify(insetA) != 1)
+        if (refASide != kInteriorSide || boundaryASide != 1)
         {
             if (debugReason != nullptr)
             {

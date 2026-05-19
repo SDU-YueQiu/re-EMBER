@@ -97,6 +97,64 @@ inline bool hasUniqueIntersection(const Plane3i &p, const Plane3i &q, const Plan
     return !isZero(normalDeterminant(p, q, r));
 }
 
+namespace detail
+{
+inline bool tryExtractUnitCoordinatePlaneForPoint(
+    const Plane3i &plane,
+    int &outAxis,
+    Integer &outCoordinate) noexcept
+{
+    if (hasUnitMagnitude(plane.a) && isZero(plane.b) && isZero(plane.c))
+    {
+        outAxis = 0;
+        outCoordinate = -plane.d / plane.a;
+        return true;
+    }
+    if (isZero(plane.a) && hasUnitMagnitude(plane.b) && isZero(plane.c))
+    {
+        outAxis = 1;
+        outCoordinate = -plane.d / plane.b;
+        return true;
+    }
+    if (isZero(plane.a) && isZero(plane.b) && hasUnitMagnitude(plane.c))
+    {
+        outAxis = 2;
+        outCoordinate = -plane.d / plane.c;
+        return true;
+    }
+
+    return false;
+}
+
+inline bool tryBuildUnitCoordinateHomPoint(
+    const Plane3i &p,
+    const Plane3i &q,
+    const Plane3i &r,
+    HomPoint4i &outPoint) noexcept
+{
+    bool hasCoordinate[3] = {};
+    Integer coordinates[3] = {};
+    const Plane3i planes[3] = {p, q, r};
+
+    for (const Plane3i &plane : planes)
+    {
+        int axis = 0;
+        Integer coordinate = 0;
+        if (!tryExtractUnitCoordinatePlaneForPoint(plane, axis, coordinate) || hasCoordinate[axis])
+            return false;
+
+        hasCoordinate[axis] = true;
+        coordinates[axis] = coordinate;
+    }
+
+    if (!hasCoordinate[0] || !hasCoordinate[1] || !hasCoordinate[2])
+        return false;
+
+    outPoint = HomPoint4i(coordinates[0], coordinates[1], coordinates[2], 1);
+    return true;
+}
+}
+
 // 该函数一次性展开同一组三平面的四个齐次坐标行列式，避免重复计算 2x2 minor。
 inline HomPoint4i intersectHomogeneousUnnormalized(const Plane3i &p, const Plane3i &q, const Plane3i &r) noexcept
 {
@@ -144,9 +202,11 @@ struct PlanePoint3i
 
     // 仓库内默认把 PlanePoint3i 视为几何值对象；p/q/r 与缓存交点 x 必须保持一致。
     PlanePoint3i(const Plane3i &pVal, const Plane3i &qVal, const Plane3i &rVal) noexcept
-        : p(pVal), q(qVal), r(rVal), x(intersectHomogeneous(pVal, qVal, rVal))
+        : p(pVal), q(qVal), r(rVal)
     {
-    }
+        if (!detail::tryBuildUnitCoordinateHomPoint(pVal, qVal, rVal, x))
+            x = intersectHomogeneous(pVal, qVal, rVal);
+    }
 
     /**
      * @brief 使用调用方已知的三平面交点构造点值。
