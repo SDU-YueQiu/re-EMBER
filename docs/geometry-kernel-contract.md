@@ -24,7 +24,8 @@
 - `src/math/paper_kernel.h` 是论文 primitive 的受控入口。
 - `src/math/fixed_int256.h` / `src/math/fixed_paper_kernel.h` 是实验性的自定义 256 位定长算术后端，只覆盖 checked 加减乘、3x3 行列式、4D dot、三平面交点和点对平面分类；当前先由测试 oracle 验证，尚未替换核心 `Integer`。
 - `math256_tests` 使用 `cpp_int` 只作为 oracle，验证 `classify_vertex` 与 4x4 行列式符号一致。
-- leaf classification 已移除 homogeneous average、equalized edge 和 free-coordinate path fallback。
+- leaf classification 已移除 homogeneous average、equalized edge、free-coordinate path fallback、齐次点反推坐标平面和 normal-approach 造平面 fallback。
+- leaf classification 的 plane-replacement 仍允许目标三平面排列和替换顺序枚举，但只对受限 inset 目标点与受限 bridge 点执行，避免把闭包安全 fallback 放大成默认穷举。
 - axis path 只允许端点都能精确提取为整数坐标；分数齐次点必须走平面替换路径或显式失败。
 - polygon-plane intersection 的 carrier 去重不再依赖 `areSameHomPoint`，而按 carrier plane 身份去重。
 

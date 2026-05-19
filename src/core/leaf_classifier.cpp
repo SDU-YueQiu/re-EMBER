@@ -28,6 +28,8 @@ namespace ember
 namespace
 {
 constexpr bool kLeafClassificationDebug = false;
+constexpr std::size_t kMaxDirectInsetTargets = 3u;
+constexpr std::size_t kMaxBridgeRescuePoints = 2u;
 
 std::size_t mixHashValue(std::size_t seed, std::size_t value) noexcept
 {
@@ -858,7 +860,14 @@ bool attemptInsetPlaneReplacementCandidates(
         for (const PlanePoint3i &candidatePoint : planeReplacementTargets)
             attemptStats.debugLog << "  inset_candidate_point=" << detail::formatPlanePointForDebug(candidatePoint) << "\n";
     }
-    attemptStats.bridgeRescueTargets = planeReplacementTargets;
+    std::vector<PlanePoint3i> directTargets = planeReplacementTargets;
+    if (directTargets.size() > kMaxDirectInsetTargets)
+    {
+        directTargets.resize(kMaxDirectInsetTargets);
+        if constexpr (kLeafClassificationDebug)
+            attemptStats.debugLog << "direct_inset_target_cap=" << kMaxDirectInsetTargets << "\n";
+    }
+    attemptStats.bridgeRescueTargets = directTargets;
 
     const auto tryPlaneReplacementTargets =
         [&](const std::vector<PlanePoint3i> &targets, const char *label)
@@ -906,32 +915,7 @@ bool attemptInsetPlaneReplacementCandidates(
         });
     };
 
-    constexpr std::size_t kMaxDirectInsetTargets = 3;
-    if (planeReplacementTargets.size() > kMaxDirectInsetTargets)
-    {
-        if constexpr (kLeafClassificationDebug)
-            attemptStats.debugLog << "direct_inset_target_cap=" << kMaxDirectInsetTargets << "\n";
-        std::vector<PlanePoint3i> directTargets(
-            planeReplacementTargets.begin(),
-            planeReplacementTargets.begin() + static_cast<std::ptrdiff_t>(kMaxDirectInsetTargets));
-        tryPlaneReplacementTargets(directTargets, "plane_replacement_candidate");
-        if (!attemptStats.classified && allowFallback)
-        {
-            std::vector<PlanePoint3i> remainingTargets(
-                planeReplacementTargets.begin() + static_cast<std::ptrdiff_t>(kMaxDirectInsetTargets),
-                planeReplacementTargets.end());
-            if (!remainingTargets.empty())
-            {
-                if constexpr (kLeafClassificationDebug)
-                    attemptStats.debugLog << "expanding_inset_target_set=" << remainingTargets.size() << "\n";
-                tryPlaneReplacementTargets(remainingTargets, "plane_replacement_candidate_expanded");
-            }
-        }
-    }
-    else
-    {
-        tryPlaneReplacementTargets(planeReplacementTargets, "plane_replacement_candidate");
-    }
+    tryPlaneReplacementTargets(directTargets, "plane_replacement_candidate");
 
     if (attemptStats.planeReplacementPathAttemptCount == 0)
     {
@@ -977,8 +961,11 @@ bool attemptBridgeRescueCandidates(
         return true;
 
     bool allowFallback = true;
-    for (const PlanePoint3i &bridgePoint : bridgePoints)
+    const std::size_t bridgePointCount =
+        std::min<std::size_t>(bridgePoints.size(), kMaxBridgeRescuePoints);
+    for (std::size_t bridgePointIndex = 0; bridgePointIndex < bridgePointCount; ++bridgePointIndex)
     {
+        const PlanePoint3i &bridgePoint = bridgePoints[bridgePointIndex];
         std::vector<Segment256> prefix;
         if (!detail::appendBridgePath(prefix, context.localReference.point, bridgePoint, context.aabb))
             continue;
