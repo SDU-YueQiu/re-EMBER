@@ -356,6 +356,11 @@ inline bool isPointInsideOrOnAABB(const PlanePoint3i &point, const AABB3i &box) 
         return false;
 
     const HomPoint4i &x = point.x;
+    if (x.w == 1)
+        return x.x >= box.xMin && x.x <= box.xMax &&
+               x.y >= box.yMin && x.y <= box.yMax &&
+               x.z >= box.zMin && x.z <= box.zMax;
+
     const Integer wSign = signum(x.w);
     return signum(box.xMin * x.w - x.x) * wSign <= 0 &&
            signum(x.x - box.xMax * x.w) * wSign <= 0 &&
