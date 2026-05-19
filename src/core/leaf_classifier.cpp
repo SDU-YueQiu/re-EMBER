@@ -717,9 +717,9 @@ bool attemptCentroidAxisPathCandidate(
     }
 
     bool allowFallback = true;
-    enumerateLeafClassificationAxisPathCandidatesFromPoints(
+    enumerateLeafClassificationAxisPathCandidatesFromPoint(
         context.localReference.point,
-        std::vector<PlanePoint3i>{targetPoint},
+        targetPoint,
         context.aabb,
         [&](LeafClassificationPathCandidate candidate)
     {
@@ -769,12 +769,12 @@ bool attemptInsetPlaneReplacementCandidates(
     REEMBER_PROFILE_ZONE("LeafClassification::attemptInsetPlaneReplacementCandidates");
 
     bool allowFallback = true;
-    const auto tryAxisTargets =
-        [&](const std::vector<PlanePoint3i> &targets, const char *label)
+    const auto tryAxisTarget =
+        [&](const PlanePoint3i &target, const char *label)
     {
-        enumerateLeafClassificationAxisPathCandidatesFromPoints(
+        enumerateLeafClassificationAxisPathCandidatesFromPoint(
             context.localReference.point,
-            targets,
+            target,
             context.aabb,
             [&](LeafClassificationPathCandidate candidate)
         {
@@ -818,8 +818,7 @@ bool attemptInsetPlaneReplacementCandidates(
             kLeafClassificationDebug,
             [&](const PlanePoint3i &candidatePoint)
     {
-        const std::vector<PlanePoint3i> target{candidatePoint};
-        tryAxisTargets(target, "inset_axis_candidate");
+        tryAxisTarget(candidatePoint, "inset_axis_candidate");
         return !attemptStats.classified && allowFallback;
     });
     attemptStats.insetPointAttemptCount += insetPoints.attemptCount;
@@ -849,7 +848,7 @@ bool attemptInsetPlaneReplacementCandidates(
             attemptStats.debugLog << "strict_kernel_using_integer_centroid_target=1\n";
         planeReplacementTargets.push_back(attemptStats.centroidTargetPoint);
 
-        tryAxisTargets(planeReplacementTargets, "centroid_axis_candidate");
+        tryAxisTarget(attemptStats.centroidTargetPoint, "centroid_axis_candidate");
         if (attemptStats.classified || !allowFallback)
             return allowFallback;
     }
