@@ -452,6 +452,19 @@ inline std::size_t enumerateLeafClassificationAxisPathCandidatesFromPoints(
         detail::makeIntegerCoordinatePlanes(referenceX, referenceY, referenceZ);
     for (const PlanePoint3i &targetPoint : targetPoints)
     {
+        detail::AxisProbeTarget axisProbeTarget;
+        if (detail::tryExtractAxisProbeTarget(targetPoint, axisProbeTarget))
+        {
+            std::vector<Segment256> path;
+            if (detail::buildAxisProbePath(referencePoint, axisProbeTarget, box, path))
+            {
+                ++emitted;
+                if (!visitor(LeafClassificationPathCandidate{targetPoint, std::move(path)}))
+                    return emitted;
+            }
+            continue;
+        }
+
         Integer targetX;
         Integer targetY;
         Integer targetZ;

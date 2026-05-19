@@ -232,10 +232,26 @@ inline bool areSameHomPoint(const HomPoint4i& lhs, const HomPoint4i& rhs) noexce
     if (lhsZero || rhsZero)
         return lhsZero && rhsZero;
 
-    return wideProduct(lhs.x, rhs.y) == wideProduct(rhs.x, lhs.y) &&
-           wideProduct(lhs.x, rhs.z) == wideProduct(rhs.x, lhs.z) &&
-           wideProduct(lhs.x, rhs.w) == wideProduct(rhs.x, lhs.w) &&
-           wideProduct(lhs.y, rhs.z) == wideProduct(rhs.y, lhs.z) &&
+    if (!isZero(lhs.x))
+    {
+        return wideProduct(lhs.y, rhs.x) == wideProduct(rhs.y, lhs.x) &&
+               wideProduct(lhs.z, rhs.x) == wideProduct(rhs.z, lhs.x) &&
+               wideProduct(lhs.w, rhs.x) == wideProduct(rhs.w, lhs.x);
+    }
+    if (!isZero(lhs.y))
+    {
+        return wideProduct(lhs.x, rhs.y) == wideProduct(rhs.x, lhs.y) &&
+               wideProduct(lhs.z, rhs.y) == wideProduct(rhs.z, lhs.y) &&
+               wideProduct(lhs.w, rhs.y) == wideProduct(rhs.w, lhs.y);
+    }
+    if (!isZero(lhs.z))
+    {
+        return wideProduct(lhs.x, rhs.z) == wideProduct(rhs.x, lhs.z) &&
+               wideProduct(lhs.y, rhs.z) == wideProduct(rhs.y, lhs.z) &&
+               wideProduct(lhs.w, rhs.z) == wideProduct(rhs.w, lhs.z);
+    }
+
+    return wideProduct(lhs.x, rhs.w) == wideProduct(rhs.x, lhs.w) &&
            wideProduct(lhs.y, rhs.w) == wideProduct(rhs.y, lhs.w) &&
            wideProduct(lhs.z, rhs.w) == wideProduct(rhs.z, lhs.w);
 }

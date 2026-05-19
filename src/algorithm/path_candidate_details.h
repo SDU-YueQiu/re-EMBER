@@ -46,6 +46,117 @@ inline std::array<Plane3i, 3> makeIntegerCoordinatePlanes(
     };
 }
 
+/**
+ * @brief 尝试读取单位轴对齐坐标平面的轴和整数坐标。
+ */
+inline bool tryExtractUnitCoordinatePlane(
+    const Plane3i &plane,
+    SplitAxis3i &outAxis,
+    Integer &outCoordinate) noexcept
+{
+    if (hasUnitMagnitude(plane.a) && isZero(plane.b) && isZero(plane.c))
+    {
+        outAxis = SplitAxis3i::X;
+        outCoordinate = -plane.d / plane.a;
+        return true;
+    }
+    if (isZero(plane.a) && hasUnitMagnitude(plane.b) && isZero(plane.c))
+    {
+        outAxis = SplitAxis3i::Y;
+        outCoordinate = -plane.d / plane.b;
+        return true;
+    }
+    if (isZero(plane.a) && isZero(plane.b) && hasUnitMagnitude(plane.c))
+    {
+        outAxis = SplitAxis3i::Z;
+        outCoordinate = -plane.d / plane.c;
+        return true;
+    }
+
+    return false;
+}
+
+/**
+ * @brief 判断平面是否属于某个坐标轴的轴对齐方程。
+ */
+inline bool isAxisAlignedCoordinatePlaneEquation(const Plane3i &plane) noexcept
+{
+    return (!isZero(plane.a) && isZero(plane.b) && isZero(plane.c)) ||
+           (isZero(plane.a) && !isZero(plane.b) && isZero(plane.c)) ||
+           (isZero(plane.a) && isZero(plane.b) && !isZero(plane.c));
+}
+
+/**
+ * @brief 描述由两个整数轴平面和一个已有支撑平面定义的轴探测目标。
+ */
+struct AxisProbeTarget
+{
+    std::array<bool, 3> hasCoordinate = {false, false, false};
+    std::array<Integer, 3> coordinate = {};
+    SplitAxis3i freeAxis = SplitAxis3i::X;
+    Plane3i supportPlane;
+};
+
+/**
+ * @brief 识别 `buildAxisProbeInteriorPoint()` 生成的闭包安全目标点。
+ */
+inline bool tryExtractAxisProbeTarget(const PlanePoint3i &targetPoint, AxisProbeTarget &outTarget) noexcept
+{
+    if (!targetPoint.hasUniqueIntersection())
+        return false;
+
+    const Plane3i planes[3] = {targetPoint.p, targetPoint.q, targetPoint.r};
+    AxisProbeTarget target;
+    int coordinatePlaneCount = 0;
+    int supportPlaneIndex = -1;
+    for (int planeIndex = 0; planeIndex < 3; ++planeIndex)
+    {
+        SplitAxis3i axis = SplitAxis3i::X;
+        Integer coordinate = 0;
+        if (tryExtractUnitCoordinatePlane(planes[planeIndex], axis, coordinate))
+        {
+            const int axisIndex = axisOrderKey(axis);
+            if (target.hasCoordinate[axisIndex])
+                return false;
+
+            target.hasCoordinate[axisIndex] = true;
+            target.coordinate[axisIndex] = coordinate;
+            ++coordinatePlaneCount;
+            continue;
+        }
+
+        if (isAxisAlignedCoordinatePlaneEquation(planes[planeIndex]))
+            return false;
+
+        if (supportPlaneIndex != -1)
+            return false;
+        supportPlaneIndex = planeIndex;
+    }
+
+    if (coordinatePlaneCount != 2 || supportPlaneIndex == -1)
+        return false;
+
+    int freeAxisIndex = -1;
+    for (int axisIndex = 0; axisIndex < 3; ++axisIndex)
+    {
+        if (!target.hasCoordinate[axisIndex])
+        {
+            freeAxisIndex = axisIndex;
+            break;
+        }
+    }
+    if (freeAxisIndex < 0)
+        return false;
+
+    target.freeAxis =
+        freeAxisIndex == 0 ? SplitAxis3i::X :
+        freeAxisIndex == 1 ? SplitAxis3i::Y :
+        SplitAxis3i::Z;
+    target.supportPlane = planes[supportPlaneIndex];
+    outTarget = std::move(target);
+    return true;
+}
+
 inline bool buildAxisAlignedSegment(
     const Integer &x0,
     const Integer &y0,
@@ -977,6 +1088,92 @@ inline bool buildAxisAlignedCoordinatePath(
     for (std::size_t i = 0; i < segmentCount; ++i)
         outPath.push_back(std::move(segmentBuffer[i]));
     return true;
+}
+
+/**
+ * @brief 构造闭包安全的轴探测分类路径。
+ *
+ * 目标点由两个整数轴平面和一个已有支撑平面定义；路径先在整数 AABB
+ * 网格内对齐两个固定轴，最后沿缺失轴方向与支撑平面相交。
+ */
+inline bool buildAxisProbePath(
+    const PlanePoint3i &startPoint,
+    const AxisProbeTarget &target,
+    const AABB3i &box,
+    std::vector<Segment256> &outPath)
+{
+    Integer startX;
+    Integer startY;
+    Integer startZ;
+    if (!tryExtractExactIntegerPoint(startPoint, startX, startY, startZ))
+        return false;
+    if (!isIntegerPointInsideOrOnAABB(startX, startY, startZ, box))
+        return false;
+
+    std::array<Integer, 3> current = {startX, startY, startZ};
+    std::array<Plane3i, 3> currentPlanes =
+        makeIntegerCoordinatePlanes(current[0], current[1], current[2]);
+    std::array<Segment256, 3> segmentBuffer;
+    std::size_t segmentCount = 0;
+    outPath.clear();
+
+    for (const SplitAxis3i axis : {
+                SplitAxis3i::X, SplitAxis3i::Y, SplitAxis3i::Z
+            })
+    {
+        if (axis == target.freeAxis)
+            continue;
+
+        const int axisIndex = axisOrderKey(axis);
+        if (!target.hasCoordinate[axisIndex] || current[axisIndex] == target.coordinate[axisIndex])
+            continue;
+
+        std::array<Integer, 3> next = current;
+        next[axisIndex] = target.coordinate[axisIndex];
+        if (!isIntegerPointInsideOrOnAABB(next[0], next[1], next[2], box))
+        {
+            outPath.clear();
+            return false;
+        }
+
+        std::array<Plane3i, 3> nextPlanes = currentPlanes;
+        nextPlanes[axisIndex] =
+            makeIntegerCoordinatePlanes(next[0], next[1], next[2])[axisIndex];
+
+        Segment256 segment;
+        if (!buildAxisAlignedSegmentFromCoordinatePlanes(currentPlanes, nextPlanes, axis, segment))
+        {
+            outPath.clear();
+            return false;
+        }
+
+        segmentBuffer[segmentCount++] = std::move(segment);
+        current = next;
+        currentPlanes = nextPlanes;
+    }
+
+    const int freeAxisIndex = axisOrderKey(target.freeAxis);
+    std::array<Plane3i, 3> targetPlanes = currentPlanes;
+    targetPlanes[freeAxisIndex] = target.supportPlane;
+    const PlanePoint3i targetPoint = makePointFromPlanes(targetPlanes);
+    if (!targetPoint.hasUniqueIntersection() || !isPointInsideOrOnAABB(targetPoint, box))
+    {
+        outPath.clear();
+        return false;
+    }
+
+    Segment256 finalSegment;
+    if (!buildAxisAlignedSegmentFromCoordinatePlanes(currentPlanes, targetPlanes, target.freeAxis, finalSegment))
+    {
+        outPath.clear();
+        return false;
+    }
+    segmentBuffer[segmentCount++] = std::move(finalSegment);
+
+    outPath.reserve(segmentCount);
+    for (std::size_t i = 0; i < segmentCount; ++i)
+        outPath.push_back(std::move(segmentBuffer[i]));
+    return !outPath.empty();
 }
 
 /**
