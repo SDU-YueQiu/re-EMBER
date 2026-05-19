@@ -326,8 +326,9 @@ int Polygon256::classify(const PlanePoint3i &point) const noexcept
     if (planeSide != 0)
         return planeSide;
 
-    const AABB3i &polygonBox = aabb();
-    if (isValidAABB(polygonBox) && !isPointInsideOrOnAABB(point, polygonBox))
+    // AABB 只作为已有缓存上的快速拒绝；不要为了分类强制构造顶点缓存。
+    // 对有效凸多边形，后续边平面半空间测试本身已经是完整判定。
+    if (aabbCacheValid_ && isValidAABB(cachedAABB_) && !isPointInsideOrOnAABB(point, cachedAABB_))
         return 2;
 
     // `isValid()` 已要求边平面法向向外；支撑平面内只要落在任一边平面正侧就是外部。
