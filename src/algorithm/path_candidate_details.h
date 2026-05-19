@@ -403,26 +403,6 @@ inline bool appendUniqueStrictInteriorPoint(
     return true;
 }
 
-/**
- * @brief 对有理坐标执行确定性的最近整数舍入。
- */
-inline Integer roundDivNearest(Integer numerator, Integer denominator) noexcept
-{
-    if (denominator < 0)
-    {
-        numerator = -numerator;
-        denominator = -denominator;
-    }
-    if (isZero(denominator))
-        return 0;
-
-    const Integer half = denominator / 2;
-    if (numerator >= 0)
-        return (numerator + half) / denominator;
-
-    return -((-numerator + half) / denominator);
-}
-
 inline Integer absInteger(const Integer &value) noexcept
 {
     return value < 0 ? -value : value;
@@ -452,21 +432,6 @@ inline Plane3i subtractPlaneEquation(const Plane3i &lhs, const Plane3i &rhs) noe
                               lhs.b - rhs.b,
                               lhs.c - rhs.c,
                               lhs.d - rhs.d));
-}
-
-inline PlanePoint3i makePointFromHomogeneousCoordinates(const HomPoint4i &point) noexcept
-{
-    if (isZero(point.w))
-        return PlanePoint3i();
-
-    const Plane3i xPlane = primitivePlane(Plane3i(point.w, 0, 0, -point.x));
-    const Plane3i yPlane = primitivePlane(Plane3i(0, point.w, 0, -point.y));
-    const Plane3i zPlane = primitivePlane(Plane3i(0, 0, point.w, -point.z));
-    return PlanePoint3i(
-               xPlane,
-               yPlane,
-               zPlane,
-               primitiveHomPoint(point));
 }
 
 struct Vec3d
@@ -1257,159 +1222,6 @@ inline bool appendBridgePath(
     }
 
     return false;
-}
-
-inline Plane3i makePlaneThroughPointWithNormal(const PlanePoint3i &point, const Vec3i &normal) noexcept
-{
-    if (!point.hasUniqueIntersection() || isZero(point.x.w))
-        return Plane3i();
-
-    const Integer d =
-        -(normal.x * point.x.x + normal.y * point.x.y + normal.z * point.x.z);
-    return primitivePlane(Plane3i(
-                              normal.x * point.x.w,
-                              normal.y * point.x.w,
-                              normal.z * point.x.w,
-                              d));
-}
-
-inline bool makeNormalLineThroughPoint(
-    const PlanePoint3i &point,
-    const Plane3i &surfacePlane,
-    Line256 &outLine) noexcept
-{
-    const Vec3i normal = surfacePlane.normal();
-    if (isZero(normal.x) && isZero(normal.y) && isZero(normal.z))
-        return false;
-
-    Vec3i tangent0;
-    Vec3i tangent1;
-    if (!isZero(normal.x) || !isZero(normal.y))
-    {
-        tangent0 = Vec3i(normal.y, -normal.x, 0);
-        tangent1 = Vec3i(
-                       normal.x * normal.z,
-                       normal.y * normal.z,
-                       -(normal.x * normal.x + normal.y * normal.y));
-    }
-    else
-    {
-        tangent0 = Vec3i(1, 0, 0);
-        tangent1 = Vec3i(0, 1, 0);
-    }
-
-    const Plane3i linePlane0 = makePlaneThroughPointWithNormal(point, tangent0);
-    const Plane3i linePlane1 = makePlaneThroughPointWithNormal(point, tangent1);
-    const Line256 line(linePlane0, linePlane1);
-    if (!line.isValid())
-        return false;
-
-    outLine = line;
-    return true;
-}
-
-inline bool buildNormalApproachPath(
-    const PlanePoint3i &referencePoint,
-    const PlanePoint3i &targetPoint,
-    const Plane3i &surfacePlane,
-    const AABB3i &box,
-    const Integer &signedPlaneOffset,
-    std::vector<Segment256> &outPath)
-{
-    outPath.clear();
-
-    Line256 approachLine;
-    if (isZero(signedPlaneOffset) ||
-            !makeNormalLineThroughPoint(targetPoint, surfacePlane, approachLine))
-        return false;
-
-    const Plane3i startPlane(
-        surfacePlane.a,
-        surfacePlane.b,
-        surfacePlane.c,
-        surfacePlane.d - signedPlaneOffset);
-    Segment256 approachSegment(startPlane, surfacePlane, approachLine);
-    if (!approachSegment.isValid() ||
-            !areSamePlanePoint(approachSegment.getEndPointRef(), targetPoint))
-        return false;
-
-    const PlanePoint3i &approachStart = approachSegment.getStartPointRef();
-    if (!approachStart.hasUniqueIntersection() ||
-            !isPointInsideOrOnAABB(approachStart, box) ||
-            areSamePlanePoint(approachStart, targetPoint))
-        return false;
-
-    std::vector<Segment256> path;
-    if (!appendBridgePath(path, referencePoint, approachStart, box))
-        return false;
-
-    path.push_back(std::move(approachSegment));
-    if (!areSamePlanePoint(path.front().getStartPointRef(), referencePoint) ||
-            !areSamePlanePoint(path.back().getEndPointRef(), targetPoint))
-        return false;
-    for (std::size_t i = 1; i < path.size(); ++i)
-    {
-        if (!areSamePlanePoint(path[i - 1].getEndPointRef(), path[i].getStartPointRef()))
-            return false;
-    }
-
-    outPath = std::move(path);
-    return true;
-}
-
-inline bool buildNormalApproachPathViaBridgePoint(
-    const PlanePoint3i &referencePoint,
-    const PlanePoint3i &bridgePoint,
-    const PlanePoint3i &targetPoint,
-    const Plane3i &surfacePlane,
-    const AABB3i &box,
-    const Integer &signedPlaneOffset,
-    std::vector<Segment256> &outPath)
-{
-    outPath.clear();
-    if (!bridgePoint.hasUniqueIntersection() ||
-            !isPointInsideOrOnAABB(bridgePoint, box) ||
-            areSamePlanePoint(referencePoint, bridgePoint))
-        return false;
-
-    Line256 approachLine;
-    if (isZero(signedPlaneOffset) ||
-            !makeNormalLineThroughPoint(targetPoint, surfacePlane, approachLine))
-        return false;
-
-    const Plane3i startPlane(
-        surfacePlane.a,
-        surfacePlane.b,
-        surfacePlane.c,
-        surfacePlane.d - signedPlaneOffset);
-    Segment256 approachSegment(startPlane, surfacePlane, approachLine);
-    if (!approachSegment.isValid() ||
-            !areSamePlanePoint(approachSegment.getEndPointRef(), targetPoint))
-        return false;
-
-    const PlanePoint3i &approachStart = approachSegment.getStartPointRef();
-    if (!approachStart.hasUniqueIntersection() ||
-            !isPointInsideOrOnAABB(approachStart, box) ||
-            areSamePlanePoint(approachStart, targetPoint))
-        return false;
-
-    std::vector<Segment256> path;
-    if (!appendBridgePath(path, referencePoint, bridgePoint, box) ||
-            !appendBridgePath(path, bridgePoint, approachStart, box))
-        return false;
-
-    path.push_back(std::move(approachSegment));
-    if (!areSamePlanePoint(path.front().getStartPointRef(), referencePoint) ||
-            !areSamePlanePoint(path.back().getEndPointRef(), targetPoint))
-        return false;
-    for (std::size_t i = 1; i < path.size(); ++i)
-    {
-        if (!areSamePlanePoint(path[i - 1].getEndPointRef(), path[i].getStartPointRef()))
-            return false;
-    }
-
-    outPath = std::move(path);
-    return true;
 }
 
 inline bool chooseStrictInteriorAABBCoordinate(
