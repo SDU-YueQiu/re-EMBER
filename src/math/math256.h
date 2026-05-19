@@ -174,11 +174,40 @@ struct HomPoint4i
 };
 
 /**
+ * @brief 判断齐次点是否需要整体反号以满足 canonical 符号约定。
+ */
+inline bool needsHomPointSignFlip(const HomPoint4i& point) noexcept
+{
+    return point.w < 0 ||
+           (isZero(point.w) && (point.z < 0 ||
+                                (isZero(point.z) && (point.y < 0 ||
+                                                     (isZero(point.y) && point.x < 0)))));
+}
+
+/**
+ * @brief 返回满足 canonical 符号约定的等价齐次点。
+ */
+inline HomPoint4i normalizedHomPointSign(HomPoint4i point) noexcept
+{
+    if (needsHomPointSignFlip(point))
+    {
+        point.x = -point.x;
+        point.y = -point.y;
+        point.z = -point.z;
+        point.w = -point.w;
+    }
+    return point;
+}
+
+/**
  * @brief 返回与输入几何等价的 primitive 齐次点。
  */
 inline HomPoint4i primitiveHomPoint(const HomPoint4i& point) noexcept
 {
     REEMBER_PROFILE_MATH_ZONE("math256::primitiveHomPoint");
+    if (hasUnitMagnitude(point.w))
+        return normalizedHomPointSign(point);
+
     Integer x = point.x;
     Integer y = point.y;
     Integer z = point.z;
@@ -191,17 +220,7 @@ inline HomPoint4i primitiveHomPoint(const HomPoint4i& point) noexcept
         z /= divisor;
         w /= divisor;
     }
-    if (w < 0 ||
-            (isZero(w) && (z < 0 ||
-                           (isZero(z) && (y < 0 ||
-                                          (isZero(y) && x < 0))))))
-    {
-        x = -x;
-        y = -y;
-        z = -z;
-        w = -w;
-    }
-    return HomPoint4i(x, y, z, w);
+    return normalizedHomPointSign(HomPoint4i(x, y, z, w));
 }
 
 inline bool isZeroHomPoint(const HomPoint4i& point) noexcept
