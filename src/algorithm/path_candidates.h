@@ -711,17 +711,19 @@ inline std::size_t enumerateLeafClassificationExhaustivePlaneReplacementPathCand
 
     for (const PlanePoint3i &targetPoint : targetPoints)
     {
+        if (!targetPoint.hasUniqueIntersection())
+            continue;
+
         const std::array<Plane3i, 3> targetPlanes = {targetPoint.p, targetPoint.q, targetPoint.r};
         std::array<int, 3> targetPlaneOrder = {0, 1, 2};
         do
         {
-            const PlanePoint3i permutedTargetPoint = detail::makePointFromPlanes({
+            // 目标点的三平面只改变排列；primitive 齐次交点保持一致，可复用缓存点。
+            const PlanePoint3i permutedTargetPoint(
                 targetPlanes[targetPlaneOrder[0]],
                 targetPlanes[targetPlaneOrder[1]],
-                targetPlanes[targetPlaneOrder[2]]});
-            if (!permutedTargetPoint.hasUniqueIntersection() ||
-                    !areSamePlanePoint(permutedTargetPoint, targetPoint))
-                continue;
+                targetPlanes[targetPlaneOrder[2]],
+                targetPoint.x);
 
             std::array<int, 3> changedPlaneIndices = {};
             std::size_t changedPlaneCount = 0;
