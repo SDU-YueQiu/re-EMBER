@@ -355,13 +355,14 @@ inline bool isPointInsideOrOnAABB(const PlanePoint3i &point, const AABB3i &box) 
     if (!point.hasUniqueIntersection() || !isValidAABB(box))
         return false;
 
-    const auto planes = makeAABBPlanes(box);
-    for (const Plane3i &plane : planes)
-    {
-        if (point.classify(plane) > 0)
-            return false;
-    }
-    return true;
+    const HomPoint4i &x = point.x;
+    const Integer wSign = signum(x.w);
+    return signum(box.xMin * x.w - x.x) * wSign <= 0 &&
+           signum(x.x - box.xMax * x.w) * wSign <= 0 &&
+           signum(box.yMin * x.w - x.y) * wSign <= 0 &&
+           signum(x.y - box.yMax * x.w) * wSign <= 0 &&
+           signum(box.zMin * x.w - x.z) * wSign <= 0 &&
+           signum(x.z - box.zMax * x.w) * wSign <= 0;
 }
 
 inline bool hasSplittableAxis(const AABB3i &box) noexcept
