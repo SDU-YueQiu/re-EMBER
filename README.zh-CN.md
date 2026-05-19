@@ -73,7 +73,7 @@ oracle 的精确性边界是 re-EMBER 已经量化后的 `Polygon256` 输入；�
 - `--scale <positive_integer>` 手动覆盖共享量化尺度。
 - `--leaf-threshold <positive_integer>` 控制细分到叶子时的停止阈值。
 - `--threads <positive_integer>` 指定应用层 task arena 大小和求解线程数；设为 `1` 可强制串行。
-- `--output-topology raw|conforming` 选择应用层导出拓扑。`raw` 直接写 `resultFragments()`；`conforming` 会全局查找并插入落在其他面边上的已有顶点以消除 T-junction。`conforming` 是精确但较慢的调试/检查模式，不应用于性能测试。共面合并和 Nef 输出仍禁用。
+- `--output-topology raw|conforming` 选择应用层导出拓扑。`raw` 直接写 `resultFragments()`，并跳过只供 conforming 修复使用的拓扑元数据；`conforming` 会全局查找并插入落在其他面边上的已有顶点以消除 T-junction。`conforming` 是精确但较慢的调试/检查模式，不应用于性能测试。共面合并和 Nef 输出仍禁用。
 - `--timings-out <metrics.txt>` 会把单次运行的计时和求解摘要写到文件里。
 - `--assume-lhs-nsi`、`--assume-lhs-nnc`、`--assume-rhs-nsi`、`--assume-rhs-nnc` 用于声明输入假设以加速运行；同一侧的 `NNC` 依赖 `NSI`。
 

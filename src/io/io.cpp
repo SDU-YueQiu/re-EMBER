@@ -853,7 +853,8 @@ struct RecoveredPolygonBuildResult
 bool recoverPolygonSoupData(
     const std::vector<Polygon256> &fragments,
     RecoveredPolygonSoupData &outData,
-    std::string &outError)
+    std::string &outError,
+    bool includeTopologyMetadata)
 {
     outData.uniqueVertices.clear();
     outData.faces.clear();
@@ -883,11 +884,19 @@ bool recoverPolygonSoupData(
     }
 
     std::unordered_map<std::string, std::size_t> vertexIndexByKey;
+    std::size_t totalVertexSlotCount = 0;
+    for (const Polygon256 &fragment : fragments)
+        totalVertexSlotCount += fragment.edgeCount();
+
+    outData.uniqueVertices.reserve(totalVertexSlotCount);
     outData.faces.reserve(fragments.size());
-    outData.facePlanes.reserve(fragments.size());
-    outData.faceEdgePlanes.reserve(fragments.size());
-    outData.faceEdgeProvenances.reserve(fragments.size());
-    vertexIndexByKey.reserve(fragments.size() * 4);
+    if (includeTopologyMetadata)
+    {
+        outData.facePlanes.reserve(fragments.size());
+        outData.faceEdgePlanes.reserve(fragments.size());
+        outData.faceEdgeProvenances.reserve(fragments.size());
+    }
+    vertexIndexByKey.reserve(totalVertexSlotCount);
 
     for (std::size_t polygonIndex = 0; polygonIndex < recoveredPolygons.size(); ++polygonIndex)
     {
@@ -905,9 +914,12 @@ bool recoverPolygonSoupData(
         }
 
         outData.faces.push_back(std::move(face));
-        outData.facePlanes.push_back(fragments[polygonIndex].plane);
-        outData.faceEdgePlanes.push_back(fragments[polygonIndex].edgePlanes);
-        outData.faceEdgeProvenances.push_back(fragments[polygonIndex].edgeProvenances);
+        if (includeTopologyMetadata)
+        {
+            outData.facePlanes.push_back(fragments[polygonIndex].plane);
+            outData.faceEdgePlanes.push_back(fragments[polygonIndex].edgePlanes);
+            outData.faceEdgeProvenances.push_back(fragments[polygonIndex].edgeProvenances);
+        }
     }
 
     return true;
@@ -1922,7 +1934,8 @@ bool writePolygonSoupObj(
         return false;
 
     RecoveredPolygonSoupData recovered;
-    if (!recoverPolygonSoupData(fragments, recovered, outError))
+    const bool needsTopologyMetadata = options.topologyMode != PolygonSoupTopologyMode::Raw;
+    if (!recoverPolygonSoupData(fragments, recovered, outError, needsTopologyMetadata))
     {
         outError = "Failed to prepare polygon soup OBJ export: " + outError;
         return false;
@@ -1989,7 +2002,8 @@ bool writePolygonSoupStl(
         return false;
 
     RecoveredPolygonSoupData recovered;
-    if (!recoverPolygonSoupData(fragments, recovered, outError))
+    const bool needsTopologyMetadata = options.topologyMode != PolygonSoupTopologyMode::Raw;
+    if (!recoverPolygonSoupData(fragments, recovered, outError, needsTopologyMetadata))
     {
         outError = "Failed to prepare polygon soup STL export: " + outError;
         return false;
@@ -2250,7 +2264,8 @@ bool buildObjMeshFromPolygonSoup(
         return failIo(outError, "Coordinate scale must be a positive integer.");
 
     RecoveredPolygonSoupData recovered;
-    if (!recoverPolygonSoupData(fragments, recovered, outError))
+    const bool needsTopologyMetadata = options.topologyMode != PolygonSoupTopologyMode::Raw;
+    if (!recoverPolygonSoupData(fragments, recovered, outError, needsTopologyMetadata))
     {
         outError = "Failed to prepare OBJ mesh from polygon soup: " + outError;
         return false;
@@ -2281,7 +2296,8 @@ bool buildExactMeshFromPolygonSoup(
     outError.clear();
 
     RecoveredPolygonSoupData recovered;
-    if (!recoverPolygonSoupData(fragments, recovered, outError))
+    const bool needsTopologyMetadata = topologyMode != PolygonSoupTopologyMode::Raw;
+    if (!recoverPolygonSoupData(fragments, recovered, outError, needsTopologyMetadata))
     {
         outError = "Failed to prepare exact mesh from polygon soup: " + outError;
         return false;
