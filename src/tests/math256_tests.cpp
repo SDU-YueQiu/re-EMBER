@@ -124,6 +124,38 @@ void runMath256Tests()
     }
 
     {
+        const ember::PlanePoint3i integerStart(
+            ember::Plane3i(1, 0, 0, 0),
+            ember::Plane3i(0, 1, 0, 0),
+            ember::Plane3i(0, 0, 1, 0));
+        const ember::PlanePoint3i axisProbeTarget(
+            ember::Plane3i(0, 1, 0, 0),
+            ember::Plane3i(0, 0, 1, 0),
+            ember::Plane3i(2, 1, 1, -1));
+        ember::AABB3i box;
+        box.xMin = -1;
+        box.xMax = 1;
+        box.yMin = -1;
+        box.yMax = 1;
+        box.zMin = -1;
+        box.zMax = 1;
+        box.valid = true;
+
+        std::size_t emitted = ember::enumerateLeafClassificationAxisPathCandidatesFromPoints(
+            integerStart,
+            std::vector<ember::PlanePoint3i>{axisProbeTarget},
+            box,
+            [&](const ember::LeafClassificationPathCandidate &candidate)
+        {
+            assert(!candidate.path.empty());
+            assert(ember::areSamePlanePoint(candidate.path.front().getStartPointRef(), integerStart));
+            assert(ember::areSamePlanePoint(candidate.path.back().getEndPointRef(), axisProbeTarget));
+            return true;
+        });
+        assert(emitted == 1u);
+    }
+
+    {
         assert(ember::absMagnitude(Integer(-7)) == Integer(7));
         assert(ember::gcdMagnitude(Integer(-18), Integer(24)) == Integer(6));
         assert(ember::gcdMagnitude(Integer(6), Integer(9), Integer(12), Integer(15)) == Integer(3));

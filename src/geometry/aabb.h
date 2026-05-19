@@ -95,19 +95,41 @@ inline bool tryExtractExactIntegerPoint(
     if (!point.hasUniqueIntersection() || isZero(point.x.w))
         return false;
 
-    const Integer xFloor = floorDiv(point.x.x, point.x.w);
-    const Integer xCeil = ceilDiv(point.x.x, point.x.w);
-    const Integer yFloor = floorDiv(point.x.y, point.x.w);
-    const Integer yCeil = ceilDiv(point.x.y, point.x.w);
-    const Integer zFloor = floorDiv(point.x.z, point.x.w);
-    const Integer zCeil = ceilDiv(point.x.z, point.x.w);
+    if (point.x.w == 1)
+    {
+        x = point.x.x;
+        y = point.x.y;
+        z = point.x.z;
+        return true;
+    }
+    if (point.x.w == -1)
+    {
+        x = -point.x.x;
+        y = -point.x.y;
+        z = -point.x.z;
+        return true;
+    }
 
-    if (xFloor != xCeil || yFloor != yCeil || zFloor != zCeil)
+    Integer numeratorX = point.x.x;
+    Integer numeratorY = point.x.y;
+    Integer numeratorZ = point.x.z;
+    Integer denominator = point.x.w;
+    if (denominator < 0)
+    {
+        numeratorX = -numeratorX;
+        numeratorY = -numeratorY;
+        numeratorZ = -numeratorZ;
+        denominator = -denominator;
+    }
+
+    if (numeratorX % denominator != 0 ||
+            numeratorY % denominator != 0 ||
+            numeratorZ % denominator != 0)
         return false;
 
-    x = xFloor;
-    y = yFloor;
-    z = zFloor;
+    x = numeratorX / denominator;
+    y = numeratorY / denominator;
+    z = numeratorZ / denominator;
     return true;
 }
 
@@ -186,6 +208,34 @@ inline void appendPointCoordinateIntervalToAABB(
 
 inline bool appendPointToAABB(AABB3i &box, const PlanePoint3i &point) noexcept
 {
+    if (!point.hasUniqueIntersection() || isZero(point.x.w))
+        return false;
+
+    if (point.x.w == 1)
+    {
+        appendPointCoordinateIntervalToAABB(
+            box,
+            point.x.x,
+            point.x.x,
+            point.x.y,
+            point.x.y,
+            point.x.z,
+            point.x.z);
+        return true;
+    }
+    if (point.x.w == -1)
+    {
+        appendPointCoordinateIntervalToAABB(
+            box,
+            -point.x.x,
+            -point.x.x,
+            -point.x.y,
+            -point.x.y,
+            -point.x.z,
+            -point.x.z);
+        return true;
+    }
+
     appendPointCoordinateIntervalToAABB(
         box,
         floorDiv(point.x.x, point.x.w),
