@@ -167,6 +167,12 @@ void runMath256Tests()
         assert(primitivePoint.w == Integer(1));
         assert(ember::areSameHomPoint(primitivePoint, ember::HomPoint4i(3, 6, 9, 3)));
 
+        const ember::HomPoint4i unitWeightPoint = ember::primitiveHomPoint(ember::HomPoint4i(-3, -2, -1, -1));
+        assert(unitWeightPoint.x == Integer(3));
+        assert(unitWeightPoint.y == Integer(2));
+        assert(unitWeightPoint.z == Integer(1));
+        assert(unitWeightPoint.w == Integer(1));
+
         // 回归：旧实现用 int256_t 交叉相乘比较比例，乘积溢出时会误判不同点相等。
         const ember::HomPoint4i overflowSensitivePoint(Integer(1) << 200, 0, 0, 1);
         const ember::HomPoint4i differentPointWithLargeWeight(0, 0, 0, Integer(1) << 56);
