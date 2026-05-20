@@ -13,6 +13,7 @@
 #include <oneapi/tbb/blocked_range.h>
 #include <oneapi/tbb/parallel_for.h>
 #include <oneapi/tbb/partitioner.h>
+#include <boost/multiprecision/cpp_int.hpp>
 
 #include <algorithm>
 #include <array>
@@ -535,7 +536,7 @@ std::size_t hashIntegerForKey(const Integer &value)
     for (std::size_t shift = 0; shift < 256u; shift += kBitsPerChunk)
     {
         const Integer chunk = (magnitude >> shift) & mask;
-        seed = mixHashValue(seed, static_cast<std::size_t>(chunk.convert_to<std::uint64_t>()));
+        seed = mixHashValue(seed, static_cast<std::size_t>(integerLow64(chunk)));
     }
     return seed;
 }

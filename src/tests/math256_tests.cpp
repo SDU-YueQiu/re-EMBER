@@ -242,7 +242,7 @@ void runMath256Tests()
                    Integer(1) << 180,
                    scaledPlane));
 
-        const Integer maxInteger = (std::numeric_limits<Integer>::max)();
+        const Integer maxInteger = ember::detail::integerMaxMagnitude();
         assert(ember::detail::tryAddInteger(maxInteger - 3, 3, out));
         assert(out == maxInteger);
         assert(!ember::detail::tryAddInteger(maxInteger, 1, out));

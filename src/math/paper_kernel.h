@@ -135,10 +135,10 @@ inline KernelContractResult verifyClassifyVertexWithOracle(
     const int kernelSign = classifyVertex(x, s);
 
     const std::array<std::array<cpp_int, 4>, 4> m = {{
-        {cpp_int(p.a), cpp_int(p.b), cpp_int(p.c), cpp_int(p.d)},
-        {cpp_int(q.a), cpp_int(q.b), cpp_int(q.c), cpp_int(q.d)},
-        {cpp_int(r.a), cpp_int(r.b), cpp_int(r.c), cpp_int(r.d)},
-        {cpp_int(s.a), cpp_int(s.b), cpp_int(s.c), cpp_int(s.d)}
+        {cpp_int(integerToString(p.a)), cpp_int(integerToString(p.b)), cpp_int(integerToString(p.c)), cpp_int(integerToString(p.d))},
+        {cpp_int(integerToString(q.a)), cpp_int(integerToString(q.b)), cpp_int(integerToString(q.c)), cpp_int(integerToString(q.d))},
+        {cpp_int(integerToString(r.a)), cpp_int(integerToString(r.b)), cpp_int(integerToString(r.c)), cpp_int(integerToString(r.d))},
+        {cpp_int(integerToString(s.a)), cpp_int(integerToString(s.b)), cpp_int(integerToString(s.c)), cpp_int(integerToString(s.d))}
     }};
 
     const cpp_int det =

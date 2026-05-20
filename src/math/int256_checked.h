@@ -14,13 +14,13 @@ namespace detail
 {
 inline const Integer &integerMaxMagnitude() noexcept
 {
-    static const Integer value = (std::numeric_limits<Integer>::max)();
+    static const Integer value = ((Integer(1) << 254) - 1) * 2 + 1;
     return value;
 }
 
 inline const Integer &integerMinValue() noexcept
 {
-    static const Integer value = (std::numeric_limits<Integer>::min)();
+    static const Integer value = -integerMaxMagnitude() - 1;
     return value;
 }
 

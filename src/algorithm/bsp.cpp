@@ -45,8 +45,12 @@ int classifyPlaneTripleIntersectionAgainstPlane(
     if (isZero(point.w))
         return 0;
 
-    const Integer dotValue = point.x * s.a + point.y * s.b + point.z * s.c + point.w * s.d;
-    return signum(dotValue) * signum(point.w);
+    const DotInteger dotValue =
+        DotInteger(point.x) * DotInteger(s.a) +
+        DotInteger(point.y) * DotInteger(s.b) +
+        DotInteger(point.z) * DotInteger(s.c) +
+        DotInteger(point.w) * DotInteger(s.d);
+    return ((dotValue > 0) - (dotValue < 0)) * signum(point.w);
 }
 }
 
