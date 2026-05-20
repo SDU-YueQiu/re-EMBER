@@ -1372,9 +1372,9 @@ inline std::vector<PlanePoint3i> enumerateAABBInteriorBridgePoints(
             appendUniqueAABBInteriorPoint(points, box, x, y, z);
     }
 
-    const Integer centerX = floorDiv(box.xMin + box.xMax, Integer(2));
-    const Integer centerY = floorDiv(box.yMin + box.yMax, Integer(2));
-    const Integer centerZ = floorDiv(box.zMin + box.zMax, Integer(2));
+    const Integer centerX = floorDivByTwo(box.xMin + box.xMax);
+    const Integer centerY = floorDivByTwo(box.yMin + box.yMax);
+    const Integer centerZ = floorDivByTwo(box.zMin + box.zMax);
     Integer x;
     Integer y;
     Integer z;

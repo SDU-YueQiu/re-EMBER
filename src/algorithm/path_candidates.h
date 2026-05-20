@@ -248,9 +248,9 @@ inline std::size_t visitFastAABBPathCandidateSeeds(
         }
     }
 
-    const Integer centerX = floorDiv(targetBox.xMin + targetBox.xMax, Integer(2));
-    const Integer centerY = floorDiv(targetBox.yMin + targetBox.yMax, Integer(2));
-    const Integer centerZ = floorDiv(targetBox.zMin + targetBox.zMax, Integer(2));
+    const Integer centerX = floorDivByTwo(targetBox.xMin + targetBox.xMax);
+    const Integer centerY = floorDivByTwo(targetBox.yMin + targetBox.yMax);
+    const Integer centerZ = floorDivByTwo(targetBox.zMin + targetBox.zMax);
     Integer strictCenterX;
     Integer strictCenterY;
     Integer strictCenterZ;
