@@ -115,6 +115,19 @@ void runMath256Tests()
         const ember::Plane3i tiltedS = planeFromPointNormal(Vec3i(1, -3, 12), Vec3i(-23, 3, 5));
         if (ember::hasUniqueIntersection(tiltedA, tiltedB, tiltedC))
             assert(verifyClassifyVertexWithOracle(tiltedA, tiltedB, tiltedC, tiltedS).ok);
+
+        const ember::HomPoint4i unnormalizedIntersection = ember::intersectHomogeneous(
+            ember::Plane3i(2, 0, 0, 0),
+            ember::Plane3i(0, 2, 0, 0),
+            ember::Plane3i(0, 0, 2, -2));
+        assert(unnormalizedIntersection.z == Integer(8));
+        assert(unnormalizedIntersection.w == Integer(8));
+
+        const ember::HomPoint4i wideClassifiedPoint(Integer(1) << 200, 0, 0, 1);
+        const ember::Plane3i widePositivePlane(Integer(1) << 80, 0, 0, 0);
+        const ember::Plane3i wideNegativePlane(-(Integer(1) << 80), 0, 0, 0);
+        assert(wideClassifiedPoint.classify(widePositivePlane) > 0);
+        assert(wideClassifiedPoint.classify(wideNegativePlane) < 0);
     }
 
     {
@@ -195,6 +208,14 @@ void runMath256Tests()
         assert(unitWeightPoint.y == Integer(2));
         assert(unitWeightPoint.z == Integer(1));
         assert(unitWeightPoint.w == Integer(1));
+
+        const Integer largeWeight = Integer(1) << 120;
+        const ember::HomPoint4i integerHomPoint = ember::primitiveHomPoint(
+            ember::HomPoint4i(largeWeight * 11, -largeWeight * 13, largeWeight * 17, largeWeight));
+        assert(integerHomPoint.x == Integer(11));
+        assert(integerHomPoint.y == Integer(-13));
+        assert(integerHomPoint.z == Integer(17));
+        assert(integerHomPoint.w == Integer(1));
 
         // 回归：旧实现用 int256_t 交叉相乘比较比例，乘积溢出时会误判不同点相等。
         const ember::HomPoint4i overflowSensitivePoint(Integer(1) << 200, 0, 0, 1);

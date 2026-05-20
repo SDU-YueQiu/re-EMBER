@@ -28,7 +28,7 @@
 | operator indicator early-out | EMBER 4.5.2 | `constant_discard_count`、single-operand assumption、leaf BSP/classification reuse 已接入 | 早停仍依赖当前 reference WNV 和局部保守判定；错误早停会直接破坏结果 | 只在能证明 entire child indicator 常量时扩展；用 oracle 或 metrics 对照验证 |
 | split strategy 减少热点工作量 | EMBER 4.5.3 | WNTV-aware split、center range split、midpoint fallback 已有 metrics | 当前 split 仍可能造成 polygon 放大，且未直接把 leaf trace/BSP 成本纳入策略 | 先用 profile 找“polygon 放大 -> leaf trace 放大”的 workload，再动 split 逻辑 |
 | work-stealing parallel | EMBER 4.5.4、5.3 | 当前 child 子树级 oneTBB 任务，merge 固定 left -> right | 并行边界较粗；叶内 BSP 和分类串行。并行扩展前必须证明无共享状态和稳定聚合 | 不先动并行；先压低单任务工作量和共享状态复杂度 |
-| 固定宽度齐次整数图元 | EMBER 3.2；BSP paper Table 1、4.1 | 核心仍以 plane、`PlanePoint3i`、4D homogeneous classify 为边界；实验 fixed backend 只作窄接口/oracle | `Integer` 仍不是最终定长 backend；但不能一次性替换全局类型 | 后续只在 `paper_kernel` / fixed backend 窄接口内推进，并保持 oracle 测试 |
+| 固定宽度齐次整数图元 | EMBER 3.2；BSP paper Table 1、4.1 | `PlanePoint3i` 已改为默认保留未约分三平面齐次交点；`classify_vertex` 暂用 512 位点积防止现有 `int256_t` 符号溢出 | 这是过渡层，不是最终 fixed 256 backend；导出阶段也因未约分点变重 | 下一步闭合平面系数预算或把 `classify_vertex` 接到自定义 fixed backend，并把 I/O canonical 化留在边界 |
 
 ## 当前 profile 结论
 
@@ -55,8 +55,8 @@
    segment，以及是否能在不增加状态膨胀的情况下提前合并。
 3. 审计 split strategy 的实际放大链：用 `node_count`、`leaf_fragment_count`、
    `leaf_classification_trace_attempt_count` 找造成 trace 放大的 split 模式。
-4. 对 fixed 256 backend 只做窄接口实验：优先 `classify_vertex` / 4D dot 和
-   `intersect_3_planes`，不得让 `cpp_int` 或 `int512_t` 参与核心分支决策。
+4. 收敛当前 `DotInteger=int512_t` 过渡层：先量化哪些平面来源超过论文 256 位预算，
+   再把 `classify_vertex` / 4D dot 和 `intersect_3_planes` 接到 fixed 256 窄接口。
 
 ## 已完成的接口收缩审计
 

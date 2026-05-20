@@ -22,6 +22,8 @@
 ## 当前实现状态
 
 - `src/math/paper_kernel.h` 是论文 primitive 的受控入口。
+- `PlanePoint3i` 默认缓存 `intersect_3_planes` 的符号规范化齐次点，不再对每个三平面交点做 gcd primitive 化；需要 canonical key 的 I/O 或去重路径必须在自己的边界显式调用 `primitiveHomPoint`。
+- 当前 `HomPoint4i::classify()` 用 `DotInteger` 的 512 位中间点积作为过渡保护，避免未约分齐次点在现有 `boost::multiprecision::int256_t` 上符号溢出；这不是最终论文 kernel，后续必须通过平面系数预算闭合或自定义 fixed backend 收回到 256 位闭包。
 - `src/math/fixed_int256.h` / `src/math/fixed_paper_kernel.h` 是实验性的自定义 256 位定长算术后端，只覆盖 checked 加减乘、3x3 行列式、4D dot、三平面交点和点对平面分类；当前先由测试 oracle 验证，尚未替换核心 `Integer`。
 - `math256_tests` 使用 `cpp_int` 只作为 oracle，验证 `classify_vertex` 与 4x4 行列式符号一致。
 - leaf classification 已移除 homogeneous average、equalized edge、free-coordinate path fallback、齐次点反推坐标平面和 normal-approach 造平面 fallback。
