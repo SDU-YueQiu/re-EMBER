@@ -6,6 +6,7 @@
 
 #include "math/int256_checked.h"
 
+#include <cassert>
 #include <utility>
 
 namespace ember
@@ -103,8 +104,25 @@ Polygon256::Polygon256(
 }
 
 Segment256::Segment256(const Plane3i &startPlane, const Plane3i &endPlane, const Line256 &directionLine) noexcept
-    : start(primitivePlane(startPlane)), end(primitivePlane(endPlane)), direction(directionLine)
+    : Segment256(
+          AssumePrimitivePlanes,
+          primitivePlane(startPlane),
+          primitivePlane(endPlane),
+          directionLine)
 {
+}
+
+Segment256::Segment256(
+    AssumePrimitivePlanesTag,
+    const Plane3i &startPlane,
+    const Plane3i &endPlane,
+    const Line256 &directionLine) noexcept
+    : start(startPlane), end(endPlane), direction(directionLine)
+{
+#ifndef NDEBUG
+    assert(isPrimitivePlaneEquation(startPlane));
+    assert(isPrimitivePlaneEquation(endPlane));
+#endif
     orientSegmentBoundsOutward(start, end, direction);
     refreshEndpointCache();
 }

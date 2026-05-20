@@ -21,6 +21,16 @@ enum class PolygonEdgeProvenance
     ArrangementClip
 };
 
+/**
+ * @brief 标记调用方已经保证传入平面是 primitive 形式。
+ */
+struct AssumePrimitivePlanesTag
+{
+    explicit AssumePrimitivePlanesTag() = default;
+};
+
+inline constexpr AssumePrimitivePlanesTag AssumePrimitivePlanes{};
+
 struct Line256
 {
     Plane3i p1, p2;
@@ -60,6 +70,11 @@ struct Segment256
 
     Segment256() noexcept = default;
     Segment256(const Plane3i &startPlane, const Plane3i &endPlane, const Line256 &directionLine) noexcept;
+    Segment256(
+        AssumePrimitivePlanesTag,
+        const Plane3i &startPlane,
+        const Plane3i &endPlane,
+        const Line256 &directionLine) noexcept;
 
     const PlanePoint3i &getStartPointRef() const noexcept
     {
