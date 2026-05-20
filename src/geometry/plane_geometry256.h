@@ -17,10 +17,10 @@ inline void reducePlaneCoefficients(Integer &a, Integer &b, Integer &c, Integer 
     if (divisor <= 1)
         return;
 
-    a = detail::divideExactByPositive(a, divisor);
-    b = detail::divideExactByPositive(b, divisor);
-    c = detail::divideExactByPositive(c, divisor);
-    d = detail::divideExactByPositive(d, divisor);
+    a /= divisor;
+    b /= divisor;
+    c /= divisor;
+    d /= divisor;
 }
 
 struct Plane3i
