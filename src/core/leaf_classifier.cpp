@@ -65,7 +65,7 @@ std::size_t hashInteger(const Integer &value)
     for (std::size_t shift = 0; shift < 256u; shift += kBitsPerChunk)
     {
         const Integer chunk = (magnitude >> shift) & mask;
-        seed = mixHashValue(seed, static_cast<std::size_t>(chunk.convert_to<std::uint64_t>()));
+        seed = mixHashValue(seed, static_cast<std::size_t>(integerLow64(chunk)));
     }
     return seed;
 }

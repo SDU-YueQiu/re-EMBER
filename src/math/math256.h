@@ -6,26 +6,71 @@
 
 #include "core/perf_tracing.h"
 
-#include <boost/multiprecision/cpp_int.hpp>
-
+#include <algorithm>
+#include <cstdint>
+#include <limits>
 #include <ostream>
 #include <string>
 
 namespace ember
 {
-using Integer = boost::multiprecision::int256_t;
-using WideInteger = boost::multiprecision::int512_t;
-using DotInteger = boost::multiprecision::int512_t;
+using Integer = signed _BitInt(256);
+using UnsignedInteger = unsigned _BitInt(256);
+using WideInteger = signed _BitInt(512);
+using DotInteger = signed _BitInt(512);
 struct Plane3i;
+
+inline UnsignedInteger unsignedMagnitude(Integer value) noexcept
+{
+    if (value >= 0)
+        return static_cast<UnsignedInteger>(value);
+    return ~static_cast<UnsignedInteger>(value) + UnsignedInteger(1);
+}
 
 inline std::string integerToString(const Integer& value)
 {
-    return value.convert_to<std::string>();
+    if (value == 0)
+        return "0";
+
+    UnsignedInteger magnitude = unsignedMagnitude(value);
+    std::string digits;
+    while (magnitude != 0)
+    {
+        const UnsignedInteger quotient = magnitude / 10u;
+        const unsigned digit = static_cast<unsigned>(magnitude - quotient * 10u);
+        digits.push_back(static_cast<char>('0' + digit));
+        magnitude = quotient;
+    }
+    if (value < 0)
+        digits.push_back('-');
+    std::reverse(digits.begin(), digits.end());
+    return digits;
 }
 
 inline long double integerToLongDouble(const Integer& value)
 {
-    return value.convert_to<long double>();
+    UnsignedInteger magnitude = unsignedMagnitude(value);
+    long double result = 0.0L;
+    long double scale = 1.0L;
+    constexpr UnsignedInteger mask = UnsignedInteger(0xffffffffull);
+    while (magnitude != 0)
+    {
+        const std::uint64_t chunk = static_cast<std::uint64_t>(magnitude & mask);
+        result += static_cast<long double>(chunk) * scale;
+        magnitude >>= 32u;
+        scale *= 4294967296.0L;
+    }
+    return value < 0 ? -result : result;
+}
+
+inline std::uint64_t integerLow64(const Integer& value) noexcept
+{
+    return static_cast<std::uint64_t>(static_cast<UnsignedInteger>(value));
+}
+
+inline std::ostream& operator<<(std::ostream& os, const Integer& value)
+{
+    return os << integerToString(value);
 }
 
 inline int signum(const Integer& value) noexcept
@@ -54,6 +99,33 @@ inline bool hasUnitMagnitude(const Integer& value) noexcept
     return value == 1 || value == -1;
 }
 
+inline unsigned countTrailingZeroBits64(std::uint64_t value) noexcept
+{
+#if defined(__clang__) || defined(__GNUC__)
+    return static_cast<unsigned>(__builtin_ctzll(value));
+#else
+    unsigned count = 0;
+    while ((value & 1ull) == 0)
+    {
+        value >>= 1u;
+        ++count;
+    }
+    return count;
+#endif
+}
+
+inline unsigned countTrailingZeroBits(UnsignedInteger value) noexcept
+{
+    unsigned count = 0;
+    constexpr UnsignedInteger lowMask = UnsignedInteger(0xffffffffffffffffull);
+    while ((value & lowMask) == 0)
+    {
+        value >>= 64u;
+        count += 64u;
+    }
+    return count + countTrailingZeroBits64(static_cast<std::uint64_t>(value));
+}
+
 /**
  * @brief 计算两个整数幅值的最大公约数。
  */
@@ -63,16 +135,28 @@ inline Integer gcdMagnitude(Integer lhs, Integer rhs) noexcept
     if (hasUnitMagnitude(lhs) || hasUnitMagnitude(rhs))
         return 1;
 
-    lhs = absMagnitude(lhs);
-    rhs = absMagnitude(rhs);
-    if (isZero(lhs))
-        return rhs;
-    if (isZero(rhs) || lhs == rhs)
-        return lhs;
+    UnsignedInteger lhsMagnitude = unsignedMagnitude(lhs);
+    UnsignedInteger rhsMagnitude = unsignedMagnitude(rhs);
+    if (lhsMagnitude == 0)
+        return static_cast<Integer>(rhsMagnitude);
+    if (rhsMagnitude == 0 || lhsMagnitude == rhsMagnitude)
+        return static_cast<Integer>(lhsMagnitude);
 
-    Integer result = 0;
-    boost::multiprecision::backends::eval_gcd(result.backend(), lhs.backend(), rhs.backend());
-    return result;
+    const unsigned commonTrailingZeroBits = std::min(
+        countTrailingZeroBits(lhsMagnitude),
+        countTrailingZeroBits(rhsMagnitude));
+    lhsMagnitude >>= countTrailingZeroBits(lhsMagnitude);
+
+    do
+    {
+        rhsMagnitude >>= countTrailingZeroBits(rhsMagnitude);
+        if (lhsMagnitude > rhsMagnitude)
+            std::swap(lhsMagnitude, rhsMagnitude);
+        rhsMagnitude -= lhsMagnitude;
+    }
+    while (rhsMagnitude != 0);
+
+    return static_cast<Integer>(lhsMagnitude << commonTrailingZeroBits);
 }
 
 /**

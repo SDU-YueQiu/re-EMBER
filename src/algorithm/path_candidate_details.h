@@ -480,9 +480,9 @@ inline bool tryConvertPlanePointToEuclideanCoordinates(
     if (!point.hasUniqueIntersection() || isZero(point.x.w))
         return false;
 
-    outPoint.x = point.x.x.convert_to<double>() / point.x.w.convert_to<double>();
-    outPoint.y = point.x.y.convert_to<double>() / point.x.w.convert_to<double>();
-    outPoint.z = point.x.z.convert_to<double>() / point.x.w.convert_to<double>();
+    outPoint.x = static_cast<double>(integerToLongDouble(point.x.x) / integerToLongDouble(point.x.w));
+    outPoint.y = static_cast<double>(integerToLongDouble(point.x.y) / integerToLongDouble(point.x.w));
+    outPoint.z = static_cast<double>(integerToLongDouble(point.x.z) / integerToLongDouble(point.x.w));
     return std::isfinite(outPoint.x) &&
            std::isfinite(outPoint.y) &&
            std::isfinite(outPoint.z);
