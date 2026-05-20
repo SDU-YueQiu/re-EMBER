@@ -181,6 +181,8 @@ flowchart TD
 - `center-range`：如果没有 WNTV 分离候选，则按多边形中心分布范围最大的轴切分，并在平均中心位置落刀。
 - `midpoint`：最后才退回 AABB 中点切分。
 
+`buildSubdivisionSplitStats()` 是启发式统计，不参与 exactness 判定。如果当前节点已经是单操作数，则不会构造必然无法命中的 WNTV 分组候选，只统计 `center-range` fallback 需要的中心分布。
+
 ```mermaid
 flowchart TD
     A["chooseSubdivisionSplit()"] --> B["buildSubdivisionSplitStats()"]
