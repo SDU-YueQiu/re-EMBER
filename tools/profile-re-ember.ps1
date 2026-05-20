@@ -1611,6 +1611,17 @@ function New-TimingRow {
         child_reference_candidate_tried_count = [math]::Round((Get-Metric $metrics "child_reference_candidate_tried_count"), 0)
         child_reference_fast_candidate_tried_count = [math]::Round((Get-Metric $metrics "child_reference_fast_candidate_tried_count"), 0)
         child_reference_exhaustive_candidate_tried_count = [math]::Round((Get-Metric $metrics "child_reference_exhaustive_candidate_tried_count"), 0)
+        trace_path_start_point_on_boundary_count = [math]::Round((Get-Metric $metrics "trace_path_start_point_on_boundary_count"), 0)
+        trace_path_end_point_on_boundary_count = [math]::Round((Get-Metric $metrics "trace_path_end_point_on_boundary_count"), 0)
+        trace_path_endpoint_on_boundary_contact_count = [math]::Round((Get-Metric $metrics "trace_path_endpoint_on_boundary_contact_count"), 0)
+        trace_path_edge_overlap_count = [math]::Round((Get-Metric $metrics "trace_path_edge_overlap_count"), 0)
+        trace_path_boundary_hit_rejected_regular_edge_count = [math]::Round((Get-Metric $metrics "trace_path_boundary_hit_rejected_regular_edge_count"), 0)
+        trace_path_boundary_hit_rejected_subdivision_clip_edge_count = [math]::Round((Get-Metric $metrics "trace_path_boundary_hit_rejected_subdivision_clip_edge_count"), 0)
+        trace_path_boundary_hit_rejected_mixed_edge_count = [math]::Round((Get-Metric $metrics "trace_path_boundary_hit_rejected_mixed_edge_count"), 0)
+        trace_path_boundary_hit_rejected_unknown_count = [math]::Round((Get-Metric $metrics "trace_path_boundary_hit_rejected_unknown_count"), 0)
+        trace_path_boundary_hit_allowed_subdivision_clip_edge_count = [math]::Round((Get-Metric $metrics "trace_path_boundary_hit_allowed_subdivision_clip_edge_count"), 0)
+        trace_path_non_strict_intersection_count = [math]::Round((Get-Metric $metrics "trace_path_non_strict_intersection_count"), 0)
+        trace_path_boundary_contact_without_intersection_count = [math]::Round((Get-Metric $metrics "trace_path_boundary_contact_without_intersection_count"), 0)
         single_operand_assumption_stop_count = [math]::Round((Get-Metric $metrics "single_operand_assumption_stop_count"), 0)
         single_operand_assumption_fallback_count = [math]::Round((Get-Metric $metrics "single_operand_assumption_fallback_count"), 0)
         single_operand_leaf_bsp_skip_count = [math]::Round((Get-Metric $metrics "single_operand_leaf_bsp_skip_count"), 0)
@@ -2003,6 +2014,33 @@ function New-StrategySummaryRow {
     }
 }
 
+function New-TraceReasonSummaryRows {
+    param([object[]]$TimingRows)
+
+    $rows = New-Object System.Collections.Generic.List[object]
+    foreach ($entry in @(
+        [pscustomobject]@{ Reason = "start_point_on_boundary"; Metric = "trace_path_start_point_on_boundary_count" },
+        [pscustomobject]@{ Reason = "end_point_on_boundary"; Metric = "trace_path_end_point_on_boundary_count" },
+        [pscustomobject]@{ Reason = "endpoint_on_boundary_contact"; Metric = "trace_path_endpoint_on_boundary_contact_count" },
+        [pscustomobject]@{ Reason = "edge_overlap"; Metric = "trace_path_edge_overlap_count" },
+        [pscustomobject]@{ Reason = "boundary_hit_rejected_regular_edge"; Metric = "trace_path_boundary_hit_rejected_regular_edge_count" },
+        [pscustomobject]@{ Reason = "boundary_hit_rejected_subdivision_clip_edge"; Metric = "trace_path_boundary_hit_rejected_subdivision_clip_edge_count" },
+        [pscustomobject]@{ Reason = "boundary_hit_rejected_mixed_edge"; Metric = "trace_path_boundary_hit_rejected_mixed_edge_count" },
+        [pscustomobject]@{ Reason = "boundary_hit_rejected_unknown"; Metric = "trace_path_boundary_hit_rejected_unknown_count" },
+        [pscustomobject]@{ Reason = "boundary_hit_allowed_subdivision_clip_edge"; Metric = "trace_path_boundary_hit_allowed_subdivision_clip_edge_count" },
+        [pscustomobject]@{ Reason = "non_strict_intersection"; Metric = "trace_path_non_strict_intersection_count" },
+        [pscustomobject]@{ Reason = "boundary_contact_without_intersection"; Metric = "trace_path_boundary_contact_without_intersection_count" }
+    )) {
+        $rows.Add([pscustomobject]@{
+            reason = $entry.Reason
+            metric = $entry.Metric
+            count = [math]::Round((Measure-SumProperty $TimingRows $entry.Metric), 0)
+        })
+    }
+
+    return $rows.ToArray()
+}
+
 function New-StrategySummaryRowFromMetricValue {
     param(
         [double]$MetricCount,
@@ -2140,6 +2178,18 @@ function Write-Reports {
         "avg_child_ref_candidates",
         "avg_results"
     ) -Rows ($workloadRows.ToArray())
+    $reportLines.Add("")
+
+    $traceReasonRows = @(New-TraceReasonSummaryRows $TimingRows)
+    $reportLines.Add("## WNV Trace 失败原因")
+    $reportLines.Add("")
+    $reportLines.Add("下表汇总 ``trace_path_*`` 计数；这些计数用于判断路径候选失败来自端点、边界命中还是非严格交点。")
+    $reportLines.Add("")
+    Add-MarkdownTable -Lines $reportLines -Headers @(
+        "reason",
+        "metric",
+        "count"
+    ) -Rows $traceReasonRows
     $reportLines.Add("")
 
     if ($VerificationCsvPath) {
@@ -2326,6 +2376,9 @@ function Write-Reports {
         $summaryLines.Add(("overall_avg_process_elapsed_ms={0}" -f $overallTimingSummary.avg_process_elapsed_ms))
         $summaryLines.Add(("overall_avg_solve_ms={0}" -f $overallTimingSummary.avg_solve_ms))
         $summaryLines.Add(("overall_avg_export_ms={0}" -f $overallTimingSummary.avg_export_ms))
+    }
+    foreach ($row in (New-TraceReasonSummaryRows $TimingRows)) {
+        $summaryLines.Add(("overall_{0}={1}" -f $row.metric, $row.count))
     }
     foreach ($row in $workloadRows) {
         $summaryLines.Add(("workload={0}" -f $row.workload))
