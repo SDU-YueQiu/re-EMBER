@@ -58,6 +58,20 @@
 4. 对 fixed 256 backend 只做窄接口实验：优先 `classify_vertex` / 4D dot 和
    `intersect_3_planes`，不得让 `cpp_int` 或 `int512_t` 参与核心分支决策。
 
+## 已完成的接口收缩审计
+
+- `clipPolygonToAABB()` 和内部 `clipPolygonToHalfSpace()` 在当前源码与测试中只有
+  定义、没有调用；已从 `polygon_ops.h` 删除，并把真实裁剪依赖改为调用点显式包含
+  `geometry/clipping.h`。
+- `path_candidate_details.h` 中的 `std::vector<int>` / `std::vector<SplitAxis3i>`
+  顺序包装重载没有生产调用；已删除，内部路径构造统一使用 `std::array + count`
+  表达最多三步的论文路径。
+- exhaustive plane replacement 的目标三平面排列和替换顺序当前不能直接合并：
+  目标平面排列决定“哪张目标平面替换哪个定义槽位”，替换顺序又会改变中间点和
+  AABB 内可达性；现有回归测试已经覆盖一个替换顺序失败、另一个顺序成功的场景。
+  后续若要继续删候选，需要先建立“同一端点序列或同一 trace 签名”的等价判据，
+  不能只按最终 target 点去重。
+
 ## 已测但不保留的局部实验
 
 - 叶片分类候选路径 view：结构和 trace 计数不变，但 NoTracy solve 变慢。
