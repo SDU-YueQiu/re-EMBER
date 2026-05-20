@@ -65,22 +65,33 @@ void orientPolygonEdgesOutward(const Plane3i &supportPlane, std::vector<Plane3i>
     }
 }
 
-// 保证线段端点平面法向正确
-void orientSegmentBoundsOutward(Plane3i &startPlane, Plane3i &endPlane, const Line256 &directionLine) noexcept
+// 保证线段端点平面法向正确，并同步填充端点缓存。
+void orientSegmentBoundsOutwardAndCache(
+    Plane3i &startPlane,
+    Plane3i &endPlane,
+    const Line256 &directionLine,
+    PlanePoint3i &startPointCache,
+    PlanePoint3i &endPointCache) noexcept
 {
+    startPointCache = PlanePoint3i(directionLine.p1, directionLine.p2, startPlane);
+    endPointCache = PlanePoint3i(directionLine.p1, directionLine.p2, endPlane);
+
     if (!directionLine.isValid())
         return;
 
-    // TODO：为点添加更多构造函数。
-    const PlanePoint3i startPoint(directionLine.p1, directionLine.p2, startPlane);
-    const PlanePoint3i endPoint(directionLine.p1, directionLine.p2, endPlane);
-    if (!startPoint.hasUniqueIntersection() || !endPoint.hasUniqueIntersection())
+    if (!startPointCache.hasUniqueIntersection() || !endPointCache.hasUniqueIntersection())
         return;
 
-    if (endPoint.classify(startPlane) > 0)
+    if (endPointCache.classify(startPlane) > 0)
+    {
         startPlane = flippedPlane(startPlane);
-    if (startPoint.classify(endPlane) > 0)
+        startPointCache = PlanePoint3i(directionLine.p1, directionLine.p2, startPlane, startPointCache.x);
+    }
+    if (startPointCache.classify(endPlane) > 0)
+    {
         endPlane = flippedPlane(endPlane);
+        endPointCache = PlanePoint3i(directionLine.p1, directionLine.p2, endPlane, endPointCache.x);
+    }
 }
 
 Polygon256::Polygon256(const Plane3i &supportPlane, std::vector<Plane3i> edges)
@@ -123,8 +134,7 @@ Segment256::Segment256(
     assert(isPrimitivePlaneEquation(startPlane));
     assert(isPrimitivePlaneEquation(endPlane));
 #endif
-    orientSegmentBoundsOutward(start, end, direction);
-    refreshEndpointCache();
+    orientSegmentBoundsOutwardAndCache(start, end, direction, startPointCache_, endPointCache_);
 }
 
 void Polygon256::addEdgePlane(const Plane3i &edge, PolygonEdgeProvenance provenance)
