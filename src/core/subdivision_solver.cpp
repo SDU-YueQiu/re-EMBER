@@ -8,6 +8,7 @@
 #include "algorithm/WNV_tracing.h"
 #include "core/perf_tracing.h"
 #include "core/solver_shared.h"
+#include "geometry/clipping.h"
 #include "geometry/polygon_ops.h"
 
 #include <algorithm>
