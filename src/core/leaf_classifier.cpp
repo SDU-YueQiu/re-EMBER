@@ -625,7 +625,8 @@ traceStatus traceLeafClassificationCandidate(
                                    context.polygons,
                                    fragment.plane,
                                    frontWNV,
-                                   backWNV);
+                                   backWNV,
+                                   &context.solveMetrics);
 
     attemptStats.lastStatus = status;
     recordLeafClassificationStatus(context.solveMetrics, stage, status);

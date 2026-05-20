@@ -485,5 +485,6 @@ flowchart TD
 - 子参考传播类：`childReferenceReuseCount`、`childReferenceTraceCount`、`childReferenceCandidateCount`
 - 叶片分类类：`leafFragmentCount`、`classifiedFragmentCount`、`leafClassificationTraceAttemptCount`、`leafClassificationCandidateGeneratedCount`、`leafClassificationCandidateUniqueCount`
 - 叶片分类状态类：`leafClassificationCentroidAxis*Count`、`leafClassificationInsetReplacement*Count`、`leafClassificationBridgeRescue*Count`
+- WNV trace 原因类：`tracePathStartPointOnBoundaryCount`、`tracePathBoundaryHitRejected*Count`、`tracePathBoundaryHitAllowedSubdivisionClipEdgeCount`、`tracePathNonStrictIntersectionCount` 等；这些计数覆盖子参考点传播和叶片 front/back surface trace。
 - 早停/剪枝类：`constantDiscardCount`、`singleOperandAssumptionStopCount`、`singleOperandAssumptionFallbackCount`
   其中 `singleOperandAssumptionFallbackCount` 为兼容保留字段，当前实现应保持为 `0`。
