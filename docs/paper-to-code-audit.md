@@ -5,10 +5,10 @@
 
 ## 当前基线
 
-- 最近可比性能基线：`417159e 收缩细分WNTV分组预留`。
-- 计时基线：`build/performance/run_20260521_071448/timings.csv`，Release
+- 最近可比性能基线：`27b5a28 内联细分WNTV分组存储`。
+- 计时基线：`build/performance/run_20260521_072311/timings.csv`，Release
   NoTracy，论文实验集 `10 small / 10 medium / 2 large`，`--threads 20`。
-- 最近 Tracy 归因：`build/performance/run_20260521_064014/`，单个 large
+- 最近 Tracy 归因：`build/performance/run_20260521_072920/`，单个 large
   workload，RelWithDebInfo，Tracy 和 math Tracy 开启。
 - 当前流水线仍是 `OBJ/STL -> Polygon256 soup -> BoolProblem ->
   SubdivisionSolver -> resultFragments -> OBJ n-gon`。
@@ -32,9 +32,13 @@
 
 ## 当前 profile 结论
 
-`run_20260521_030032` 的 single-large Tracy self hot zones 显示，下一阶段
+`run_20260521_072920` 的 single-large Tracy self hot zones 显示，下一阶段
 最值得处理的不是 I/O 或导出，而是 solver 内部工作量：
 
+- 最新 self 热点仍集中在 `math256::gcdMagnitude`、`math256::floorCeilDiv`、
+  `enumerateLeafClassificationAxisPathCandidateFromKnownAxisProbe`、
+  `buildSubdivisionSplitStats::polygon`、`Polygon256` 缓存重建、
+  `BSPTree::addSegmentRecursive` 和 `tracePathWNVToSurfacePointImpl::polygon`。
 - `Polygon256::rebuildVertexAndAABBCaches` / `rebuildVertexCache` 很高，但
   已测试过“trusted clipping 立即预计算顶点+AABB”，NoTracy 变慢；说明不能简单把
   懒缓存改成 eager 缓存。
@@ -157,5 +161,10 @@
   全部通过且导出面数不变，但 `run_20260521_070837` 相比 `run_20260521_063440`
   的聚合 `export_ms` 从 1933.74ms 退化到 2171.55ms；未约分 key 降低顶点合并率，
   反而放大后续导出工作。
+- 叶片分类 centroid axis-probe 改为绕过 `LeafClassificationPathCandidate` 临时对象，
+  直接复用 `LeafClassificationContext` 中的路径缓冲；22 个 verifier 全部通过，但
+  `run_20260521_073652` 相比 `run_20260521_072311` 的聚合 `solve_ms` 从
+  1893.49ms 退化到 1922.97ms，`end_to_end_ms` 从 5251.62ms 退化到 5365.28ms；
+  保留原候选对象路径，说明当前瓶颈不是这层 vector 生命周期。
 
 这些结论只用于避免近期重复试错；若 workload、算法边界或 profile 证据变化，可以重新评估。
