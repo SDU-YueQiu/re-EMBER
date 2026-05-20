@@ -398,8 +398,8 @@ void runBoolProblemTests()
             Plane3i(0, 0, 1, -9));
 
         std::vector<ember::Segment256> path;
-        assert(!ember::detail::buildPlaneReplacementPath(reference, target, box, {0, 1, 2}, path));
-        assert(ember::detail::buildPlaneReplacementPath(reference, target, box, {1, 2, 0}, path));
+        assert(!ember::detail::buildPlaneReplacementPath(reference, target, box, {0, 1, 2}, 3, path));
+        assert(ember::detail::buildPlaneReplacementPath(reference, target, box, {1, 2, 0}, 3, path));
         assert(!path.empty());
         assert(ember::areSamePlanePoint(path.front().getStartPointRef(), reference));
         assert(ember::areSamePlanePoint(path.back().getEndPointRef(), target));

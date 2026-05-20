@@ -330,20 +330,6 @@ inline bool buildAxisAlignedCornerPath(
                outPath);
 }
 
-inline bool buildAxisAlignedCornerPath(
-    const PlanePoint3i &startPoint,
-    const PlanePoint3i &targetPoint,
-    const std::vector<SplitAxis3i> &axisOrder,
-    std::vector<Segment256> &outPath)
-{
-    std::array<SplitAxis3i, 3> axisOrderArray = {};
-    const std::size_t axisCount = std::min<std::size_t>(axisOrder.size(), axisOrderArray.size());
-    for (std::size_t axisIndex = 0; axisIndex < axisCount; ++axisIndex)
-        axisOrderArray[axisIndex] = axisOrder[axisIndex];
-
-    return buildAxisAlignedCornerPath(startPoint, targetPoint, axisOrderArray, axisCount, outPath);
-}
-
 /**
  * @brief 按给定轴顺序，从多边形包围盒中心附近构造轴对齐探测线上的严格内部点。
  *
@@ -1633,28 +1619,6 @@ inline bool buildBoundedPlaneReplacementPathForOrder(
                outPath);
 }
 
-inline bool buildBoundedPlaneReplacementPathForOrder(
-    const PlanePoint3i &startPoint,
-    const PlanePoint3i &targetPoint,
-    const AABB3i &box,
-    const std::vector<int> &planeReplacementOrder,
-    std::vector<Segment256> &outPath)
-{
-    std::array<int, 3> planeReplacementOrderArray = {};
-    const std::size_t planeReplacementCount =
-        std::min<std::size_t>(planeReplacementOrder.size(), planeReplacementOrderArray.size());
-    for (std::size_t orderIndex = 0; orderIndex < planeReplacementCount; ++orderIndex)
-        planeReplacementOrderArray[orderIndex] = planeReplacementOrder[orderIndex];
-
-    return buildBoundedPlaneReplacementPathForOrder(
-               startPoint,
-               targetPoint,
-               box,
-               planeReplacementOrderArray,
-               planeReplacementCount,
-               outPath);
-}
-
 /**
  * @brief 在所有定义平面替换顺序中寻找一条 AABB 内桥接路径。
  */
@@ -1764,28 +1728,6 @@ inline bool buildPlaneReplacementPath(
         return false;
 
     return clipAndBridgePathToAABB(refPoint, targetPoint, box, rawPath, outPath);
-}
-
-inline bool buildPlaneReplacementPath(
-    const PlanePoint3i &refPoint,
-    const PlanePoint3i &targetPoint,
-    const AABB3i &box,
-    const std::vector<int> &planeReplacementOrder,
-    std::vector<Segment256> &outPath)
-{
-    std::array<int, 3> planeReplacementOrderArray = {};
-    const std::size_t planeReplacementCount =
-        std::min<std::size_t>(planeReplacementOrder.size(), planeReplacementOrderArray.size());
-    for (std::size_t orderIndex = 0; orderIndex < planeReplacementCount; ++orderIndex)
-        planeReplacementOrderArray[orderIndex] = planeReplacementOrder[orderIndex];
-
-    return buildPlaneReplacementPath(
-               refPoint,
-               targetPoint,
-               box,
-               planeReplacementOrderArray,
-               planeReplacementCount,
-               outPath);
 }
 
 /**
