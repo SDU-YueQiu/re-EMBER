@@ -124,6 +124,23 @@ traceStatus tracePathWNVToSurfacePointTrusted(
     WNV &frontWNV,
     WNV &backWNV,
     BoolSolveMetrics *solveMetrics = nullptr);
+
+/**
+ * @brief 使用调用方提供的路径起点侧别缓存传播到曲面目标点。
+ *
+ * @pre `path` 的起点为 `refpoint.point`。
+ * @pre `polygonStartSideCache.size() == polygons.size()`；缓存值为 `2` 时表示未知，
+ *      其它值必须等于对应 polygon 对 `refpoint.point` 的 `classify()` 结果。
+ */
+traceStatus tracePathWNVToSurfacePointTrustedWithStartSides(
+    const refPoint &refpoint,
+    const Path &path,
+    const std::vector<Polygon256> &polygons,
+    std::vector<int> &polygonStartSideCache,
+    const Plane3i &referencePlane,
+    WNV &frontWNV,
+    WNV &backWNV,
+    BoolSolveMetrics *solveMetrics = nullptr);
 }
 }
 

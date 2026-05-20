@@ -49,6 +49,8 @@
 - 当前二元 WNV/WNTV 已改为内联两个分量，避免 polygon tag、reference WNV、
   classified fragment 和 trace 累加的常见堆分配；这只收缩数据表示，不改变
   WNV 传播数学。
+- 叶片分类 trace 已按 leaf 懒缓存 `localReference.point` 对各 polygon 的侧别；
+  缓存只在 polygon 通过路径 AABB 预筛后填充，避免为被跳过的 polygon 提前分类。
 
 ## 下一阶段优先队列
 
@@ -91,6 +93,12 @@
   2 large workload 做了 `-NoTracy -VerifyWithOracle`，22 个 verifier 全部通过且
   oracle cache hit，聚合 `solve_ms` 从 `run_20260521_054526` 的 1990.55ms 降到
   1950.69ms，`end_to_end_ms` 从 5397.31ms 降到 5336.47ms。
+- `tracePathWNVToSurfacePointTrustedWithStartSides()` 为叶片分类增加 local reference
+  起点侧别懒缓存；同一 leaf 内多条候选路径复用同一 polygon 起点分类，且仍在路径
+  AABB 预筛之后才填充缓存。`run_20260521_063440` 对同一 10 small / 10 medium /
+  2 large workload 做了 `-NoTracy -VerifyWithOracle`，22 个 verifier 全部通过且
+  oracle cache hit，聚合 `solve_ms` 从 `run_20260521_060849` 的 1950.69ms 降到
+  1927.46ms，`end_to_end_ms` 从 5336.47ms 降到 5307.45ms。
 
 ## 已测但不保留的局部实验
 
@@ -120,5 +128,8 @@
 - `addScaledWNTV()` 改为通过 `WNV::data()` 指针循环，22 个 verifier 全部通过，但
   `run_20260521_061452` 相比 `run_20260521_060849` 的聚合 `solve_ms` 从 1950.69ms
   退化到 1966.73ms；保留下标访问版本。
+- `appendPointToAABB()` 为同一齐次点三个坐标共用一次分母符号规范化，22 个 verifier
+  全部通过，但 `run_20260521_062619` 相比 `run_20260521_060849` 的聚合 `solve_ms`
+  从 1950.69ms 退化到 1971.96ms；保留原 `floorCeilDiv()` 调用形态。
 
 这些结论只用于避免近期重复试错；若 workload、算法边界或 profile 证据变化，可以重新评估。
