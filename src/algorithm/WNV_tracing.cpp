@@ -482,12 +482,22 @@ traceStatus tracePathWNVToSurfacePointImpl(
             const AABB3i *segmentBox =
                 hasPathBox ? &pathAABB.segmentBox(segmentIndex) : nullptr;
             const PlanePoint3i &endPoint = seg.getEndPointRef();
+            const bool isLastSegment = (segmentIndex + 1 == path.size());
+            bool segmentRelevant = false;
+            bool segmentRelevanceKnown = false;
+            if (isLastSegment)
+            {
+                segmentRelevant = isSegmentRelevantToPolygon(seg, poly, segmentBox);
+                segmentRelevanceKnown = true;
+                if (!segmentRelevant)
+                    break;
+            }
+
             int pce = 0;
             {
                 REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::classifyEndPoint");
                 pce = poly.classify(endPoint);
             }
-            const bool isLastSegment = (segmentIndex + 1 == path.size());
 
             if (!isLastSegment && pce == 0)
             {
@@ -500,7 +510,9 @@ traceStatus tracePathWNVToSurfacePointImpl(
                 continue;
             }
 
-            if (!isSegmentRelevantToPolygon(seg, poly, segmentBox))
+            if (!segmentRelevanceKnown)
+                segmentRelevant = isSegmentRelevantToPolygon(seg, poly, segmentBox);
+            if (!segmentRelevant)
             {
                 pcs = pce;
                 continue;
