@@ -85,6 +85,7 @@ oracle 的精确性边界是 re-EMBER 已经量化后的 `Polygon256` 输入；�
 
 - `-Lhs` / `-Rhs` 和 `-Op` 用于跑一个明确的布尔任务。
 - `-InputRoot` 用于从目录树批量跑多个 case。
+- `-UsePaperExperimentSet` 会按 manifest 在当前 run 目录下生成论文实验批量输入。默认选择 10 个 small、10 个 medium 和 2 个 large workload；可用 `-PaperSmallCount`、`-PaperMediumCount`、`-PaperLargeCount` 调整。
 - `-Out` 指定单个任务的输出文件。
 - `-ExecutablePath` 直接复用已有的 `re-EMBER.exe`，不重新构建。
 - `-Configuration` 选择 profiling 构建类型。只计时的 `-NoTracy` 默认使用 `Release`；Tracy 采样默认使用 `RelWithDebInfo`。
