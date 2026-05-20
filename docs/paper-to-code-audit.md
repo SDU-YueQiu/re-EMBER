@@ -76,6 +76,10 @@
 
 - 叶片分类候选路径 view：结构和 trace 计数不变，但 NoTracy solve 变慢。
 - `buildLeafArrangement()` 结果 vector 预留容量：结构计数不变，solve 信号为负。
+- `buildLeafArrangement()` 删除 `polygonCount < 8` 小叶片旧路径，并改用统一
+  pair-relation adjacency：结构计数不变，但 NoTracy solve 信号为负；进一步改成
+  per-base 分桶、去掉 sort/offset 后仍为负。当前小叶片 `insertTrusted()` 路径虽然
+  代码重复，但在现有 workload 上有性能意义，后续不应只为了统一控制流删除它。
 - 中间端点预筛缓存：结构计数不变，但缓存维护成本超过收益。
 - trusted clipped polygon eager 顶点/AABB 缓存：结构计数不变，solve 信号为负。
 
