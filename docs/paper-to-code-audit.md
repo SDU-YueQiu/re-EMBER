@@ -5,11 +5,11 @@
 
 ## 当前基线
 
-- 最近可比性能基线：`9b907a3 复用centroid轴探测目标元数据`。
-- 计时基线：`build/performance/run_20260521_030519/timings.csv`，Release
+- 最近可比性能基线：`d232e83 合并线段端点定向缓存构造`。
+- 计时基线：`build/performance/run_20260521_054526/timings.csv`，Release
   NoTracy，论文实验集 `10 small / 10 medium / 2 large`，`--threads 20`。
-- 最近 Tracy 归因：`build/performance/run_20260521_030032/`，单个 large
-  workload，RelWithDebInfo，Tracy 开启。
+- 最近 Tracy 归因：`build/performance/run_20260521_055010/`，单个 large
+  workload，RelWithDebInfo，Tracy 和 math Tracy 开启。
 - 当前流水线仍是 `OBJ/STL -> Polygon256 soup -> BoolProblem ->
   SubdivisionSolver -> resultFragments -> OBJ n-gon`。
 
@@ -46,6 +46,9 @@
 - `tracePathWNVToSurfacePointImpl::classifyEndPoint` 已通过最后一段 AABB 相关性
   剪枝减少进入次数，但 `tracePathWNVToSurfacePointImpl::polygon` 和
   `intersectSupportPlane` 仍有明显成本。
+- 当前二元 WNV/WNTV 已改为内联两个分量，避免 polygon tag、reference WNV、
+  classified fragment 和 trace 累加的常见堆分配；这只收缩数据表示，不改变
+  WNV 传播数学。
 
 ## 下一阶段优先队列
 
@@ -82,6 +85,12 @@
   10 small / 10 medium / 2 large workload 做了 `-NoTracy -VerifyWithOracle`，22 个 verifier
   全部通过且 oracle cache hit，结构计数与 `run_20260521_030519` 一致，聚合 `solve_ms`
   从 2438.915ms 降到 2423.462ms。
+- `WNV` 从 `std::vector<int>` 别名收缩为二元内联小向量，`Polygon256::WNTV` 同步使用
+  该类型；`WNV{...}`、`assign()`、`size()`、下标访问和相等比较保持兼容，超过两个
+  分量时仍懒分配动态存储。`run_20260521_060849` 对同一 10 small / 10 medium /
+  2 large workload 做了 `-NoTracy -VerifyWithOracle`，22 个 verifier 全部通过且
+  oracle cache hit，聚合 `solve_ms` 从 `run_20260521_054526` 的 1990.55ms 降到
+  1950.69ms，`end_to_end_ms` 从 5397.31ms 降到 5336.47ms。
 
 ## 已测但不保留的局部实验
 
@@ -108,5 +117,8 @@
   结构计数不变，22 个 verifier 全部通过，但 `run_20260521_035707` 相比
   `run_20260521_031822` 的聚合 `solve_ms` 从 2423.462ms 退化到 2429.444ms；
   该热循环中的边界值拷贝不是当前主导成本。
+- `addScaledWNTV()` 改为通过 `WNV::data()` 指针循环，22 个 verifier 全部通过，但
+  `run_20260521_061452` 相比 `run_20260521_060849` 的聚合 `solve_ms` 从 1950.69ms
+  退化到 1966.73ms；保留下标访问版本。
 
 这些结论只用于避免近期重复试错；若 workload、算法边界或 profile 证据变化，可以重新评估。
