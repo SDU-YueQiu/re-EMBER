@@ -133,6 +133,7 @@ struct LeafClassificationContext
 {
     const refPoint &localReference;
     const std::vector<Polygon256> &polygons;
+    std::vector<int> &localReferencePolygonSideCache;
     const AABB3i &aabb;
     std::mt19937 &leafRng;
     BoolSolveMetrics &solveMetrics;
@@ -152,6 +153,8 @@ enum class LeafClassificationCandidateKind
     AxisPath,
     PlaneReplacementPath
 };
+
+constexpr int kUnknownLocalReferencePolygonSide = 2;
 
 struct LeafClassificationTraceResult
 {
@@ -672,10 +675,11 @@ traceStatus traceLeafClassificationCandidate(
 
     WNV frontWNV;
     WNV backWNV;
-    const traceStatus status = detail::tracePathWNVToSurfacePointTrusted(
+    const traceStatus status = detail::tracePathWNVToSurfacePointTrustedWithStartSides(
                                    context.localReference,
                                    candidate.path,
                                    context.polygons,
+                                   context.localReferencePolygonSideCache,
                                    fragment.plane,
                                    frontWNV,
                                    backWNV,
@@ -1213,10 +1217,15 @@ bool SubdivisionSolver::tryClassifySingleOperandLeafByBulkReuse()
         return false;
 
     const refPoint localReference(reference_.point, reference_.wnv);
+    std::vector<int> localReferencePolygonSideCache(
+        polygons_.size(),
+        kUnknownLocalReferencePolygonSide);
+
     std::mt19937 leafRng(42u);
     LeafClassificationContext context{
         localReference,
         polygons_,
+        localReferencePolygonSideCache,
         aabb_,
         leafRng,
         solveMetrics_,
@@ -1273,10 +1282,15 @@ void SubdivisionSolver::classifyLeafFragmentsAndCollectResults()
         return;
 
     const refPoint localReference(reference_.point, reference_.wnv);
+    std::vector<int> localReferencePolygonSideCache(
+        polygons_.size(),
+        kUnknownLocalReferencePolygonSide);
+
     std::mt19937 leafRng(42u);
     LeafClassificationContext context{
         localReference,
         polygons_,
+        localReferencePolygonSideCache,
         aabb_,
         leafRng,
         solveMetrics_,

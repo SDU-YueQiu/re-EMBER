@@ -14,6 +14,8 @@ namespace ember
 {
 namespace
 {
+constexpr int kUnknownPolygonStartSide = 2;
+
 enum class BoundaryPolicy
 {
     RejectAll,
@@ -409,11 +411,14 @@ traceStatus tracePathWNVToSurfacePointImpl(
     WNV &backWNV,
     bool validatePolygons,
     bool validatePath,
+    std::vector<int> *polygonStartSideCache,
     BoolSolveMetrics *solveMetrics)
 {
     REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl");
 
     if (path.empty())
+        return INPUT_INVALID;
+    if (polygonStartSideCache != nullptr && polygonStartSideCache->size() != polygons.size())
         return INPUT_INVALID;
 
     if (validatePath)
@@ -459,13 +464,25 @@ traceStatus tracePathWNVToSurfacePointImpl(
     WNV surfaceWNV = refpoint.wnv;
     WNV surfaceDelta(refpoint.wnv.size(), 0);
 
-    for (const Polygon256 &poly : polygons)
+    for (std::size_t polygonIndex = 0; polygonIndex < polygons.size(); ++polygonIndex)
     {
         REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::polygon");
+        const Polygon256 &poly = polygons[polygonIndex];
         if (hasPathBox && canSkipPolygonForPathAABB(poly, pathAABB.pathBox))
             continue;
 
         int pcs = 0;
+        if (polygonStartSideCache != nullptr)
+        {
+            int &cachedSide = (*polygonStartSideCache)[polygonIndex];
+            if (cachedSide == kUnknownPolygonStartSide)
+            {
+                REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::classifyStartPoint");
+                cachedSide = poly.classify(pathStartPoint);
+            }
+            pcs = cachedSide;
+        }
+        else
         {
             REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::classifyStartPoint");
             pcs = poly.classify(pathStartPoint);
@@ -680,6 +697,7 @@ traceStatus tracePathWNVToSurfacePoint(
         backWNV,
         true,
         true,
+        nullptr,
         nullptr);
 }
 
@@ -703,6 +721,32 @@ traceStatus detail::tracePathWNVToSurfacePointTrusted(
         backWNV,
         false,
         false,
+        nullptr,
+        solveMetrics);
+}
+
+traceStatus detail::tracePathWNVToSurfacePointTrustedWithStartSides(
+    const refPoint &refpoint,
+    const Path &path,
+    const std::vector<Polygon256> &polygons,
+    std::vector<int> &polygonStartSideCache,
+    const Plane3i &referencePlane,
+    WNV &frontWNV,
+    WNV &backWNV,
+    BoolSolveMetrics *solveMetrics)
+{
+    REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointTrustedWithStartSides");
+
+    return tracePathWNVToSurfacePointImpl(
+        refpoint,
+        path,
+        polygons,
+        referencePlane,
+        frontWNV,
+        backWNV,
+        false,
+        false,
+        &polygonStartSideCache,
         solveMetrics);
 }
 }
