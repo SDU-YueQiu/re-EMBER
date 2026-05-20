@@ -15,6 +15,7 @@ namespace ember
 {
 using Integer = boost::multiprecision::int256_t;
 using WideInteger = boost::multiprecision::int512_t;
+using DotInteger = boost::multiprecision::int512_t;
 struct Plane3i;
 
 inline std::string integerToString(const Integer& value)
@@ -162,7 +163,7 @@ struct HomPoint4i
     {
     }
 
-    Integer dotPlane(const Plane3i& s) const noexcept;
+    DotInteger dotPlane(const Plane3i& s) const noexcept;
 
     int classify(const Plane3i& s) const noexcept;
 
@@ -208,10 +209,19 @@ inline HomPoint4i primitiveHomPoint(const HomPoint4i& point) noexcept
     if (hasUnitMagnitude(point.w))
         return normalizedHomPointSign(point);
 
-    Integer x = point.x;
-    Integer y = point.y;
-    Integer z = point.z;
-    Integer w = point.w;
+    HomPoint4i normalized = normalizedHomPointSign(point);
+    Integer x = normalized.x;
+    Integer y = normalized.y;
+    Integer z = normalized.z;
+    Integer w = normalized.w;
+    if (!isZero(w) &&
+            x % w == 0 &&
+            y % w == 0 &&
+            z % w == 0)
+    {
+        return HomPoint4i(x / w, y / w, z / w, 1);
+    }
+
     const Integer divisor = gcdMagnitude(x, y, z, w);
     if (divisor > 1)
     {
@@ -220,7 +230,7 @@ inline HomPoint4i primitiveHomPoint(const HomPoint4i& point) noexcept
         z /= divisor;
         w /= divisor;
     }
-    return normalizedHomPointSign(HomPoint4i(x, y, z, w));
+    return HomPoint4i(x, y, z, w);
 }
 
 inline bool isZeroHomPoint(const HomPoint4i& point) noexcept

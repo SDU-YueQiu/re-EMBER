@@ -175,17 +175,21 @@ inline HomPoint4i intersectHomogeneousUnnormalized(const Plane3i &p, const Plane
 // 该函数不做退化检查，调用前应使用 `hasUniqueIntersection()` 确认三平面有唯一交点。
 inline HomPoint4i intersectHomogeneous(const Plane3i &p, const Plane3i &q, const Plane3i &r) noexcept
 {
-    return primitiveHomPoint(intersectHomogeneousUnnormalized(p, q, r));
+    return normalizedHomPointSign(intersectHomogeneousUnnormalized(p, q, r));
 }
 
-inline Integer HomPoint4i::dotPlane(const Plane3i &s) const noexcept
+inline DotInteger HomPoint4i::dotPlane(const Plane3i &s) const noexcept
 {
-    return x * s.a + y * s.b + z * s.c + w * s.d;
+    return DotInteger(x) * DotInteger(s.a) +
+           DotInteger(y) * DotInteger(s.b) +
+           DotInteger(z) * DotInteger(s.c) +
+           DotInteger(w) * DotInteger(s.d);
 }
 
 inline int HomPoint4i::classify(const Plane3i &s) const noexcept
 {
-    return signum(dotPlane(s)) * signum(w);
+    const DotInteger dot = dotPlane(s);
+    return ((dot > 0) - (dot < 0)) * signum(w);
 }
 
 inline int classifyPointAgainstPlane(const HomPoint4i &x, const Plane3i &s) noexcept
@@ -212,7 +216,7 @@ struct PlanePoint3i
      * @brief 使用调用方已知的三平面交点构造点值。
      *
      * @note 该入口只用于内部 trusted 路径；调用方必须保证 `xVal`
-     *       是 `pVal/qVal/rVal` 的 primitive 齐次交点。
+     *       是 `pVal/qVal/rVal` 的等价齐次交点。
      */
     PlanePoint3i(const Plane3i &pVal, const Plane3i &qVal, const Plane3i &rVal, const HomPoint4i &xVal) noexcept
         : p(pVal), q(qVal), r(rVal), x(xVal)
