@@ -195,15 +195,24 @@ inline void appendPointCoordinateIntervalToAABB(
     const Integer &zMin,
     const Integer &zMax) noexcept
 {
-    AABB3i pointBox;
-    pointBox.xMin = xMin;
-    pointBox.xMax = xMax;
-    pointBox.yMin = yMin;
-    pointBox.yMax = yMax;
-    pointBox.zMin = zMin;
-    pointBox.zMax = zMax;
-    pointBox.valid = true;
-    mergeAABB(box, pointBox);
+    if (!box.valid)
+    {
+        box.xMin = xMin;
+        box.xMax = xMax;
+        box.yMin = yMin;
+        box.yMax = yMax;
+        box.zMin = zMin;
+        box.zMax = zMax;
+        box.valid = true;
+        return;
+    }
+
+    if (xMin < box.xMin) box.xMin = xMin;
+    if (xMax > box.xMax) box.xMax = xMax;
+    if (yMin < box.yMin) box.yMin = yMin;
+    if (yMax > box.yMax) box.yMax = yMax;
+    if (zMin < box.zMin) box.zMin = zMin;
+    if (zMax > box.zMax) box.zMax = zMax;
 }
 
 inline bool appendPointToAABB(AABB3i &box, const PlanePoint3i &point) noexcept
