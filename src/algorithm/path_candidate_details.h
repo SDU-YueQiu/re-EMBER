@@ -573,9 +573,6 @@ inline bool buildLeafClassificationCentroidTargetPoint(const Polygon256 &polygon
     Integer centroidZ;
     if (!tryExtractExactIntegerPoint(centroid, centroidX, centroidY, centroidZ))
         return false;
-    const std::array<Plane3i, 3> centroidPlanes =
-        makeIntegerCoordinatePlanes(centroidX, centroidY, centroidZ);
-
     SplitAxis3i axis = SplitAxis3i::X;
     Integer bestAxisMagnitude = absInteger(polygon.plane.a);
     const Integer absNy = absInteger(polygon.plane.b);
@@ -588,14 +585,55 @@ inline bool buildLeafClassificationCentroidTargetPoint(const Polygon256 &polygon
     if (absNz > bestAxisMagnitude)
         axis = SplitAxis3i::Z;
 
+    static constexpr std::array<std::array<int, 2>, 9> nearbyOffsets = {{
+        {0, 0},
+        {-1, 0},
+        {1, 0},
+        {0, -1},
+        {0, 1},
+        {-1, -1},
+        {-1, 1},
+        {1, -1},
+        {1, 1}
+    }};
+    const auto makeCoordinatePlane =
+        [](int axisIndex, const Integer &coordinate) -> Plane3i
+    {
+        if (axisIndex == 0)
+            return Plane3i(1, 0, 0, -coordinate);
+        if (axisIndex == 1)
+            return Plane3i(0, 1, 0, -coordinate);
+        return Plane3i(0, 0, 1, -coordinate);
+    };
+
+    const auto tryAxisProbe =
+        [&](SplitAxis3i probeAxis, int coordAxis0, int coordAxis1) -> bool
+    {
+        for (const std::array<int, 2> &offset : nearbyOffsets)
+        {
+            const Integer coord0 =
+                (coordAxis0 == 0 ? centroidX : coordAxis0 == 1 ? centroidY : centroidZ) + Integer(offset[0]);
+            const Integer coord1 =
+                (coordAxis1 == 0 ? centroidX : coordAxis1 == 1 ? centroidY : centroidZ) + Integer(offset[1]);
+            if (buildAxisProbeInteriorPoint(
+                        polygon,
+                        probeAxis,
+                        makeCoordinatePlane(coordAxis0, coord0),
+                        makeCoordinatePlane(coordAxis1, coord1),
+                        outPoint))
+                return true;
+        }
+        return false;
+    };
+
     switch (axis)
     {
     case SplitAxis3i::X:
-        return buildAxisProbeInteriorPoint(polygon, axis, centroidPlanes[1], centroidPlanes[2], outPoint);
+        return tryAxisProbe(axis, 1, 2);
     case SplitAxis3i::Y:
-        return buildAxisProbeInteriorPoint(polygon, axis, centroidPlanes[0], centroidPlanes[2], outPoint);
+        return tryAxisProbe(axis, 0, 2);
     case SplitAxis3i::Z:
-        return buildAxisProbeInteriorPoint(polygon, axis, centroidPlanes[0], centroidPlanes[1], outPoint);
+        return tryAxisProbe(axis, 0, 1);
     }
 
     return false;
