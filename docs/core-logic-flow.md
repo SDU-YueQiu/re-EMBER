@@ -62,7 +62,7 @@ flowchart TD
 
 这里有几个实现细节值得单独记住：
 
-- 应用层并行不是只拆左右输入：`computeScaledMeshAABB()` 按顶点静态分块，`buildPolygonSoup()` 按顶点量化和输入面构造静态分块，导出阶段按结果片段恢复有序顶点；错误检查和最终合并仍按原始顺序串行执行。`raw` 导出只构建顶点/面索引，不复制 T-junction 修复所需的边平面和边来源元数据。
+- 应用层并行不是只拆左右输入：`computeScaledMeshAABB()` 按顶点静态分块，`buildPolygonSoup()` 按顶点量化和输入面构造静态分块，导出阶段按结果片段恢复有序顶点；错误检查和最终合并仍按原始顺序串行执行。CLI 写出 `problem.resultFragments()` 时信任 solver 内部片段，不重复执行完整 `Polygon256::isValid()`；公开 I/O API 仍默认验证传入片段。`raw` 导出只构建顶点/面索引，不复制 T-junction 修复所需的边平面和边来源元数据。
 - `setOperands()` 会给左操作数写入基础 `WNTV={1,0}`，给右操作数写入 `WNTV={0,1}`。
 - CLI 的 `--threads` 会同时设置应用层 `task_arena` 大小和 `BoolProblem::setThreadCount()`；`0` 表示自动并发度，`1` 表示全流程强制串行，`N>1` 表示总参与线程数为 `N`。
 - `BoolProblem` 不再暴露直接注入任意 `WNTV` polygon 集合的公开入口，公开输入边界固定为二元操作数。

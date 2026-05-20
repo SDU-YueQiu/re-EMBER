@@ -639,6 +639,7 @@ int main(int argc, char **argv)
                 ember::PolygonSoupExportOptions exportOptions;
                 exportOptions.coordinateScale = sharedScale;
                 exportOptions.topologyMode = ember::app::toPolygonSoupTopologyMode(options.outputTopologyMode);
+                exportOptions.validateFragments = false;
                 exported = ember::writePolygonSoupMesh(
                     problem.resultFragments(),
                     options.outputPath,

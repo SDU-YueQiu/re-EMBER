@@ -860,10 +860,11 @@ std::string makeUndirectedEdgeKey(std::size_t lhs, std::size_t rhs)
 bool recoverOrderedPolygonVertices(
     const Polygon256 &polygon,
     std::vector<PlanePoint3i> &outVertices,
-    std::string &outError)
+    std::string &outError,
+    bool validatePolygon)
 {
     outVertices.clear();
-    if (!polygon.isValid())
+    if (validatePolygon && !polygon.isValid())
     {
         outError = "Attempted to export an invalid Polygon256.";
         return false;
@@ -904,7 +905,8 @@ bool recoverPolygonSoupData(
     const std::vector<Polygon256> &fragments,
     RecoveredPolygonSoupData &outData,
     std::string &outError,
-    bool includeTopologyMetadata)
+    bool includeTopologyMetadata,
+    bool validateFragments)
 {
     outData.uniqueVertices.clear();
     outData.faces.clear();
@@ -920,7 +922,8 @@ bool recoverPolygonSoupData(
         if (!recoverOrderedPolygonVertices(
                     fragments[polygonIndex],
                     recoveredPolygons[polygonIndex].orderedVertices,
-                    polygonError))
+                    polygonError,
+                    validateFragments))
         {
             recoveredPolygons[polygonIndex].error =
                 "Failed to recover polygon " + std::to_string(polygonIndex) + ": " + polygonError;
@@ -1988,7 +1991,12 @@ bool writePolygonSoupObj(
 
     RecoveredPolygonSoupData recovered;
     const bool needsTopologyMetadata = options.topologyMode != PolygonSoupTopologyMode::Raw;
-    if (!recoverPolygonSoupData(fragments, recovered, outError, needsTopologyMetadata))
+    if (!recoverPolygonSoupData(
+            fragments,
+            recovered,
+            outError,
+            needsTopologyMetadata,
+            options.validateFragments))
     {
         outError = "Failed to prepare polygon soup OBJ export: " + outError;
         return false;
@@ -2057,7 +2065,12 @@ bool writePolygonSoupStl(
 
     RecoveredPolygonSoupData recovered;
     const bool needsTopologyMetadata = options.topologyMode != PolygonSoupTopologyMode::Raw;
-    if (!recoverPolygonSoupData(fragments, recovered, outError, needsTopologyMetadata))
+    if (!recoverPolygonSoupData(
+            fragments,
+            recovered,
+            outError,
+            needsTopologyMetadata,
+            options.validateFragments))
     {
         outError = "Failed to prepare polygon soup STL export: " + outError;
         return false;
@@ -2319,7 +2332,12 @@ bool buildObjMeshFromPolygonSoup(
 
     RecoveredPolygonSoupData recovered;
     const bool needsTopologyMetadata = options.topologyMode != PolygonSoupTopologyMode::Raw;
-    if (!recoverPolygonSoupData(fragments, recovered, outError, needsTopologyMetadata))
+    if (!recoverPolygonSoupData(
+            fragments,
+            recovered,
+            outError,
+            needsTopologyMetadata,
+            options.validateFragments))
     {
         outError = "Failed to prepare OBJ mesh from polygon soup: " + outError;
         return false;
@@ -2351,7 +2369,7 @@ bool buildExactMeshFromPolygonSoup(
 
     RecoveredPolygonSoupData recovered;
     const bool needsTopologyMetadata = topologyMode != PolygonSoupTopologyMode::Raw;
-    if (!recoverPolygonSoupData(fragments, recovered, outError, needsTopologyMetadata))
+    if (!recoverPolygonSoupData(fragments, recovered, outError, needsTopologyMetadata, true))
     {
         outError = "Failed to prepare exact mesh from polygon soup: " + outError;
         return false;

@@ -112,6 +112,14 @@ struct PolygonSoupExportOptions
      * @brief 导出前执行的拓扑恢复策略。
      */
     PolygonSoupTopologyMode topologyMode = PolygonSoupTopologyMode::Raw;
+
+    /**
+     * @brief 导出前是否重新验证每个 `Polygon256` 的凸性和边法向约定。
+     *
+     * @note 公开 API 默认保持开启；CLI 导出 `BoolProblem::resultFragments()`
+     *       这类内部已验证结果时可关闭，以避免重复做完整几何有效性检查。
+     */
+    bool validateFragments = true;
 };
 
 /**
