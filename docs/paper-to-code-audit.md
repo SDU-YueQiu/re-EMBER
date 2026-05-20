@@ -5,10 +5,10 @@
 
 ## 当前基线
 
-- 最近可比性能基线：`d232e83 合并线段端点定向缓存构造`。
-- 计时基线：`build/performance/run_20260521_054526/timings.csv`，Release
+- 最近可比性能基线：`8e6adc3 缓存叶片参考点侧别`。
+- 计时基线：`build/performance/run_20260521_063440/timings.csv`，Release
   NoTracy，论文实验集 `10 small / 10 medium / 2 large`，`--threads 20`。
-- 最近 Tracy 归因：`build/performance/run_20260521_055010/`，单个 large
+- 最近 Tracy 归因：`build/performance/run_20260521_064014/`，单个 large
   workload，RelWithDebInfo，Tracy 和 math Tracy 开启。
 - 当前流水线仍是 `OBJ/STL -> Polygon256 soup -> BoolProblem ->
   SubdivisionSolver -> resultFragments -> OBJ n-gon`。
@@ -99,6 +99,12 @@
   2 large workload 做了 `-NoTracy -VerifyWithOracle`，22 个 verifier 全部通过且
   oracle cache hit，聚合 `solve_ms` 从 `run_20260521_060849` 的 1950.69ms 降到
   1927.46ms，`end_to_end_ms` 从 5336.47ms 降到 5307.45ms。
+- `buildSubdivisionSplitStats()` 的 WNTV 分组预留从当前节点 polygon 数量收缩到小常数；
+  二元布尔通常只有 lhs/rhs 两个 WNTV 类，保留自动增长能力但避免每个 subdivision
+  节点按 polygon 数量过度预留。`run_20260521_071448` 对同一 10 small /
+  10 medium / 2 large workload 做了 `-NoTracy -VerifyWithOracle`，22 个 verifier
+  全部通过，聚合 `solve_ms` 从 `run_20260521_063440` 的 1927.46ms 降到
+  1923.92ms，`end_to_end_ms` 从 5307.45ms 降到 5282.89ms。
 
 ## 已测但不保留的局部实验
 
@@ -131,5 +137,19 @@
 - `appendPointToAABB()` 为同一齐次点三个坐标共用一次分母符号规范化，22 个 verifier
   全部通过，但 `run_20260521_062619` 相比 `run_20260521_060849` 的聚合 `solve_ms`
   从 1950.69ms 退化到 1971.96ms；保留原 `floorCeilDiv()` 调用形态。
+- `BSPTree` 节点从 `unique_ptr` 子节点改成 `deque` 节点池、裸指针连接，22 个 verifier
+  全部通过，但 `run_20260521_064400` 相比 `run_20260521_063440` 的聚合
+  `solve_ms` 从 1927.46ms 退化到 1932.49ms；deque 分块和指针间接没有抵消分配收益。
+- 已知 axis-probe 目标的 AABB 检查改为只对自由轴做齐次比较、固定轴直接整数比较，
+  22 个 verifier 全部通过，但 `run_20260521_065528` 相比 `run_20260521_063440`
+  的聚合 `solve_ms` 从 1927.46ms 退化到 1929.04ms；保留通用 AABB 检查。
+- `gcdMagnitude()` 改为欧几里得 `%` 版本，22 个 verifier 全部通过，但
+  `run_20260521_070128` 相比 `run_20260521_063440` 的聚合 `solve_ms` 从
+  1927.46ms 退化到 1987.54ms，`end_to_end_ms` 从 5307.45ms 退化到 6072.29ms；
+  该 `_BitInt(256)` 后端上 256 位取模成本高于现有二进制 gcd。
+- Raw OBJ/STL 导出的顶点去重 key 改为未 gcd 的符号规范化齐次四元组，22 个 verifier
+  全部通过且导出面数不变，但 `run_20260521_070837` 相比 `run_20260521_063440`
+  的聚合 `export_ms` 从 1933.74ms 退化到 2171.55ms；未约分 key 降低顶点合并率，
+  反而放大后续导出工作。
 
 这些结论只用于避免近期重复试错；若 workload、算法边界或 profile 证据变化，可以重新评估。
