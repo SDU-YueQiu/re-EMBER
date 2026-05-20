@@ -427,8 +427,16 @@ void runBoolProblemTests()
         const PlanePoint3i target = ember::makeIntegerPoint(9, 9, 9);
         const std::vector<PlanePoint3i> targetPoints{target};
 
-        const std::vector<ember::LeafClassificationPathCandidate> axisCandidates =
-            ember::enumerateLeafClassificationAxisPathCandidatesFromPoints(reference, targetPoints, box);
+        std::vector<ember::LeafClassificationPathCandidate> axisCandidates;
+        ember::enumerateLeafClassificationAxisPathCandidatesFromPoints(
+            reference,
+            targetPoints,
+            box,
+            [&axisCandidates](ember::LeafClassificationPathCandidate candidate)
+        {
+            axisCandidates.push_back(std::move(candidate));
+            return true;
+        });
         assert(axisCandidates.size() == 1u);
         for (const ember::LeafClassificationPathCandidate &candidate : axisCandidates)
         {
@@ -445,8 +453,16 @@ void runBoolProblemTests()
             }
         }
 
-        const std::vector<ember::LeafClassificationPathCandidate> planeReplacementCandidates =
-            ember::enumerateLeafClassificationPlaneReplacementPathCandidatesFromPoints(reference, targetPoints, box);
+        std::vector<ember::LeafClassificationPathCandidate> planeReplacementCandidates;
+        ember::enumerateLeafClassificationPlaneReplacementPathCandidatesFromPoints(
+            reference,
+            targetPoints,
+            box,
+            [&planeReplacementCandidates](ember::LeafClassificationPathCandidate candidate)
+        {
+            planeReplacementCandidates.push_back(std::move(candidate));
+            return true;
+        });
         assert(planeReplacementCandidates.size() == 6u);
         for (const ember::LeafClassificationPathCandidate &candidate : planeReplacementCandidates)
         {
@@ -473,12 +489,28 @@ void runBoolProblemTests()
             Plane3i(2, 0, 0, -9));
         const std::vector<PlanePoint3i> targetPoints{target};
 
-        const std::vector<ember::LeafClassificationPathCandidate> axisCandidates =
-            ember::enumerateLeafClassificationAxisPathCandidatesFromPoints(reference, targetPoints, box);
+        std::vector<ember::LeafClassificationPathCandidate> axisCandidates;
+        ember::enumerateLeafClassificationAxisPathCandidatesFromPoints(
+            reference,
+            targetPoints,
+            box,
+            [&axisCandidates](ember::LeafClassificationPathCandidate candidate)
+        {
+            axisCandidates.push_back(std::move(candidate));
+            return true;
+        });
         assert(axisCandidates.empty());
 
-        const std::vector<ember::LeafClassificationPathCandidate> planeReplacementCandidates =
-            ember::enumerateLeafClassificationPlaneReplacementPathCandidatesFromPoints(reference, targetPoints, box);
+        std::vector<ember::LeafClassificationPathCandidate> planeReplacementCandidates;
+        ember::enumerateLeafClassificationPlaneReplacementPathCandidatesFromPoints(
+            reference,
+            targetPoints,
+            box,
+            [&planeReplacementCandidates](ember::LeafClassificationPathCandidate candidate)
+        {
+            planeReplacementCandidates.push_back(std::move(candidate));
+            return true;
+        });
         assert(planeReplacementCandidates.empty());
 
         std::size_t visitedExhaustiveCandidates = 0;
