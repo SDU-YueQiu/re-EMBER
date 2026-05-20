@@ -33,6 +33,24 @@ inline bool buildAnyBoundedPlaneReplacementBridgePath(
     std::vector<Segment256> &outPath);
 
 /**
+ * @brief 为整数坐标构造单个轴对齐坐标平面。
+ */
+inline Plane3i makeIntegerCoordinatePlane(SplitAxis3i axis, const Integer &coordinate) noexcept
+{
+    switch (axis)
+    {
+    case SplitAxis3i::X:
+        return Plane3i(1, 0, 0, -coordinate);
+    case SplitAxis3i::Y:
+        return Plane3i(0, 1, 0, -coordinate);
+    case SplitAxis3i::Z:
+        return Plane3i(0, 0, 1, -coordinate);
+    }
+
+    return Plane3i();
+}
+
+/**
  * @brief 为整数坐标点构造三个轴对齐坐标平面。
  */
 inline std::array<Plane3i, 3> makeIntegerCoordinatePlanes(
@@ -596,14 +614,14 @@ inline bool buildLeafClassificationCentroidTargetPoint(const Polygon256 &polygon
         {1, -1},
         {1, 1}
     }};
-    const auto makeCoordinatePlane =
-        [](int axisIndex, const Integer &coordinate) -> Plane3i
+    const auto axisFromIndex =
+        [](int axisIndex) noexcept -> SplitAxis3i
     {
         if (axisIndex == 0)
-            return Plane3i(1, 0, 0, -coordinate);
+            return SplitAxis3i::X;
         if (axisIndex == 1)
-            return Plane3i(0, 1, 0, -coordinate);
-        return Plane3i(0, 0, 1, -coordinate);
+            return SplitAxis3i::Y;
+        return SplitAxis3i::Z;
     };
 
     const auto tryAxisProbe =
@@ -618,8 +636,8 @@ inline bool buildLeafClassificationCentroidTargetPoint(const Polygon256 &polygon
             if (buildAxisProbeInteriorPoint(
                         polygon,
                         probeAxis,
-                        makeCoordinatePlane(coordAxis0, coord0),
-                        makeCoordinatePlane(coordAxis1, coord1),
+                        makeIntegerCoordinatePlane(axisFromIndex(coordAxis0), coord0),
+                        makeIntegerCoordinatePlane(axisFromIndex(coordAxis1), coord1),
                         outPoint))
                 return true;
         }
@@ -1121,8 +1139,7 @@ inline bool buildAxisProbePath(
         }
 
         std::array<Plane3i, 3> nextPlanes = currentPlanes;
-        nextPlanes[axisIndex] =
-            makeIntegerCoordinatePlanes(next[0], next[1], next[2])[axisIndex];
+        nextPlanes[axisIndex] = makeIntegerCoordinatePlane(axis, next[axisIndex]);
 
         Segment256 segment;
         if (!buildAxisAlignedSegmentFromCoordinatePlanes(currentPlanes, nextPlanes, axis, segment))
