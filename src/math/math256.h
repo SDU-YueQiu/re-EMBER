@@ -243,8 +243,7 @@ inline void floorCeilDiv(const Integer& a, const Integer& b, Integer& outFloor, 
     }
 
     const Integer quotient = num / den;
-    const Integer remainder = num % den;
-    if (isZero(remainder))
+    if (quotient * den == num)
     {
         outFloor = quotient;
         outCeil = quotient;
