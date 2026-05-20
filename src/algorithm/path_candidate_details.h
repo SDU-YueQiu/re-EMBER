@@ -1151,9 +1151,8 @@ inline bool buildAxisProbePath(
     std::array<Integer, 3> current = {startX, startY, startZ};
     std::array<Plane3i, 3> currentPlanes =
         makeIntegerCoordinatePlanes(current[0], current[1], current[2]);
-    std::array<Segment256, 3> segmentBuffer;
-    std::size_t segmentCount = 0;
     outPath.clear();
+    outPath.reserve(3);
 
     for (const SplitAxis3i axis : {
                 SplitAxis3i::X, SplitAxis3i::Y, SplitAxis3i::Z
@@ -1184,7 +1183,7 @@ inline bool buildAxisProbePath(
             return false;
         }
 
-        segmentBuffer[segmentCount++] = std::move(segment);
+        outPath.push_back(std::move(segment));
         current = next;
         currentPlanes = nextPlanes;
     }
@@ -1212,11 +1211,8 @@ inline bool buildAxisProbePath(
         outPath.clear();
         return false;
     }
-    segmentBuffer[segmentCount++] = std::move(finalSegment);
+    outPath.push_back(std::move(finalSegment));
 
-    outPath.reserve(segmentCount);
-    for (std::size_t i = 0; i < segmentCount; ++i)
-        outPath.push_back(std::move(segmentBuffer[i]));
     return !outPath.empty();
 }
 
