@@ -70,13 +70,6 @@ public:
     void insertCoplanarPolygonTrusted(const Polygon256& polygon, std::size_t incomingOrder = 0);
 
     /**
-     * @brief 收集当前局部 BSP 的全部启用叶子几何。
-     *
-     * @return 按树遍历顺序输出的叶片多边形集合。
-     */
-    std::vector<Polygon256> collectLeafGeometries() const;
-
-    /**
      * @brief 将当前局部 BSP 的启用叶子几何移动追加到输出数组。
      *
      * @param[in,out] outLeafGeometries 接收叶片多边形的数组。
@@ -105,7 +98,6 @@ private:
     // 递归检测每片叶子多边形是否完全落在指定共面多边形中；若在其中则禁用该叶片。
     static void disableOverlapLeavesRecursive(BSPNode* node, const Polygon256& polygon);
     static bool containsRecursive(const BSPNode* node, const PlanePoint3i& point) noexcept;
-    static void collectLeafGeometriesRecursive(const BSPNode* node, std::vector<Polygon256>& outLeafGeometries);
     static void extractLeafGeometriesRecursive(BSPNode* node, std::vector<Polygon256>& outLeafGeometries);
     std::unique_ptr<BSPNode> root;
     Polygon256 basePolygon;

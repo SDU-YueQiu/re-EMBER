@@ -134,15 +134,6 @@ bool BSPTree::contains(const PlanePoint3i &point) const noexcept
     return containsRecursive(root.get(), point);
 }
 
-std::vector<Polygon256> BSPTree::collectLeafGeometries() const
-{
-    REEMBER_PROFILE_ZONE("BSPTree::collectLeafGeometries");
-
-    std::vector<Polygon256> leafGeometries;
-    collectLeafGeometriesRecursive(root.get(), leafGeometries);
-    return leafGeometries;
-}
-
 void BSPTree::extractLeafGeometriesInto(std::vector<Polygon256> &outLeafGeometries)
 {
     REEMBER_PROFILE_ZONE("BSPTree::extractLeafGeometriesInto");
@@ -272,23 +263,6 @@ bool BSPTree::containsRecursive(const BSPNode *node, const PlanePoint3i &point) 
         return containsRecursive(node->back.get(), point);
 
     return containsRecursive(node->front.get(), point) || containsRecursive(node->back.get(), point);
-}
-
-void BSPTree::collectLeafGeometriesRecursive(const BSPNode *node, std::vector<Polygon256> &outLeafGeometries)
-{
-    if (!node)
-        return;
-
-    if (node->isLeaf)
-    {
-        // TODO：如果后续并行化，需要重新处理这里的收集写入。
-        if (!node->disabled)
-            outLeafGeometries.push_back(node->leafGeometry);
-        return;
-    }
-
-    collectLeafGeometriesRecursive(node->front.get(), outLeafGeometries);
-    collectLeafGeometriesRecursive(node->back.get(), outLeafGeometries);
 }
 
 void BSPTree::extractLeafGeometriesRecursive(BSPNode *node, std::vector<Polygon256> &outLeafGeometries)
