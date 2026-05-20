@@ -120,7 +120,7 @@ struct Polygon256
     std::vector<PolygonEdgeProvenance> edgeProvenances;
 
     // 环绕数转换向量
-    std::vector<int> WNTV;
+    WNV WNTV;
 
     Polygon256() = default;
     Polygon256(const Plane3i &supportPlane, std::vector<Plane3i> edges);
