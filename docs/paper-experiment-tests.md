@@ -23,3 +23,5 @@ ctest --test-dir build -C Debug --output-on-failure --timeout 120
 排查叶片分类性能时，优先查看 `timings.csv` 中逐 case 的 `leaf_classification_candidate_generated_count`、`leaf_classification_candidate_unique_count`、`leaf_classification_candidate_duplicate_skip_count`、`leaf_classification_candidate_intermediate_endpoint_rejected_count`、`leaf_classification_candidate_repair_attempt_count` 和三个阶段的 `leaf_classification_*_input_invalid_count`。这些字段能区分候选枚举放大、重复路径、非末段端点落面预检、局部修复和真实 trace 失败。
 
 如果要专门分析 `PATH_INVALID` 的几何来源，优先看 `report.md` 的 “WNV Trace 失败原因” 汇总，再按需回到同批 `timing_*.metrics.txt` 里的 `trace_path_*` 计数；这些字段会区分起终点落边界、边重叠、边界命中以及原始边/`SubdivisionClip` 边等主要失败来源。统一放开 `SubdivisionClip` 边界横穿之后，重点看 `trace_path_boundary_hit_allowed_subdivision_clip_edge_count`、`trace_path_boundary_hit_rejected_regular_edge_count` 和 `leaf_classification_trace_attempt_count` 的联动变化。
+
+排查 `Polygon256` 派生缓存成本时，Tracy self zone 需要分开看 `Polygon256::rebuildVertexCache`、`Polygon256::rebuildVertexAndAABBCaches` 和 `Polygon256::rebuildAABBCacheFromVertices`。前者表示只构造边平面交点；第二项表示首次 AABB 访问同时构造顶点和盒子；第三项表示已有顶点缓存后补算 AABB。不要再把旧的单一 `precomputeVertices` 名称当成具体机制来源。

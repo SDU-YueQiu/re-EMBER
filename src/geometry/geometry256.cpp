@@ -144,7 +144,7 @@ void Polygon256::precomputeVertices() const
 
 void Polygon256::rebuildVertexCache() const
 {
-    REEMBER_PROFILE_ZONE("precomputeVertices");
+    REEMBER_PROFILE_ZONE("Polygon256::rebuildVertexCache");
 
     cachedVertices_.clear();
     const std::size_t n = edgePlanes.size();
@@ -159,7 +159,7 @@ void Polygon256::rebuildVertexCache() const
 
 void Polygon256::rebuildVertexAndAABBCaches() const
 {
-    REEMBER_PROFILE_ZONE("precomputeVertices");
+    REEMBER_PROFILE_ZONE("Polygon256::rebuildVertexAndAABBCaches");
 
     cachedVertices_.clear();
     cachedAABB_ = AABB3i();
@@ -177,6 +177,8 @@ void Polygon256::rebuildVertexAndAABBCaches() const
 
 void Polygon256::rebuildAABBCacheFromVertices() const
 {
+    REEMBER_PROFILE_ZONE("Polygon256::rebuildAABBCacheFromVertices");
+
     cachedAABB_ = AABB3i();
     for (const PlanePoint3i &vertex : cachedVertices_)
         appendPointToAABB(cachedAABB_, vertex);
