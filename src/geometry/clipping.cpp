@@ -14,6 +14,16 @@ namespace
 {
 constexpr std::size_t kStackClipSideCapacity = 16u;
 
+bool isTrustedClipPlanePrimitive(const Plane3i& clipPlane) noexcept
+{
+#ifndef NDEBUG
+    return isPrimitivePlaneEquation(clipPlane);
+#else
+    (void)clipPlane;
+    return true;
+#endif
+}
+
 bool tryBuildIntersectionCarrierFromCuts(
     const Polygon256& target,
     const Polygon256& incoming,
@@ -139,12 +149,11 @@ bool buildTrustedClippedPolygonSide(
     edges.reserve(n + 1u);
     provenances.reserve(n + 1u);
 
-    const Plane3i trustedClipPlane = primitivePlane(clipPlane);
-    const Plane3i oppositePlane = primitivePlane(Plane3i(
-        -trustedClipPlane.a,
-        -trustedClipPlane.b,
-        -trustedClipPlane.c,
-        -trustedClipPlane.d));// 取反后表示裁剪平面的另一侧。
+    if (!isTrustedClipPlanePrimitive(clipPlane))
+        return false;
+
+    const Plane3i& trustedClipPlane = clipPlane;
+    const Plane3i oppositePlane = reversedPlaneOrientationPreservingScale(trustedClipPlane);// 取反后表示裁剪平面的另一侧。
 
     for (std::size_t i = 0; i < n; ++i)
     {
@@ -239,12 +248,11 @@ bool clipLeafGeometryByPlaneTrustedWithSidesBuffer(
     backEdges.reserve(n + 1u);
     backProvenances.reserve(n + 1u);
 
-    const Plane3i trustedClipPlane = primitivePlane(clipPlane);
-    const Plane3i oppositePlane = primitivePlane(Plane3i(
-        -trustedClipPlane.a,
-        -trustedClipPlane.b,
-        -trustedClipPlane.c,
-        -trustedClipPlane.d));// 取反后表示裁剪平面的另一侧。
+    if (!isTrustedClipPlanePrimitive(clipPlane))
+        return false;
+
+    const Plane3i& trustedClipPlane = clipPlane;
+    const Plane3i oppositePlane = reversedPlaneOrientationPreservingScale(trustedClipPlane);// 取反后表示裁剪平面的另一侧。
 
     for (std::size_t i = 0; i < n; ++i)
     {
@@ -555,7 +563,8 @@ bool clipLeafGeometryByPlane(const Polygon256& source, const Plane3i& clipPlane,
     if (!source.isValid())
         return false;
 
-    return detail::clipLeafGeometryByPlaneTrusted(source, clipPlane, frontClipped, backClipped);
+    const Plane3i trustedClipPlane = primitivePlane(clipPlane);
+    return detail::clipLeafGeometryByPlaneTrusted(source, trustedClipPlane, frontClipped, backClipped);
 }
 
 //按顶点分类裁剪
