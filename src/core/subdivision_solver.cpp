@@ -399,7 +399,7 @@ bool buildSubdivisionSplitStats(
     stats.wntvGroups.clear();
     stats.centerStats = PolygonCenterSplitStats();
     if (collectWntvGroups)
-        stats.wntvGroups.reserve(polygons.size());
+        stats.wntvGroups.reserve(std::min<std::size_t>(polygons.size(), 4u));
 
     for (const Polygon256 &polygon : polygons)
     {
