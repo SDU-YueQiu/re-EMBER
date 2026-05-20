@@ -85,7 +85,6 @@ public:
      * @param[in] splitPlane 与基底平面共同定义该线段支撑线的切分平面。
      */
     void addSegment(const Plane3i& v0, const Plane3i& v1, const Plane3i& splitPlane);
-    bool contains(const PlanePoint3i& point) const noexcept;
 
 private:
     // 向节点中递归插入以基底多边形平面、切分平面、v0 和 v1 定义的线段。
@@ -97,7 +96,6 @@ private:
 
     // 递归检测每片叶子多边形是否完全落在指定共面多边形中；若在其中则禁用该叶片。
     static void disableOverlapLeavesRecursive(BSPNode* node, const Polygon256& polygon);
-    static bool containsRecursive(const BSPNode* node, const PlanePoint3i& point) noexcept;
     static void extractLeafGeometriesRecursive(BSPNode* node, std::vector<Polygon256>& outLeafGeometries);
     std::unique_ptr<BSPNode> root;
     Polygon256 basePolygon;

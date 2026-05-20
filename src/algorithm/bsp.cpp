@@ -129,11 +129,6 @@ void BSPTree::addSegment(const Plane3i &v0, const Plane3i &v1, const Plane3i &sp
     addSegmentRecursive(*root, v0, v1, splitPlane);
 }
 
-bool BSPTree::contains(const PlanePoint3i &point) const noexcept
-{
-    return containsRecursive(root.get(), point);
-}
-
 void BSPTree::extractLeafGeometriesInto(std::vector<Polygon256> &outLeafGeometries)
 {
     REEMBER_PROFILE_ZONE("BSPTree::extractLeafGeometriesInto");
@@ -246,23 +241,6 @@ void BSPTree::disableOverlapLeavesRecursive(BSPNode *node, const Polygon256 &pol
 
     disableOverlapLeavesRecursive(node->front.get(), polygon);
     disableOverlapLeavesRecursive(node->back.get(), polygon);
-}
-
-bool BSPTree::containsRecursive(const BSPNode *node, const PlanePoint3i &point) noexcept
-{
-    if (!node)
-        return false;
-
-    if (node->isLeaf)
-        return node->leafGeometry.containsOrOnBoundary(point);
-
-    const int side = point.classify(node->splitPlane);
-    if (side > 0)
-        return containsRecursive(node->front.get(), point);
-    if (side < 0)
-        return containsRecursive(node->back.get(), point);
-
-    return containsRecursive(node->front.get(), point) || containsRecursive(node->back.get(), point);
 }
 
 void BSPTree::extractLeafGeometriesRecursive(BSPNode *node, std::vector<Polygon256> &outLeafGeometries)
