@@ -163,6 +163,15 @@ struct Polygon256
 
     bool containsStrictly(const PlanePoint3i &point) const noexcept;
     bool containsOrOnBoundary(const PlanePoint3i &point) const noexcept;
+
+    /**
+     * @brief 用已有 AABB 缓存保守判断点是否仍可能落在多边形范围内。
+     *
+     * @return 仅当已有有效 AABB 缓存能证明点在包围盒外时返回 `false`；
+     *         缓存缺失或无效时返回 `true`，且不会触发缓存重建。
+     */
+    bool cachedAABBMayContain(const PlanePoint3i &point) const noexcept;
+
     bool findStrictInteriorPoint(PlanePoint3i &outPoint) const;
 
 private:
