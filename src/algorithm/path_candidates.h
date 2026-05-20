@@ -655,48 +655,6 @@ inline std::size_t enumerateLeafClassificationPlaneReplacementPathCandidatesFrom
                std::forward<CandidateVisitor>(visitor));
 }
 
-/**
- * @brief 从已生成的内部点收集快速分类路径候选。
- */
-inline std::vector<LeafClassificationPathCandidate> enumerateLeafClassificationAxisPathCandidatesFromPoints(
-    const PlanePoint3i &referencePoint,
-    const std::vector<PlanePoint3i> &targetPoints,
-    const AABB3i &box)
-{
-    std::vector<LeafClassificationPathCandidate> candidates;
-    enumerateLeafClassificationAxisPathCandidatesFromPoints(
-        referencePoint,
-        targetPoints,
-        box,
-        [&candidates](LeafClassificationPathCandidate candidate)
-    {
-        candidates.push_back(std::move(candidate));
-        return true;
-    });
-    return candidates;
-}
-
-/**
- * @brief 从已生成的内部点收集兜底分类路径候选。
- */
-inline std::vector<LeafClassificationPathCandidate> enumerateLeafClassificationPlaneReplacementPathCandidatesFromPoints(
-    const PlanePoint3i &referencePoint,
-    const std::vector<PlanePoint3i> &targetPoints,
-    const AABB3i &box)
-{
-    std::vector<LeafClassificationPathCandidate> candidates;
-    enumerateLeafClassificationPlaneReplacementPathCandidatesFromPoints(
-        referencePoint,
-        targetPoints,
-        box,
-        [&candidates](LeafClassificationPathCandidate candidate)
-    {
-        candidates.push_back(std::move(candidate));
-        return true;
-    });
-    return candidates;
-}
-
 template <typename PlaneReplacementBuildDuplicatePredicate, typename CandidateVisitor>
 inline std::size_t enumerateLeafClassificationExhaustivePlaneReplacementPathCandidatesFromPoints(
     const PlanePoint3i &referencePoint,
