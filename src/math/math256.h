@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <limits>
+#include <numeric>
 #include <ostream>
 #include <string>
 
@@ -126,6 +127,138 @@ inline unsigned countTrailingZeroBits(UnsignedInteger value) noexcept
     return count + countTrailingZeroBits64(static_cast<std::uint64_t>(value));
 }
 
+namespace detail
+{
+inline std::uint64_t lowLimb64(UnsignedInteger value) noexcept
+{
+    return static_cast<std::uint64_t>(value);
+}
+
+inline std::uint64_t limb64(UnsignedInteger value, unsigned index) noexcept
+{
+    return static_cast<std::uint64_t>(value >> (index * 64u));
+}
+
+inline bool fitsIn64(UnsignedInteger value) noexcept
+{
+    return limb64(value, 1) == 0 &&
+           limb64(value, 2) == 0 &&
+           limb64(value, 3) == 0;
+}
+
+inline bool fitsInSigned64(Integer value) noexcept
+{
+    return value >= Integer(std::numeric_limits<std::int64_t>::min()) &&
+           value <= Integer(std::numeric_limits<std::int64_t>::max());
+}
+
+inline unsigned countLeadingZeroBits64(std::uint64_t value) noexcept
+{
+#if defined(__clang__) || defined(__GNUC__)
+    return static_cast<unsigned>(__builtin_clzll(value));
+#else
+    unsigned count = 0;
+    for (std::uint64_t bit = std::uint64_t(1) << 63; (value & bit) == 0; bit >>= 1u)
+        ++count;
+    return count;
+#endif
+}
+
+inline unsigned bitLength(UnsignedInteger value) noexcept
+{
+    const std::uint64_t limb3 = limb64(value, 3);
+    if (limb3 != 0)
+        return 256u - countLeadingZeroBits64(limb3);
+    const std::uint64_t limb2 = limb64(value, 2);
+    if (limb2 != 0)
+        return 192u - countLeadingZeroBits64(limb2);
+    const std::uint64_t limb1 = limb64(value, 1);
+    if (limb1 != 0)
+        return 128u - countLeadingZeroBits64(limb1);
+    const std::uint64_t limb0 = limb64(value, 0);
+    if (limb0 != 0)
+        return 64u - countLeadingZeroBits64(limb0);
+    return 0;
+}
+
+inline std::uint64_t gcd64Value(std::uint64_t lhs, std::uint64_t rhs) noexcept
+{
+    return std::gcd(lhs, rhs);
+}
+
+inline UnsignedInteger gcd64(std::uint64_t lhs, std::uint64_t rhs) noexcept
+{
+    return UnsignedInteger(gcd64Value(lhs, rhs));
+}
+
+inline UnsignedInteger gcdMagnitudeUnsigned(UnsignedInteger lhs, UnsignedInteger rhs) noexcept
+{
+    if (lhs == 0)
+        return rhs;
+    if (rhs == 0 || lhs == rhs)
+        return lhs;
+
+    const unsigned commonTrailingZeroBits = std::min(
+        countTrailingZeroBits(lhs),
+        countTrailingZeroBits(rhs));
+    lhs >>= countTrailingZeroBits(lhs);
+    rhs >>= countTrailingZeroBits(rhs);
+    if (lhs < rhs)
+        std::swap(lhs, rhs);
+
+    while (rhs != 0)
+    {
+        if (fitsIn64(lhs))
+            return gcd64(lowLimb64(lhs), lowLimb64(rhs)) << commonTrailingZeroBits;
+
+        const unsigned lhsBits = bitLength(lhs);
+        const unsigned rhsBits = bitLength(rhs);
+        if (lhsBits > rhsBits + 32u)
+        {
+            lhs %= rhs;
+            if (lhs == 0)
+                return rhs << commonTrailingZeroBits;
+        }
+        else
+        {
+            lhs -= rhs;
+            if (lhs == 0)
+                return rhs << commonTrailingZeroBits;
+            lhs >>= countTrailingZeroBits(lhs);
+        }
+        if (lhs < rhs)
+            std::swap(lhs, rhs);
+    }
+
+    return lhs << commonTrailingZeroBits;
+}
+
+struct IntegerDivMod
+{
+    Integer quotient = 0;
+    Integer remainder = 0;
+};
+
+inline IntegerDivMod divModTrunc(Integer numerator, Integer denominator) noexcept
+{
+    IntegerDivMod result;
+    result.quotient = numerator / denominator;
+    result.remainder = numerator - result.quotient * denominator;
+    return result;
+}
+
+inline Integer divideExactByPositive(Integer numerator, Integer denominator) noexcept
+{
+    if (fitsInSigned64(numerator) && fitsInSigned64(denominator))
+    {
+        return Integer(
+            static_cast<std::int64_t>(numerator) /
+            static_cast<std::int64_t>(denominator));
+    }
+    return numerator / denominator;
+}
+}
+
 /**
  * @brief 计算两个整数幅值的最大公约数。
  */
@@ -135,28 +268,15 @@ inline Integer gcdMagnitude(Integer lhs, Integer rhs) noexcept
     if (hasUnitMagnitude(lhs) || hasUnitMagnitude(rhs))
         return 1;
 
-    UnsignedInteger lhsMagnitude = unsignedMagnitude(lhs);
-    UnsignedInteger rhsMagnitude = unsignedMagnitude(rhs);
-    if (lhsMagnitude == 0)
-        return static_cast<Integer>(rhsMagnitude);
-    if (rhsMagnitude == 0 || lhsMagnitude == rhsMagnitude)
-        return static_cast<Integer>(lhsMagnitude);
-
-    const unsigned commonTrailingZeroBits = std::min(
-        countTrailingZeroBits(lhsMagnitude),
-        countTrailingZeroBits(rhsMagnitude));
-    lhsMagnitude >>= countTrailingZeroBits(lhsMagnitude);
-
-    do
+    const UnsignedInteger lhsMagnitude = unsignedMagnitude(lhs);
+    const UnsignedInteger rhsMagnitude = unsignedMagnitude(rhs);
+    if (detail::fitsIn64(lhsMagnitude) && detail::fitsIn64(rhsMagnitude))
     {
-        rhsMagnitude >>= countTrailingZeroBits(rhsMagnitude);
-        if (lhsMagnitude > rhsMagnitude)
-            std::swap(lhsMagnitude, rhsMagnitude);
-        rhsMagnitude -= lhsMagnitude;
+        return Integer(detail::gcd64Value(
+            detail::lowLimb64(lhsMagnitude),
+            detail::lowLimb64(rhsMagnitude)));
     }
-    while (rhsMagnitude != 0);
-
-    return static_cast<Integer>(lhsMagnitude << commonTrailingZeroBits);
+    return static_cast<Integer>(detail::gcdMagnitudeUnsigned(lhsMagnitude, rhsMagnitude));
 }
 
 /**
@@ -180,6 +300,37 @@ inline Integer gcdMagnitude(const Integer& a, const Integer& b, const Integer& c
         return absMagnitude(b);
     if (bZero && cZero && dZero)
         return absMagnitude(a);
+
+    const UnsignedInteger aMagnitude = unsignedMagnitude(a);
+    const UnsignedInteger bMagnitude = unsignedMagnitude(b);
+    const UnsignedInteger cMagnitude = unsignedMagnitude(c);
+    const UnsignedInteger dMagnitude = unsignedMagnitude(d);
+    if (detail::fitsIn64(aMagnitude) &&
+        detail::fitsIn64(bMagnitude) &&
+        detail::fitsIn64(cMagnitude) &&
+        detail::fitsIn64(dMagnitude))
+    {
+        std::uint64_t result = 0;
+        if (!aZero)
+            result = detail::lowLimb64(aMagnitude);
+        if (!bZero)
+            result = result == 0
+                         ? detail::lowLimb64(bMagnitude)
+                         : detail::gcd64Value(result, detail::lowLimb64(bMagnitude));
+        if (result == 1)
+            return 1;
+        if (!cZero)
+            result = result == 0
+                         ? detail::lowLimb64(cMagnitude)
+                         : detail::gcd64Value(result, detail::lowLimb64(cMagnitude));
+        if (result == 1)
+            return 1;
+        if (!dZero)
+            result = result == 0
+                         ? detail::lowLimb64(dMagnitude)
+                         : detail::gcd64Value(result, detail::lowLimb64(dMagnitude));
+        return Integer(result);
+    }
 
     Integer result = 0;
     if (!aZero)
@@ -298,12 +449,13 @@ inline HomPoint4i primitiveHomPoint(const HomPoint4i& point) noexcept
     Integer y = normalized.y;
     Integer z = normalized.z;
     Integer w = normalized.w;
-    if (!isZero(w) &&
-            x % w == 0 &&
-            y % w == 0 &&
-            z % w == 0)
+    if (!isZero(w))
     {
-        return HomPoint4i(x / w, y / w, z / w, 1);
+        const detail::IntegerDivMod divX = detail::divModTrunc(x, w);
+        const detail::IntegerDivMod divY = detail::divModTrunc(y, w);
+        const detail::IntegerDivMod divZ = detail::divModTrunc(z, w);
+        if (isZero(divX.remainder) && isZero(divY.remainder) && isZero(divZ.remainder))
+            return HomPoint4i(divX.quotient, divY.quotient, divZ.quotient, 1);
     }
 
     const Integer divisor = gcdMagnitude(x, y, z, w);

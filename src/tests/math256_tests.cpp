@@ -48,6 +48,31 @@ boost::multiprecision::cpp_int toCppInt(const ember::fixed::FixedInt256 &value)
     return result;
 }
 
+boost::multiprecision::cpp_int toCppInt(const Integer &value)
+{
+    return boost::multiprecision::cpp_int(ember::integerToString(value));
+}
+
+boost::multiprecision::cpp_int cppAbs(boost::multiprecision::cpp_int value)
+{
+    return value < 0 ? -value : value;
+}
+
+boost::multiprecision::cpp_int cppGcd(
+    boost::multiprecision::cpp_int lhs,
+    boost::multiprecision::cpp_int rhs)
+{
+    lhs = cppAbs(lhs);
+    rhs = cppAbs(rhs);
+    while (rhs != 0)
+    {
+        const boost::multiprecision::cpp_int remainder = lhs % rhs;
+        lhs = rhs;
+        rhs = remainder;
+    }
+    return lhs;
+}
+
 void assertFixedEquals(
     const ember::fixed::FixedInt256 &value,
     const boost::multiprecision::cpp_int &expected)
@@ -195,6 +220,30 @@ void runMath256Tests()
         assert(ember::absMagnitude(Integer(-7)) == Integer(7));
         assert(ember::gcdMagnitude(Integer(-18), Integer(24)) == Integer(6));
         assert(ember::gcdMagnitude(Integer(6), Integer(9), Integer(12), Integer(15)) == Integer(3));
+
+        const std::vector<std::pair<Integer, Integer>> gcdCases = {
+            {
+                ((Integer(1) << 73) + 12345) * ((Integer(1) << 91) + 17),
+                ((Integer(1) << 73) + 12345) * ((Integer(1) << 87) + 19)
+            },
+            {
+                -(((Integer(1) << 97) + 321) * ((Integer(1) << 80) + 3)),
+                ((Integer(1) << 97) + 321) * ((Integer(1) << 62) + 5)
+            },
+            {
+                (Integer(1) << 220) + (Integer(1) << 129) + 77,
+                (Integer(1) << 207) + (Integer(1) << 101) + 33
+            },
+            {
+                ((Integer(1) << 120) + 57) * 36,
+                ((Integer(1) << 118) + 91) * 60
+            }
+        };
+        for (const auto &gcdCase : gcdCases)
+        {
+            const Integer actual = ember::gcdMagnitude(gcdCase.first, gcdCase.second);
+            assert(toCppInt(actual) == cppGcd(toCppInt(gcdCase.first), toCppInt(gcdCase.second)));
+        }
 
         const ember::HomPoint4i primitivePoint = ember::primitiveHomPoint(ember::HomPoint4i(2, 4, 6, 2));
         assert(primitivePoint.x == Integer(1));
