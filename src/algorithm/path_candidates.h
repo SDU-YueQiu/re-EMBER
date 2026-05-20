@@ -497,6 +497,35 @@ inline std::size_t enumerateLeafClassificationAxisPathCandidatesFromPoint(
     return emitted;
 }
 
+/**
+ * @brief 枚举已知 axis-probe 目标的第一阶段分类路径。
+ *
+ * 调用方已经知道目标点由两张整数坐标平面和一张支撑平面定义时，
+ * 可跳过通用目标识别和重复的目标三平面交点构造。
+ */
+template <typename CandidateVisitor>
+inline std::size_t enumerateLeafClassificationAxisPathCandidateFromKnownAxisProbe(
+    const PlanePoint3i &referencePoint,
+    const PlanePoint3i &targetPoint,
+    const detail::AxisProbeTarget &axisProbeTarget,
+    const AABB3i &box,
+    CandidateVisitor &&visitor)
+{
+    REEMBER_PROFILE_ZONE("enumerateLeafClassificationAxisPathCandidateFromKnownAxisProbe");
+
+    std::size_t emitted = 0;
+    if (!referencePoint.hasUniqueIntersection() || !targetPoint.hasUniqueIntersection() || !isValidAABB(box))
+        return emitted;
+
+    std::vector<Segment256> path;
+    if (!detail::buildAxisProbePath(referencePoint, axisProbeTarget, box, path, &targetPoint))
+        return emitted;
+
+    ++emitted;
+    visitor(LeafClassificationPathCandidate{targetPoint, std::move(path)});
+    return emitted;
+}
+
 template <typename CandidateVisitor>
 inline std::size_t enumerateLeafClassificationAxisPathCandidatesFromPoints(
     const PlanePoint3i &referencePoint,

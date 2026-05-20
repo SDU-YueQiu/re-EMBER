@@ -71,6 +71,11 @@
   AABB 内可达性；现有回归测试已经覆盖一个替换顺序失败、另一个顺序成功的场景。
   后续若要继续删候选，需要先建立“同一端点序列或同一 trace 签名”的等价判据，
   不能只按最终 target 点去重。
+- centroid axis 第一阶段目标点本身就是由两张整数坐标平面和当前支撑平面构造的
+  axis-probe 点；已把构造时的 `AxisProbeTarget` 传给候选枚举，避免后续再次识别
+  三平面结构和重复构造目标交点。`run_20260521_030519` 对同一 10 small / 10 medium /
+  2 large workload 做了 `-NoTracy -VerifyWithOracle`，22 个 verifier 全部通过，结构计数
+  与 `run_20260521_025314` 一致，聚合 `solve_ms` 从 2454.058ms 降到 2438.915ms。
 
 ## 已测但不保留的局部实验
 

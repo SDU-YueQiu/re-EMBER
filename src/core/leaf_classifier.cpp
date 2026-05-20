@@ -756,7 +756,8 @@ bool attemptCentroidAxisPathCandidate(
     REEMBER_PROFILE_ZONE("LeafClassification::attemptCentroidAxisPath");
 
     PlanePoint3i targetPoint;
-    if (!detail::buildLeafClassificationCentroidTargetPoint(fragment, targetPoint))
+    detail::AxisProbeTarget axisProbeTarget;
+    if (!detail::buildLeafClassificationCentroidTargetPoint(fragment, targetPoint, &axisProbeTarget))
     {
         if constexpr (kLeafClassificationDebug)
             attemptStats.debugLog << "centroid_target=none\n";
@@ -773,9 +774,10 @@ bool attemptCentroidAxisPathCandidate(
     }
 
     bool allowFallback = true;
-    enumerateLeafClassificationAxisPathCandidatesFromPoint(
+    enumerateLeafClassificationAxisPathCandidateFromKnownAxisProbe(
         context.localReference.point,
         targetPoint,
+        axisProbeTarget,
         context.aabb,
         [&](LeafClassificationPathCandidate candidate)
     {
