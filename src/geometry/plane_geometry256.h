@@ -65,6 +65,25 @@ inline Plane3i primitivePlane(const Plane3i &plane) noexcept
     return Plane3i(a, b, c, d);
 }
 
+/**
+ * @brief 判断平面方程是否已经是 primitive 形式。
+ */
+inline bool isPrimitivePlaneEquation(const Plane3i &plane) noexcept
+{
+    return gcdMagnitude(plane.a, plane.b, plane.c, plane.d) <= 1;
+}
+
+/**
+ * @brief 保持系数比例地反转有向平面。
+ *
+ * @note 若输入平面已经是 primitive 形式，取反后仍然是 primitive 形式，
+ *       调用方不需要再次执行 gcd 约分。
+ */
+inline Plane3i reversedPlaneOrientationPreservingScale(const Plane3i &plane) noexcept
+{
+    return Plane3i(-plane.a, -plane.b, -plane.c, -plane.d);
+}
+
 inline std::ostream &operator<<(std::ostream &os, const Plane3i &p)
 {
     return os << "Plane3i(a=" << p.a

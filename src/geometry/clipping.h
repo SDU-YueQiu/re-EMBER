@@ -62,6 +62,7 @@ bool computeBidirectionalPolygonIntersectionCarriersTrusted(
  * @brief 在调用方已验证 source polygon 的前提下按平面切分叶片几何。
  *
  * @pre `source` 满足 `Polygon256::isValid()`。
+ * @pre `clipPlane` 已经是 primitive 平面；公开未信任入口负责提前约分。
  */
 bool clipLeafGeometryByPlaneTrusted(
     const Polygon256& source,
@@ -74,6 +75,7 @@ bool clipLeafGeometryByPlaneTrusted(
  * @brief 使用调用方已缓存的顶点侧分类按平面切分叶片几何。
  *
  * @pre `source` 满足 `Polygon256::isValid()`。
+ * @pre `clipPlane` 已经是 primitive 平面；公开未信任入口负责提前约分。
  * @pre `vertexSides[i]` 是第 i 个顶点相对 `clipPlane` 的分类。
  */
 bool clipLeafGeometryByPlaneTrustedWithSides(
@@ -88,6 +90,7 @@ bool clipLeafGeometryByPlaneTrustedWithSides(
  * @brief 使用调用方已缓存的顶点侧分类，只构造裁剪后指定半空间的叶片几何。
  *
  * @pre `source` 满足 `Polygon256::isValid()`。
+ * @pre `clipPlane` 已经是 primitive 平面；公开未信任入口负责提前约分。
  * @pre `vertexSides[i]` 是第 i 个顶点相对 `clipPlane` 的分类。
  * @param keepFront 为 true 时保留 `clipPlane` 正侧，否则保留负侧。
  */
