@@ -200,7 +200,7 @@ Integer axisMaximum(const AABB3i &box, SplitAxis3i axis) noexcept
 
 Integer axisMidpoint(const AABB3i &box, SplitAxis3i axis) noexcept
 {
-    return floorDiv(axisMinimum(box, axis) + axisMaximum(box, axis), Integer(2));
+    return floorDivByTwo(axisMinimum(box, axis) + axisMaximum(box, axis));
 }
 
 void appendWntvToBinaryPolygonScan(BinaryPolygonScanSummary &summary, const WNV &wntv) noexcept

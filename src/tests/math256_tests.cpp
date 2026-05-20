@@ -207,6 +207,10 @@ void runMath256Tests()
         ember::floorCeilDiv(Integer(6), Integer(-3), divFloor, divCeil);
         assert(divFloor == Integer(-2));
         assert(divCeil == Integer(-2));
+        assert(ember::floorDivByTwo(Integer(7)) == Integer(3));
+        assert(ember::floorDivByTwo(Integer(6)) == Integer(3));
+        assert(ember::floorDivByTwo(Integer(-7)) == Integer(-4));
+        assert(ember::floorDivByTwo(Integer(-6)) == Integer(-3));
 
         const ember::HomPoint4i primitivePoint = ember::primitiveHomPoint(ember::HomPoint4i(2, 4, 6, 2));
         assert(primitivePoint.x == Integer(1));

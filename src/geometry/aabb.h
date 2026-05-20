@@ -451,18 +451,17 @@ inline bool splitAABBAtMidpoint(const AABB3i &box, AABBSplit3i &outSplit)
     if (!detail::chooseLongestSplittableAxis(box, axis))
         return false;
 
-    const Integer two = 2;
     Integer coordinate = 0;
     switch (axis)
     {
     case SplitAxis3i::X:
-        coordinate = floorDiv(box.xMin + box.xMax, two);
+        coordinate = floorDivByTwo(box.xMin + box.xMax);
         break;
     case SplitAxis3i::Y:
-        coordinate = floorDiv(box.yMin + box.yMax, two);
+        coordinate = floorDivByTwo(box.yMin + box.yMax);
         break;
     case SplitAxis3i::Z:
-        coordinate = floorDiv(box.zMin + box.zMax, two);
+        coordinate = floorDivByTwo(box.zMin + box.zMax);
         break;
     }
 
