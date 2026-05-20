@@ -1,11 +1,10 @@
 /**
  * @file polygon_ops.h
- * @brief 提供内联的多边形定向与 AABB 裁剪辅助函数。
+ * @brief 提供内联的多边形定向辅助函数。
  */
 #pragma once
 
-#include "geometry/aabb.h"
-#include "geometry/clipping.h"
+#include "geometry/geometry256.h"
 
 #include <algorithm>
 #include <utility>
@@ -33,94 +32,6 @@ inline bool areCoplanarPolygons(const Polygon256 &lhs, const Polygon256 &rhs)
 
     const PlanePoint3i &firstVertex = getPolygonVertex(lhs, 0);
     return firstVertex.hasUniqueIntersection() && firstVertex.classify(rhs.plane) == 0;
-}
-
-namespace detail
-{
-/**
- * @brief 将凸多边形裁剪到指定平面的一侧。
- *
- * @pre `source` 已满足 `Polygon256::isValid()`。
- */
-inline bool clipPolygonToHalfSpace(
-    const Polygon256 &source,
-    const Plane3i &clipPlane,
-    bool keepNonPositive,
-    Polygon256 &outPolygon,
-    PolygonEdgeProvenance insertedEdgeProvenance = PolygonEdgeProvenance::Regular)
-{
-    const std::size_t n = source.edgeCount();
-    bool hasPositive = false;
-    bool hasNegative = false;
-    bool hasZero = false;
-
-    for (std::size_t i = 0; i < n; ++i)
-    {
-        const PlanePoint3i &vertex = getPolygonVertex(source, i);
-        const int side = vertex.classify(clipPlane);
-        if (side > 0)
-            hasPositive = true;
-        else if (side < 0)
-            hasNegative = true;
-        else
-            hasZero = true;
-    }
-
-    if (keepNonPositive)
-    {
-        if (!hasPositive)
-        {
-            outPolygon = source;
-            return true;
-        }
-        if (!hasNegative)
-            return false;
-    }
-    else
-    {
-        if (!hasNegative)
-        {
-            if (!hasPositive && hasZero)
-                return false;
-            outPolygon = source;
-            return true;
-        }
-        if (!hasPositive)
-            return false;
-    }
-
-    Polygon256 frontClipped;
-    Polygon256 backClipped;
-    if (!clipLeafGeometryByPlaneTrusted(
-                source,
-                clipPlane,
-                frontClipped,
-                backClipped,
-                insertedEdgeProvenance))
-        return false;
-
-    outPolygon = keepNonPositive ? backClipped : frontClipped;
-    return true;
-}
-}
-
-inline bool clipPolygonToAABB(const Polygon256 &polygon, const AABB3i &box, Polygon256 &outPolygon)
-{
-    if (!polygon.isValid() || !isValidAABB(box))
-        return false;
-
-    Polygon256 current = polygon;
-    const auto planes = makeAABBPlanes(box);
-    for (const Plane3i &plane : planes)
-    {
-        Polygon256 clipped;
-        if (!detail::clipPolygonToHalfSpace(current, plane, true, clipped))
-            return false;
-        current = clipped;
-    }
-
-    outPolygon = current;
-    return true;
 }
 
 inline Polygon256 reversePolygonOrientation(const Polygon256 &polygon)
