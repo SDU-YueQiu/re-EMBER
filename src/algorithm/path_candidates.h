@@ -466,19 +466,19 @@ inline std::size_t enumerateLeafClassificationAxisPathCandidatesFromPoint(
     if (!detail::tryExtractExactIntegerPoint(targetPoint, targetX, targetY, targetZ))
         return emitted;
 
-    std::vector<SplitAxis3i> axisOrder;
-    axisOrder.reserve(3);
+    std::array<SplitAxis3i, 3> axisOrder = {};
+    std::size_t axisCount = 0;
     const std::array<Plane3i, 3> referenceCoordinatePlanes =
         detail::makeIntegerCoordinatePlanes(referenceX, referenceY, referenceZ);
     const std::array<Plane3i, 3> targetCoordinatePlanes =
         detail::makeIntegerCoordinatePlanes(targetX, targetY, targetZ);
     if (!areSamePlaneEquation(referenceCoordinatePlanes[0], targetCoordinatePlanes[0]))
-        axisOrder.push_back(SplitAxis3i::X);
+        axisOrder[axisCount++] = SplitAxis3i::X;
     if (!areSamePlaneEquation(referenceCoordinatePlanes[1], targetCoordinatePlanes[1]))
-        axisOrder.push_back(SplitAxis3i::Y);
+        axisOrder[axisCount++] = SplitAxis3i::Y;
     if (!areSamePlaneEquation(referenceCoordinatePlanes[2], targetCoordinatePlanes[2]))
-        axisOrder.push_back(SplitAxis3i::Z);
-    if (axisOrder.empty())
+        axisOrder[axisCount++] = SplitAxis3i::Z;
+    if (axisCount == 0)
         return emitted;
 
     std::vector<Segment256> path;
@@ -488,6 +488,7 @@ inline std::size_t enumerateLeafClassificationAxisPathCandidatesFromPoint(
                 referenceCoordinatePlanes,
                 targetCoordinatePlanes,
                 axisOrder,
+                axisCount,
                 path))
         return emitted;
 
@@ -538,17 +539,17 @@ inline std::size_t enumerateLeafClassificationAxisPathCandidatesFromPoints(
         if (!detail::tryExtractExactIntegerPoint(targetPoint, targetX, targetY, targetZ))
             continue;
 
-        std::vector<SplitAxis3i> axisOrder;
-        axisOrder.reserve(3);
+        std::array<SplitAxis3i, 3> axisOrder = {};
+        std::size_t axisCount = 0;
         const std::array<Plane3i, 3> targetCoordinatePlanes =
             detail::makeIntegerCoordinatePlanes(targetX, targetY, targetZ);
         if (!areSamePlaneEquation(referenceCoordinatePlanes[0], targetCoordinatePlanes[0]))
-            axisOrder.push_back(SplitAxis3i::X);
+            axisOrder[axisCount++] = SplitAxis3i::X;
         if (!areSamePlaneEquation(referenceCoordinatePlanes[1], targetCoordinatePlanes[1]))
-            axisOrder.push_back(SplitAxis3i::Y);
+            axisOrder[axisCount++] = SplitAxis3i::Y;
         if (!areSamePlaneEquation(referenceCoordinatePlanes[2], targetCoordinatePlanes[2]))
-            axisOrder.push_back(SplitAxis3i::Z);
-        if (axisOrder.empty())
+            axisOrder[axisCount++] = SplitAxis3i::Z;
+        if (axisCount == 0)
             continue;
 
         std::vector<Segment256> path;
@@ -558,6 +559,7 @@ inline std::size_t enumerateLeafClassificationAxisPathCandidatesFromPoints(
                     referenceCoordinatePlanes,
                     targetCoordinatePlanes,
                     axisOrder,
+                    axisCount,
                     path))
             continue;
 
