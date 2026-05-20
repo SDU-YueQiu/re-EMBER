@@ -344,6 +344,13 @@ bool Polygon256::containsOrOnBoundary(const PlanePoint3i &point) const noexcept
     return point.hasUniqueIntersection() && classify(point) == 0;
 }
 
+bool Polygon256::cachedAABBMayContain(const PlanePoint3i &point) const noexcept
+{
+    return !aabbCacheValid_ ||
+           !isValidAABB(cachedAABB_) ||
+           isPointInsideOrOnAABB(point, cachedAABB_);
+}
+
 // 向内平移两条边构造内部点
 bool Polygon256::findStrictInteriorPoint(PlanePoint3i &outPoint) const
 {

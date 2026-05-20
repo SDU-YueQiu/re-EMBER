@@ -358,7 +358,10 @@ bool hasIntermediateEndpointOnInputSurface(
     {
         for (std::size_t segmentIndex = 0; segmentIndex + 1u < path.size(); ++segmentIndex)
         {
-            if (polygon.classify(path[segmentIndex].getEndPointRef()) == 0)
+            const PlanePoint3i &intermediatePoint = path[segmentIndex].getEndPointRef();
+            if (!polygon.cachedAABBMayContain(intermediatePoint))
+                continue;
+            if (polygon.classify(intermediatePoint) == 0)
                 return true;
         }
     }
