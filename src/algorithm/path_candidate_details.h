@@ -195,6 +195,7 @@ inline bool buildAxisAlignedSegment(
     if (diffX)
     {
         outSegment = Segment256(
+                         AssumePrimitivePlanes,
                          Plane3i(1, 0, 0, -x0),
                          Plane3i(1, 0, 0, -x1),
                          makeLine(Plane3i(0, 1, 0, -y0), Plane3i(0, 0, 1, -z0)));
@@ -204,6 +205,7 @@ inline bool buildAxisAlignedSegment(
     if (diffY)
     {
         outSegment = Segment256(
+                         AssumePrimitivePlanes,
                          Plane3i(0, 1, 0, -y0),
                          Plane3i(0, 1, 0, -y1),
                          makeLine(Plane3i(1, 0, 0, -x0), Plane3i(0, 0, 1, -z0)));
@@ -211,6 +213,7 @@ inline bool buildAxisAlignedSegment(
     }
 
     outSegment = Segment256(
+                     AssumePrimitivePlanes,
                      Plane3i(0, 0, 1, -z0),
                      Plane3i(0, 0, 1, -z1),
                      makeLine(Plane3i(1, 0, 0, -x0), Plane3i(0, 1, 0, -y0)));
@@ -1057,6 +1060,7 @@ inline bool buildAxisAlignedSegmentFromCoordinatePlanes(
 
     const int changedIndex = axisOrderKey(changedAxis);
     outSegment = Segment256(
+                     AssumePrimitivePlanes,
                      startCoordinatePlanes[changedIndex],
                      endCoordinatePlanes[changedIndex],
                      direction);
