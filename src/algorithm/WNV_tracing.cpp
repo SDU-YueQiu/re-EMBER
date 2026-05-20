@@ -8,6 +8,7 @@
 #include "core/perf_tracing.h"
 
 #include <utility>
+#include <vector>
 
 namespace ember
 {
@@ -37,25 +38,54 @@ enum class BoundaryHitRejectedKind
     Unknown
 };
 
-bool buildPathAABB(const Path &path, AABB3i &outBox) noexcept
+struct PathAABBPrecheck
 {
-    outBox = AABB3i();
+    AABB3i pathBox;
+    AABB3i singleSegmentBox;
+    std::vector<AABB3i> segmentBoxes;
+    std::size_t segmentCount = 0;
+    bool valid = false;
+
+    const AABB3i &segmentBox(std::size_t index) const noexcept
+    {
+        return segmentBoxes.empty() ? singleSegmentBox : segmentBoxes[index];
+    }
+};
+
+bool buildPathAABBPrecheck(const Path &path, PathAABBPrecheck &outPrecheck)
+{
+    outPrecheck = PathAABBPrecheck();
+    const bool useVector = path.size() > 1;
+    if (useVector)
+        outPrecheck.segmentBoxes.reserve(path.size());
+
     for (const Segment256 &segment : path)
     {
-        const PlanePoint3i &startPoint = segment.getStartPointRef();
-        const PlanePoint3i &endPoint = segment.getEndPointRef();
-        if (!startPoint.hasUniqueIntersection() || isZero(startPoint.x.w) ||
-                !endPoint.hasUniqueIntersection() || isZero(endPoint.x.w))
+        AABB3i segmentBox;
+        if (!buildPointPairAABB(
+                    segment.getStartPointRef(),
+                    segment.getEndPointRef(),
+                    segmentBox))
         {
-            outBox = AABB3i();
+            outPrecheck = PathAABBPrecheck();
             return false;
         }
 
-        appendPointToAABB(outBox, startPoint);
-        appendPointToAABB(outBox, endPoint);
+        mergeAABB(outPrecheck.pathBox, segmentBox);
+        if (useVector)
+            outPrecheck.segmentBoxes.push_back(std::move(segmentBox));
+        else
+            outPrecheck.singleSegmentBox = std::move(segmentBox);
+        ++outPrecheck.segmentCount;
     }
 
-    return isValidAABB(outBox);
+    outPrecheck.valid =
+        isValidAABB(outPrecheck.pathBox) &&
+        outPrecheck.segmentCount == path.size();
+    if (!outPrecheck.valid)
+        outPrecheck = PathAABBPrecheck();
+
+    return outPrecheck.valid;
 }
 
 bool canSkipPolygonForPathAABB(const Polygon256 &polygon, const AABB3i &pathBox) noexcept
@@ -69,6 +99,16 @@ bool canSkipPolygonForPathAABB(const Polygon256 &polygon, const AABB3i &pathBox)
 
     return !doAABBsOverlap(pathBox, polygonBox) ||
            !doesPlaneIntersectAABB(polygon.plane, pathBox);
+}
+
+bool isSegmentRelevantToPolygon(
+    const Segment256 &seg,
+    const Polygon256 &poly,
+    const AABB3i *knownSegmentBox) noexcept
+{
+    return knownSegmentBox != nullptr
+           ? detail::isSegmentRelevantToPolygonByAABB(*knownSegmentBox, poly)
+           : detail::isSegmentRelevantToPolygonByAABB(seg, poly);
 }
 
 void recordTracePathInvalid(
@@ -225,8 +265,8 @@ traceStatus tracePathWNVImpl(
         return SUCCESS;
     }
 
-    AABB3i pathBox;
-    const bool hasPathBox = buildPathAABB(path, pathBox);
+    PathAABBPrecheck pathAABB;
+    const bool hasPathBox = buildPathAABBPrecheck(path, pathAABB);
 
     const PlanePoint3i &pathStartPoint = path.front().getStartPointRef();
     if (validatePath && !areSamePlanePoint(pathStartPoint, refpoint.point))
@@ -247,7 +287,7 @@ traceStatus tracePathWNVImpl(
     for (const Polygon256 &poly : polygons)
     {
         REEMBER_PROFILE_ZONE("tracePathWNVImpl::polygon");
-        if (hasPathBox && canSkipPolygonForPathAABB(poly, pathBox))
+        if (hasPathBox && canSkipPolygonForPathAABB(poly, pathAABB.pathBox))
             continue;
 
         int pcs = 0;
@@ -261,8 +301,11 @@ traceStatus tracePathWNVImpl(
             return PATH_INVALID;
         }
 
-        for (const Segment256 &seg : path)
+        for (std::size_t segmentIndex = 0; segmentIndex < path.size(); ++segmentIndex)
         {
+            const Segment256 &seg = path[segmentIndex];
+            const AABB3i *segmentBox =
+                hasPathBox ? &pathAABB.segmentBox(segmentIndex) : nullptr;
             const PlanePoint3i &endPoint = seg.getEndPointRef();
             int pce = 0;
             {
@@ -281,7 +324,7 @@ traceStatus tracePathWNVImpl(
                 continue;
             }
 
-            if (!detail::isSegmentRelevantToPolygonByAABB(seg, poly))
+            if (!isSegmentRelevantToPolygon(seg, poly, segmentBox))
             {
                 pcs = pce;
                 continue;
@@ -291,7 +334,7 @@ traceStatus tracePathWNVImpl(
             {
                 REEMBER_PROFILE_ZONE("tracePathWNVImpl::boundaryContact");
                 boundaryContact =
-                    detail::classifySegmentPolygonBoundaryContactUnchecked(seg, poly);
+                    detail::classifySegmentPolygonBoundaryContactUnchecked(seg, poly, segmentBox);
             }
             if (boundaryContact.type == detail::PolygonBoundaryContactType::EndpointOnBoundary)
             {
@@ -410,8 +453,8 @@ traceStatus tracePathWNVToSurfacePointImpl(
     if (!targetPoint.hasUniqueIntersection() || targetPoint.classify(referencePlane) != 0)
         return INPUT_INVALID;
 
-    AABB3i pathBox;
-    const bool hasPathBox = buildPathAABB(path, pathBox);
+    PathAABBPrecheck pathAABB;
+    const bool hasPathBox = buildPathAABBPrecheck(path, pathAABB);
 
     WNV surfaceWNV = refpoint.wnv;
     WNV surfaceDelta(refpoint.wnv.size(), 0);
@@ -419,7 +462,7 @@ traceStatus tracePathWNVToSurfacePointImpl(
     for (const Polygon256 &poly : polygons)
     {
         REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::polygon");
-        if (hasPathBox && canSkipPolygonForPathAABB(poly, pathBox))
+        if (hasPathBox && canSkipPolygonForPathAABB(poly, pathAABB.pathBox))
             continue;
 
         int pcs = 0;
@@ -436,6 +479,8 @@ traceStatus tracePathWNVToSurfacePointImpl(
         for (std::size_t segmentIndex = 0; segmentIndex < path.size(); ++segmentIndex)
         {
             const Segment256 &seg = path[segmentIndex];
+            const AABB3i *segmentBox =
+                hasPathBox ? &pathAABB.segmentBox(segmentIndex) : nullptr;
             const PlanePoint3i &endPoint = seg.getEndPointRef();
             int pce = 0;
             {
@@ -455,7 +500,7 @@ traceStatus tracePathWNVToSurfacePointImpl(
                 continue;
             }
 
-            if (!detail::isSegmentRelevantToPolygonByAABB(seg, poly))
+            if (!isSegmentRelevantToPolygon(seg, poly, segmentBox))
             {
                 pcs = pce;
                 continue;
@@ -477,7 +522,7 @@ traceStatus tracePathWNVToSurfacePointImpl(
                 if (hitLocation == detail::PolygonSurfaceLocation::Boundary)
                 {
                     const detail::PolygonBoundaryContact boundaryContact =
-                        detail::classifySegmentPolygonBoundaryContactUnchecked(seg, poly);
+                        detail::classifySegmentPolygonBoundaryContactUnchecked(seg, poly, segmentBox);
                     if (!canTreatSubdivisionClipBoundaryHitAsCrossing(
                                 BoundaryPolicy::AllowSubdivisionClipCrossing,
                                 pcs,
@@ -514,7 +559,10 @@ traceStatus tracePathWNVToSurfacePointImpl(
                 continue;
             }
 
-            if (detail::isSegmentTouchPolygonEdgeUnchecked(seg, poly))
+            const bool segmentTouchesEdge = segmentBox != nullptr
+                ? detail::isSegmentTouchPolygonEdgeUnchecked(seg, poly, *segmentBox)
+                : detail::isSegmentTouchPolygonEdgeUnchecked(seg, poly);
+            if (segmentTouchesEdge)
             {
                 recordTracePathInvalid(
                     solveMetrics,

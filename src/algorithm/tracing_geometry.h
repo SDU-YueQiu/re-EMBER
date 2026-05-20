@@ -32,18 +32,28 @@ inline bool isPointOnSegment(const PlanePoint3i &point, const Segment256 &seg) n
 
 namespace detail
 {
-inline bool isSegmentRelevantToPolygonByAABB(const Segment256 &seg, const Polygon256 &poly) noexcept
+inline bool isSegmentRelevantToPolygonByAABB(
+    const AABB3i &segmentBox,
+    const Polygon256 &poly) noexcept
 {
     const AABB3i &polygonBox = poly.aabb();
     if (!isValidAABB(polygonBox))
         return true;
 
-    AABB3i segmentBox;
-    if (!buildPointPairAABB(seg.getStartPointRef(), seg.getEndPointRef(), segmentBox))
+    if (!isValidAABB(segmentBox))
         return true;
 
     return doAABBsOverlap(segmentBox, polygonBox) &&
            doesPlaneIntersectAABB(poly.plane, segmentBox);
+}
+
+inline bool isSegmentRelevantToPolygonByAABB(const Segment256 &seg, const Polygon256 &poly) noexcept
+{
+    AABB3i segmentBox;
+    if (!buildPointPairAABB(seg.getStartPointRef(), seg.getEndPointRef(), segmentBox))
+        return true;
+
+    return isSegmentRelevantToPolygonByAABB(segmentBox, poly);
 }
 
 enum class PolygonSurfaceLocation
@@ -181,12 +191,16 @@ inline void mergeBoundaryContact(
  */
 inline PolygonBoundaryContact classifySegmentPolygonBoundaryContactUnchecked(
     const Segment256 &seg,
-    const Polygon256 &poly) noexcept
+    const Polygon256 &poly,
+    const AABB3i *knownSegmentBox) noexcept
 {
     PolygonBoundaryContact contact;
     const PlanePoint3i &startPoint = seg.getStartPointRef();
     const PlanePoint3i &endPoint = seg.getEndPointRef();
-    if (!isSegmentRelevantToPolygonByAABB(seg, poly))
+    const bool segmentRelevant = knownSegmentBox != nullptr
+        ? isSegmentRelevantToPolygonByAABB(*knownSegmentBox, poly)
+        : isSegmentRelevantToPolygonByAABB(seg, poly);
+    if (!segmentRelevant)
         return contact;
 
     const bool segmentInSupportPlane =
@@ -260,6 +274,16 @@ inline PolygonBoundaryContact classifySegmentPolygonBoundaryContactUnchecked(
 }
 
 /**
+ * @brief 在调用方已验证 segment 与 polygon 的前提下分类线段与 polygon 边界的接触方式。
+ */
+inline PolygonBoundaryContact classifySegmentPolygonBoundaryContactUnchecked(
+    const Segment256 &seg,
+    const Polygon256 &poly) noexcept
+{
+    return classifySegmentPolygonBoundaryContactUnchecked(seg, poly, nullptr);
+}
+
+/**
  * @brief 返回边界接触是否全部命中 subdivision 裁剪边。
  */
 inline bool areBoundaryContactEdgesSubdivisionClip(
@@ -281,6 +305,15 @@ inline bool areBoundaryContactEdgesSubdivisionClip(
 inline bool isSegmentTouchPolygonEdgeUnchecked(const Segment256 &seg, const Polygon256 &poly) noexcept
 {
     return classifySegmentPolygonBoundaryContactUnchecked(seg, poly).type !=
+           PolygonBoundaryContactType::None;
+}
+
+inline bool isSegmentTouchPolygonEdgeUnchecked(
+    const Segment256 &seg,
+    const Polygon256 &poly,
+    const AABB3i &knownSegmentBox) noexcept
+{
+    return classifySegmentPolygonBoundaryContactUnchecked(seg, poly, &knownSegmentBox).type !=
            PolygonBoundaryContactType::None;
 }
 }
