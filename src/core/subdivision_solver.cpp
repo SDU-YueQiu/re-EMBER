@@ -326,7 +326,6 @@ struct WntvSubdivisionGroup
 {
     WNV wntv;
     AABB3i box;
-    Integer centerCount = 0;
     Integer sumCenterX = 0;
     Integer sumCenterY = 0;
     Integer sumCenterZ = 0;
@@ -391,30 +390,38 @@ void appendCenterCoordinate(
 
 bool buildSubdivisionSplitStats(
     const std::vector<Polygon256> &polygons,
+    bool collectWntvGroups,
     SubdivisionSplitStats &stats)
 {
     REEMBER_PROFILE_ZONE("buildSubdivisionSplitStats");
 
     stats.wntvGroups.clear();
     stats.centerStats = PolygonCenterSplitStats();
-    stats.wntvGroups.reserve(polygons.size());
+    if (collectWntvGroups)
+        stats.wntvGroups.reserve(polygons.size());
+
     for (const Polygon256 &polygon : polygons)
     {
         REEMBER_PROFILE_ZONE("buildSubdivisionSplitStats::polygon");
 
-        auto it = std::find_if(
-                      stats.wntvGroups.begin(),
-                      stats.wntvGroups.end(),
-                      [&polygon](const WntvSubdivisionGroup &group)
+        WntvSubdivisionGroup *group = nullptr;
+        if (collectWntvGroups)
         {
-            return group.wntv == polygon.WNTV;
-        });
-        if (it == stats.wntvGroups.end())
-        {
-            WntvSubdivisionGroup group;
-            group.wntv = polygon.WNTV;
-            stats.wntvGroups.push_back(std::move(group));
-            it = stats.wntvGroups.end() - 1;
+            auto it = std::find_if(
+                          stats.wntvGroups.begin(),
+                          stats.wntvGroups.end(),
+                          [&polygon](const WntvSubdivisionGroup &candidate)
+            {
+                return candidate.wntv == polygon.WNTV;
+            });
+            if (it == stats.wntvGroups.end())
+            {
+                WntvSubdivisionGroup newGroup;
+                newGroup.wntv = polygon.WNTV;
+                stats.wntvGroups.push_back(std::move(newGroup));
+                it = stats.wntvGroups.end() - 1;
+            }
+            group = &(*it);
         }
 
         const AABB3i *polygonBox = nullptr;
@@ -431,35 +438,39 @@ bool buildSubdivisionSplitStats(
 
         {
             REEMBER_PROFILE_ZONE("buildSubdivisionSplitStats::accumulate");
-            mergeAABB(it->box, *polygonBox);
-        it->sumCenterX += centerX;
-        it->sumCenterY += centerY;
-        it->sumCenterZ += centerZ;
-        ++it->centerCount;
-        ++it->polygonCount;
+            if (group)
+            {
+                mergeAABB(group->box, *polygonBox);
+                group->sumCenterX += centerX;
+                group->sumCenterY += centerY;
+                group->sumCenterZ += centerZ;
+                ++group->polygonCount;
+            }
 
-        const bool initialize = !stats.centerStats.valid;
-        appendCenterCoordinate(centerX, stats.centerStats.minX, stats.centerStats.maxX, initialize);
-        appendCenterCoordinate(centerY, stats.centerStats.minY, stats.centerStats.maxY, initialize);
-        appendCenterCoordinate(centerZ, stats.centerStats.minZ, stats.centerStats.maxZ, initialize);
-        stats.centerStats.sumX += centerX;
-        stats.centerStats.sumY += centerY;
-        stats.centerStats.sumZ += centerZ;
-        ++stats.centerStats.count;
-        stats.centerStats.valid = true;
+            const bool initialize = !stats.centerStats.valid;
+            appendCenterCoordinate(centerX, stats.centerStats.minX, stats.centerStats.maxX, initialize);
+            appendCenterCoordinate(centerY, stats.centerStats.minY, stats.centerStats.maxY, initialize);
+            appendCenterCoordinate(centerZ, stats.centerStats.minZ, stats.centerStats.maxZ, initialize);
+            stats.centerStats.sumX += centerX;
+            stats.centerStats.sumY += centerY;
+            stats.centerStats.sumZ += centerZ;
+            ++stats.centerStats.count;
+            stats.centerStats.valid = true;
         }
     }
 
+    if (collectWntvGroups)
     {
         REEMBER_PROFILE_ZONE("buildSubdivisionSplitStats::finalizeGroups");
         for (WntvSubdivisionGroup &group : stats.wntvGroups)
         {
-            if (!isValidAABB(group.box) || group.polygonCount == 0 || group.centerCount <= 0)
+            if (!isValidAABB(group.box) || group.polygonCount == 0)
                 return false;
 
-            group.centerX = floorDiv(group.sumCenterX, group.centerCount);
-            group.centerY = floorDiv(group.sumCenterY, group.centerCount);
-            group.centerZ = floorDiv(group.sumCenterZ, group.centerCount);
+            const Integer centerCount = group.polygonCount;
+            group.centerX = floorDiv(group.sumCenterX, centerCount);
+            group.centerY = floorDiv(group.sumCenterY, centerCount);
+            group.centerZ = floorDiv(group.sumCenterZ, centerCount);
         }
     }
 
@@ -660,6 +671,7 @@ bool chooseCenterRangeSplit(
 
 bool chooseSubdivisionSplit(
     const std::vector<Polygon256> &polygons,
+    const BinaryPolygonScanSummary &polygonScan,
     const AABB3i &box,
     AABBSplit3i &outSplit,
     SubdivisionSplitStrategy &outStrategy)
@@ -667,9 +679,10 @@ bool chooseSubdivisionSplit(
     REEMBER_PROFILE_ZONE("chooseSubdivisionSplit");
 
     SubdivisionSplitStats splitStats;
-    const bool hasSplitStats = buildSubdivisionSplitStats(polygons, splitStats);
+    const bool collectWntvGroups = !polygonScan.isSingleOperand;
+    const bool hasSplitStats = buildSubdivisionSplitStats(polygons, collectWntvGroups, splitStats);
 
-    if (hasSplitStats && chooseWntvAwareSplit(splitStats.wntvGroups, box, outSplit))
+    if (collectWntvGroups && hasSplitStats && chooseWntvAwareSplit(splitStats.wntvGroups, box, outSplit))
     {
         outStrategy = SubdivisionSplitStrategy::WntvAware;
         return true;
@@ -1392,7 +1405,7 @@ void SubdivisionSolver::solveRecursive()
 
     AABBSplit3i split;
     SubdivisionSplitStrategy splitStrategy = SubdivisionSplitStrategy::Midpoint;
-    if (!chooseSubdivisionSplit(polygons_, aabb_, split, splitStrategy))
+    if (!chooseSubdivisionSplit(polygons_, polygonScan_, aabb_, split, splitStrategy))
     {
         REEMBER_PROFILE_ZONE("SubdivisionSolver::stopBySplitFailure");
         ++solveMetrics_.splitFailureStopCount;
