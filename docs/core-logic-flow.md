@@ -428,7 +428,7 @@ flowchart TD
     N -->|否| L["返回 Failure"]
 ```
 
-阈值叶片穷尽候选且最后状态为 `PATH_INVALID` 时，如果当前 AABB 仍可切分，`tryFinishStoppedSubdivisionNode()` 会清理本次叶子尝试的临时片段并回到递归切分；该次数记录在 `leafClassificationRetrySubdivisionCount`。AABB 已不可切、切分失败路径、入口单操作数快路径，或者最后状态为 `INPUT_INVALID/FAIL` 时仍按失败处理。候选进入 trace 前会先验证路径非空、从局部参考点连续连接、终点落在待分类片段支撑平面上；不满足这些结构条件时只在当前候选上尝试局部重建，不把 `INPUT_INVALID` 当成普通 `PATH_INVALID` 推动全局穷举。
+阈值叶片穷尽候选且最后状态为 `PATH_INVALID` 时，如果当前 AABB 仍可切分，`tryFinishStoppedSubdivisionNode()` 会清理本次叶子尝试的临时片段并回到递归切分；该次数记录在 `leafClassificationRetrySubdivisionCount`。AABB 已不可切、切分失败路径、入口单操作数快路径，或者最后状态为 `INPUT_INVALID/FAIL` 时仍按失败处理。候选进入 trace 前会先验证路径非空、从局部参考点连续连接、终点落在待分类片段支撑平面上；不满足这些结构条件时只在当前候选上尝试局部重建，不把 `INPUT_INVALID` 当成普通 `PATH_INVALID` 推动全局穷举。若非末段端点已经落在当前子问题的任一输入多边形上，该路径按论文 4.2/4.4 的不可用路径处理，直接作为 `PATH_INVALID` 候选丢弃，避免进入完整 WNV trace；该次数记录在 `leafClassificationCandidateIntermediateEndpointRejectedCount`。
 
 换平面候选有两层去重：先用起点三平面、目标三平面和替换顺序组成 `PlaneReplacementBuildSignature`，在真正构造路径前过滤重复构造；再用路径端点的齐次点序列作为 trace 级签名，避免同一条路径重复进入 WNV trace。当前签名集合用哈希缓存维护，避免在大量 inset / bridge rescue 目标上反复线性比较。
 

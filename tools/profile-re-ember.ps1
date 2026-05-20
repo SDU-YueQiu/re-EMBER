@@ -1636,6 +1636,7 @@ function New-TimingRow {
         leaf_classification_candidate_unique_count = [math]::Round((Get-Metric $metrics "leaf_classification_candidate_unique_count"), 0)
         leaf_classification_candidate_duplicate_skip_count = [math]::Round((Get-Metric $metrics "leaf_classification_candidate_duplicate_skip_count"), 0)
         leaf_classification_candidate_rejected_count = [math]::Round((Get-Metric $metrics "leaf_classification_candidate_rejected_count"), 0)
+        leaf_classification_candidate_intermediate_endpoint_rejected_count = [math]::Round((Get-Metric $metrics "leaf_classification_candidate_intermediate_endpoint_rejected_count"), 0)
         leaf_classification_candidate_repair_attempt_count = [math]::Round((Get-Metric $metrics "leaf_classification_candidate_repair_attempt_count"), 0)
         leaf_classification_candidate_repair_success_count = [math]::Round((Get-Metric $metrics "leaf_classification_candidate_repair_success_count"), 0)
         leaf_classification_centroid_axis_success_count = [math]::Round((Get-Metric $metrics "leaf_classification_centroid_axis_success_count"), 0)

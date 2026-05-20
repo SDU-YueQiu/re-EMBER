@@ -124,6 +124,7 @@ void accumulateSolveMetrics(BoolSolveMetrics &target, const BoolSolveMetrics &so
     target.leafClassificationCandidateUniqueCount += source.leafClassificationCandidateUniqueCount;
     target.leafClassificationCandidateDuplicateSkipCount += source.leafClassificationCandidateDuplicateSkipCount;
     target.leafClassificationCandidateRejectedCount += source.leafClassificationCandidateRejectedCount;
+    target.leafClassificationCandidateIntermediateEndpointRejectedCount += source.leafClassificationCandidateIntermediateEndpointRejectedCount;
     target.leafClassificationCandidateRepairAttemptCount += source.leafClassificationCandidateRepairAttemptCount;
     target.leafClassificationCandidateRepairSuccessCount += source.leafClassificationCandidateRepairSuccessCount;
     target.leafClassificationCentroidAxisSuccessCount += source.leafClassificationCentroidAxisSuccessCount;

@@ -223,6 +223,7 @@ bool writeTimingMetrics(const std::string &path, const CliTimings &timings, std:
            << "leaf_classification_candidate_unique_count=" << timings.solveMetrics.leafClassificationCandidateUniqueCount << '\n'
            << "leaf_classification_candidate_duplicate_skip_count=" << timings.solveMetrics.leafClassificationCandidateDuplicateSkipCount << '\n'
            << "leaf_classification_candidate_rejected_count=" << timings.solveMetrics.leafClassificationCandidateRejectedCount << '\n'
+           << "leaf_classification_candidate_intermediate_endpoint_rejected_count=" << timings.solveMetrics.leafClassificationCandidateIntermediateEndpointRejectedCount << '\n'
            << "leaf_classification_candidate_repair_attempt_count=" << timings.solveMetrics.leafClassificationCandidateRepairAttemptCount << '\n'
            << "leaf_classification_candidate_repair_success_count=" << timings.solveMetrics.leafClassificationCandidateRepairSuccessCount << '\n'
            << "leaf_classification_centroid_axis_success_count=" << timings.solveMetrics.leafClassificationCentroidAxisSuccessCount << '\n'

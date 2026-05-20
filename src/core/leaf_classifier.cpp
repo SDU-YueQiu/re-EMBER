@@ -326,6 +326,26 @@ bool isTraceableSurfaceCandidatePath(
     return areSamePlanePoint(pathTargetPoint, targetPoint);
 }
 
+bool hasIntermediateEndpointOnInputSurface(
+    const std::vector<Polygon256> &polygons,
+    const std::vector<Segment256> &path) noexcept
+{
+    if (path.size() < 2u)
+        return false;
+
+    REEMBER_PROFILE_ZONE("LeafClassification::intermediateEndpointPrefilter");
+    for (const Polygon256 &polygon : polygons)
+    {
+        for (std::size_t segmentIndex = 0; segmentIndex + 1u < path.size(); ++segmentIndex)
+        {
+            if (polygon.classify(path[segmentIndex].getEndPointRef()) == 0)
+                return true;
+        }
+    }
+
+    return false;
+}
+
 bool buildAxisRepairPath(
     const PlanePoint3i &referencePoint,
     const PlanePoint3i &targetPoint,
@@ -505,6 +525,14 @@ bool prepareLeafClassificationCandidate(
 
         candidate.path = std::move(repairedPath);
         ++context.solveMetrics.leafClassificationCandidateRepairSuccessCount;
+    }
+
+    if (hasIntermediateEndpointOnInputSurface(context.polygons, candidate.path))
+    {
+        attemptStats.lastStatus = PATH_INVALID;
+        ++context.solveMetrics.leafClassificationCandidateIntermediateEndpointRejectedCount;
+        ++context.solveMetrics.leafClassificationCandidateRejectedCount;
+        return false;
     }
 
     return registerUniqueLeafClassificationCandidatePath(context, attemptStats, candidate.path);
