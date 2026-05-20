@@ -12,6 +12,7 @@
 #include "geometry/polygon_ops.h"
 
 #include <algorithm>
+#include <array>
 #include <iterator>
 #include <oneapi/tbb/task_group.h>
 #include <sstream>
@@ -336,6 +337,59 @@ struct WntvSubdivisionGroup
     std::size_t polygonCount = 0;
 };
 
+constexpr std::size_t kInlineWntvGroupCapacity = 4u;
+
+struct WntvSubdivisionGroups
+{
+    std::array<WntvSubdivisionGroup, kInlineWntvGroupCapacity> inlineGroups{};
+    std::vector<WntvSubdivisionGroup> overflowGroups;
+    std::size_t inlineCount = 0;
+
+    void clear() noexcept
+    {
+        inlineCount = 0;
+        overflowGroups.clear();
+    }
+
+    std::size_t size() const noexcept
+    {
+        return inlineCount + overflowGroups.size();
+    }
+
+    WntvSubdivisionGroup &operator[](std::size_t index) noexcept
+    {
+        return index < inlineCount ? inlineGroups[index] : overflowGroups[index - inlineCount];
+    }
+
+    const WntvSubdivisionGroup &operator[](std::size_t index) const noexcept
+    {
+        return index < inlineCount ? inlineGroups[index] : overflowGroups[index - inlineCount];
+    }
+
+    WntvSubdivisionGroup &findOrAppend(const WNV &wntv)
+    {
+        for (std::size_t i = 0; i < size(); ++i)
+        {
+            WntvSubdivisionGroup &candidate = (*this)[i];
+            if (candidate.wntv == wntv)
+                return candidate;
+        }
+
+        if (inlineCount < inlineGroups.size())
+        {
+            WntvSubdivisionGroup &group = inlineGroups[inlineCount++];
+            group = WntvSubdivisionGroup();
+            group.wntv = wntv;
+            return group;
+        }
+
+        WntvSubdivisionGroup group;
+        group.wntv = wntv;
+        overflowGroups.push_back(std::move(group));
+        return overflowGroups.back();
+    }
+};
+
 Integer groupCenterCoordinate(const WntvSubdivisionGroup &group, SplitAxis3i axis) noexcept
 {
     switch (axis)
@@ -368,7 +422,7 @@ struct PolygonCenterSplitStats
 
 struct SubdivisionSplitStats
 {
-    std::vector<WntvSubdivisionGroup> wntvGroups;
+    WntvSubdivisionGroups wntvGroups;
     PolygonCenterSplitStats centerStats;
 };
 
@@ -398,8 +452,6 @@ bool buildSubdivisionSplitStats(
 
     stats.wntvGroups.clear();
     stats.centerStats = PolygonCenterSplitStats();
-    if (collectWntvGroups)
-        stats.wntvGroups.reserve(std::min<std::size_t>(polygons.size(), 4u));
 
     for (const Polygon256 &polygon : polygons)
     {
@@ -407,23 +459,7 @@ bool buildSubdivisionSplitStats(
 
         WntvSubdivisionGroup *group = nullptr;
         if (collectWntvGroups)
-        {
-            auto it = std::find_if(
-                          stats.wntvGroups.begin(),
-                          stats.wntvGroups.end(),
-                          [&polygon](const WntvSubdivisionGroup &candidate)
-            {
-                return candidate.wntv == polygon.WNTV;
-            });
-            if (it == stats.wntvGroups.end())
-            {
-                WntvSubdivisionGroup newGroup;
-                newGroup.wntv = polygon.WNTV;
-                stats.wntvGroups.push_back(std::move(newGroup));
-                it = stats.wntvGroups.end() - 1;
-            }
-            group = &(*it);
-        }
+            group = &stats.wntvGroups.findOrAppend(polygon.WNTV);
 
         const AABB3i *polygonBox = nullptr;
         {
@@ -463,8 +499,9 @@ bool buildSubdivisionSplitStats(
     if (collectWntvGroups)
     {
         REEMBER_PROFILE_ZONE("buildSubdivisionSplitStats::finalizeGroups");
-        for (WntvSubdivisionGroup &group : stats.wntvGroups)
+        for (std::size_t groupIndex = 0; groupIndex < stats.wntvGroups.size(); ++groupIndex)
         {
+            WntvSubdivisionGroup &group = stats.wntvGroups[groupIndex];
             if (!isValidAABB(group.box) || group.polygonCount == 0)
                 return false;
 
@@ -521,7 +558,7 @@ bool considerWntvSeparationCandidate(
 
 // 论文 4.5.3 策略：优先选能把某个 WNTV 类整体隔到单侧的轴向切分面。
 bool chooseWntvAwareSplit(
-    const std::vector<WntvSubdivisionGroup> &groups,
+    const WntvSubdivisionGroups &groups,
     const AABB3i &box,
     AABBSplit3i &outSplit)
 {

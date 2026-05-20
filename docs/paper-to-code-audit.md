@@ -5,8 +5,8 @@
 
 ## 当前基线
 
-- 最近可比性能基线：`8e6adc3 缓存叶片参考点侧别`。
-- 计时基线：`build/performance/run_20260521_063440/timings.csv`，Release
+- 最近可比性能基线：`417159e 收缩细分WNTV分组预留`。
+- 计时基线：`build/performance/run_20260521_071448/timings.csv`，Release
   NoTracy，论文实验集 `10 small / 10 medium / 2 large`，`--threads 20`。
 - 最近 Tracy 归因：`build/performance/run_20260521_064014/`，单个 large
   workload，RelWithDebInfo，Tracy 和 math Tracy 开启。
@@ -105,6 +105,12 @@
   10 medium / 2 large workload 做了 `-NoTracy -VerifyWithOracle`，22 个 verifier
   全部通过，聚合 `solve_ms` 从 `run_20260521_063440` 的 1927.46ms 降到
   1923.92ms，`end_to_end_ms` 从 5307.45ms 降到 5282.89ms。
+- `WntvSubdivisionGroups` 改为小数组优先存储：常见二元 lhs/rhs WNTV 分组不再进入
+  vector 堆路径，超过 4 个 WNTV 类时才使用 overflow vector，仍保持多类输入兼容。
+  `run_20260521_072311` 对同一 10 small / 10 medium / 2 large workload 做了
+  `-NoTracy -VerifyWithOracle`，22 个 verifier 全部通过，聚合 `solve_ms` 从
+  `run_20260521_071448` 的 1923.92ms 降到 1893.49ms，`end_to_end_ms` 从
+  5282.89ms 降到 5251.62ms。
 
 ## 已测但不保留的局部实验
 
