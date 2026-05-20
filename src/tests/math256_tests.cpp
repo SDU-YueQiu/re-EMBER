@@ -7,6 +7,7 @@
 #include <cassert>
 #include <limits>
 #include <stdexcept>
+#include <vector>
 
 #include "geometry/geometry256.h"
 #include "math/math256.h"
@@ -52,6 +53,26 @@ void assertFixedEquals(
     const boost::multiprecision::cpp_int &expected)
 {
     assert(toCppInt(value) == expected);
+}
+
+void assertSamePlane(const ember::Plane3i &lhs, const ember::Plane3i &rhs)
+{
+    assert(lhs.a == rhs.a);
+    assert(lhs.b == rhs.b);
+    assert(lhs.c == rhs.c);
+    assert(lhs.d == rhs.d);
+}
+
+void assertSamePolygonPayload(const ember::Polygon256 &lhs, const ember::Polygon256 &rhs)
+{
+    assertSamePlane(lhs.plane, rhs.plane);
+    assert(lhs.edgeCount() == rhs.edgeCount());
+    for (std::size_t i = 0; i < lhs.edgeCount(); ++i)
+    {
+        assertSamePlane(lhs.edgePlanes[i], rhs.edgePlanes[i]);
+        assert(lhs.edgeProvenance(i) == rhs.edgeProvenance(i));
+    }
+    assert(lhs.WNTV == rhs.WNTV);
 }
 }
 
@@ -470,6 +491,29 @@ void runMath256Tests()
         }
         assert(taggedFrontClipEdges == 1u);
         assert(taggedBackClipEdges == 1u);
+
+        std::vector<int> vertexSides(poly.edgeCount());
+        for (std::size_t i = 0; i < poly.edgeCount(); ++i)
+            vertexSides[i] = poly.vertex(i).classify(splitter);
+
+        ember::Polygon256 frontOnlyGeometry;
+        ember::Polygon256 backOnlyGeometry;
+        assert(ember::detail::clipLeafGeometryByPlaneTrustedWithSidesToSide(
+                   poly,
+                   splitter,
+                   vertexSides,
+                   true,
+                   frontOnlyGeometry,
+                   ember::PolygonEdgeProvenance::SubdivisionClip));
+        assert(ember::detail::clipLeafGeometryByPlaneTrustedWithSidesToSide(
+                   poly,
+                   splitter,
+                   vertexSides,
+                   false,
+                   backOnlyGeometry,
+                   ember::PolygonEdgeProvenance::SubdivisionClip));
+        assertSamePolygonPayload(frontOnlyGeometry, taggedFrontGeometry);
+        assertSamePolygonPayload(backOnlyGeometry, taggedBackGeometry);
 
         splitter = ember::Plane3i::fromPointNormal(Vec3i(1, 0, 3), Vec3i(-1, 1, 0));
         assert(ember::clipLeafGeometryByPlane(poly, splitter, frontGeometry, backGeometry));

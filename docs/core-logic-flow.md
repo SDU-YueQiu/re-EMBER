@@ -195,28 +195,32 @@ flowchart TD
 
 ## 6. 子节点创建与参考点传播
 
-切分成功后，`createChildrenFromSplit()` 会做四件事：
+切分成功后，`createChildrenFromSplit()` 会做五件事：
 
-1. 用切分平面把当前 `polygons_` 裁成左右两个 child polygon soup。
-2. 分别扫描左右 child polygon soup，缓存 `hasLhs/hasRhs/是否单操作数`。
+1. 先建立 child polygon plan：原始 polygon 只记录去左/去右路由；跨切分平面的 polygon 只记录顶点侧分类和左右 child 共享的支撑平面/WNTV 元数据。
+2. 基于 plan 元数据缓存左右 child 的 `hasLhs/hasRhs/是否单操作数`，此时不急着构造真实 clipped polygon。
 3. 对每个非空 child 独立传播参考点状态 `SubdivisionRefState`。
-4. 在真正创建该 child 前，按扫描缓存和 child reference 做常量 indicator 剪枝；只有未被剪掉的 child 才构造 `SubdivisionSolver` 子实例。
+4. 在真正创建该 child 前，按扫描缓存和 child reference 做常量 indicator 剪枝。
+5. 只为未被剪掉的 child 物化 polygon soup：单侧 child 只构造对应半空间，左右都创建时才一次性构造 front/back 两侧，然后创建 `SubdivisionSolver` 子实例。
 
 ```mermaid
 flowchart TD
-    A["createChildrenFromSplit()"] --> B["buildSplitChildPolygonSoups()"]
+    A["createChildrenFromSplit()"] --> B["buildSplitChildPolygonPlan()"]
     B --> C{"左右都为空?"}
     C -->|是| D["返回 false"]
-    C -->|否| E["scan left child polygons"]
+    C -->|否| E["scan left metadata"]
     E --> F["makeChildReference(left)"]
     F --> G{"left child 常量剪枝?"}
-    G -->|否| H["createChildSolver(left)"]
+    G -->|否| H["mark create left"]
     G -->|是| I["跳过 left"]
-    E --> J["scan right child polygons"]
+    E --> J["scan right metadata"]
     J --> K["makeChildReference(right)"]
     K --> L{"right child 常量剪枝?"}
-    L -->|否| M["createChildSolver(right)"]
+    L -->|否| M["mark create right"]
     L -->|是| N["跳过 right"]
+    H --> O["materializeCreatedSplitChildren()"]
+    M --> O
+    O --> P["createChildSolver(left/right)"]
 ```
 
 ### 6.1 子参考点传播顺序

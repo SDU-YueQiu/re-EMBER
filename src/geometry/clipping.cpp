@@ -118,6 +118,101 @@ bool buildTrustedClippedPolygon(
     outPolygon = std::move(polygon);
     return true;
 }
+
+bool buildTrustedClippedPolygonSide(
+    const Polygon256& source,
+    const Plane3i& clipPlane,
+    const std::vector<int>& vertexSides,
+    bool keepFront,
+    Polygon256& clipped,
+    PolygonEdgeProvenance insertedEdgeProvenance)
+{
+    const std::size_t n = source.edgeCount();
+    if (vertexSides.size() != n)
+        return false;
+
+    std::vector<Plane3i> edges;
+    std::vector<PolygonEdgeProvenance> provenances;
+    edges.reserve(n + 1u);
+    provenances.reserve(n + 1u);
+
+    const Plane3i trustedClipPlane = primitivePlane(clipPlane);
+    const Plane3i oppositePlane = primitivePlane(Plane3i(
+        -trustedClipPlane.a,
+        -trustedClipPlane.b,
+        -trustedClipPlane.c,
+        -trustedClipPlane.d));// 取反后表示裁剪平面的另一侧。
+
+    for (std::size_t i = 0; i < n; ++i)
+    {
+        const std::size_t next = (i + 1 == n) ? 0 : (i + 1);
+        const Plane3i& segmentEdge = source.edgePlanes[i];
+        const PolygonEdgeProvenance segmentEdgeProvenance = source.edgeProvenance(i);
+
+        const int sSide = vertexSides[i];
+        const int eSide = vertexSides[next];
+        const bool sInside = (sSide >= 0);
+        const bool eInside = (eSide >= 0);
+
+        if (sSide == 0 && eSide == 0)
+        {
+            clipped = Polygon256();
+            return false;
+        }
+
+        if (keepFront)
+        {
+            if (sInside && eInside)
+            {
+                edges.push_back(segmentEdge);
+                provenances.push_back(segmentEdgeProvenance);
+            }
+            else if (sInside && !eInside)
+            {
+                if (sSide == 1)
+                {
+                    edges.push_back(segmentEdge);
+                    provenances.push_back(segmentEdgeProvenance);
+                }
+                edges.push_back(oppositePlane);
+                provenances.push_back(insertedEdgeProvenance);
+            }
+            else if (!sInside && eInside && eSide == 1)
+            {
+                edges.push_back(segmentEdge);
+                provenances.push_back(segmentEdgeProvenance);
+            }
+        }
+        else
+        {
+            if (!sInside && !eInside)
+            {
+                edges.push_back(segmentEdge);
+                provenances.push_back(segmentEdgeProvenance);
+            }
+            else if (sInside && !eInside)
+            {
+                edges.push_back(segmentEdge);
+                provenances.push_back(segmentEdgeProvenance);
+            }
+            else if (!sInside && eInside)
+            {
+                edges.push_back(segmentEdge);
+                provenances.push_back(segmentEdgeProvenance);
+                edges.push_back(trustedClipPlane);
+                provenances.push_back(insertedEdgeProvenance);
+            }
+        }
+    }
+
+    if (!buildTrustedClippedPolygon(source, std::move(edges), std::move(provenances), clipped))
+    {
+        clipped = Polygon256();
+        return false;
+    }
+
+    return true;
+}
 }
 
 bool computePolygonPlaneIntersection(
@@ -485,6 +580,23 @@ bool detail::clipLeafGeometryByPlaneTrustedWithSides(
     frontClipped = std::move(orientedFront);
     backClipped = std::move(orientedBack);
     return true;
+}
+
+bool detail::clipLeafGeometryByPlaneTrustedWithSidesToSide(
+    const Polygon256& source,
+    const Plane3i& clipPlane,
+    const std::vector<int>& vertexSides,
+    bool keepFront,
+    Polygon256& clipped,
+    PolygonEdgeProvenance insertedEdgeProvenance)
+{
+    return buildTrustedClippedPolygonSide(
+        source,
+        clipPlane,
+        vertexSides,
+        keepFront,
+        clipped,
+        insertedEdgeProvenance);
 }
 }
 

@@ -2229,6 +2229,8 @@ function Write-Reports {
             "SubdivisionSolver::solve",
             "SubdivisionSolver::solveRecursive",
             "SubdivisionSolver::createChildrenFromSplit",
+            "SubdivisionSolver::buildSplitChildPolygonPlan",
+            "SubdivisionSolver::materializeCreatedSplitChildren",
             "SubdivisionSolver::makeChildReference",
             "SubdivisionSolver::solveLeafArrangement",
             "SubdivisionSolver::classifyLeafFragmentsAndCollectResults"

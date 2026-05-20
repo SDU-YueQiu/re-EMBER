@@ -689,12 +689,6 @@ bool chooseSubdivisionSplit(
     return false;
 }
 
-enum class SplitChildSide
-{
-    Left,
-    Right
-};
-
 enum class SplitPolygonRouteKind
 {
     LeftOriginal,
@@ -706,8 +700,7 @@ struct SplitPolygonRoute
 {
     std::size_t sourceIndex = 0;
     SplitPolygonRouteKind kind = SplitPolygonRouteKind::LeftOriginal;
-    Polygon256 frontClipped;
-    Polygon256 backClipped;
+    std::vector<int> vertexSides;
 };
 
 struct SplitChildMetadata
@@ -727,6 +720,12 @@ void appendChildMetadata(SplitChildMetadata &metadata, const Polygon256 &polygon
 {
     metadata.supportPlanes.push_back(polygon.plane);
     appendWntvToBinaryPolygonScan(metadata.scan, polygon.WNTV);
+}
+
+void appendChildMetadata(SplitChildMetadata &metadata, const Plane3i &supportPlane, const WNV &wntv)
+{
+    metadata.supportPlanes.push_back(supportPlane);
+    appendWntvToBinaryPolygonScan(metadata.scan, wntv);
 }
 
 bool classifySplitChildPolygonRoute(
@@ -789,19 +788,8 @@ bool classifySplitChildPolygonRoute(
         return true;
     }
 
-    {
-        REEMBER_PROFILE_ZONE("appendSplitChildPolygons::clip");
-        if (!detail::clipLeafGeometryByPlaneTrustedWithSides(
-                    polygon,
-                    splitPlane,
-                    vertexSides,
-                    route.frontClipped,
-                    route.backClipped,
-                    PolygonEdgeProvenance::SubdivisionClip))
-            return false;
-    }
-
     route.kind = SplitPolygonRouteKind::Split;
+    route.vertexSides = std::move(vertexSides);
     return true;
 }
 
@@ -810,7 +798,7 @@ bool buildSplitChildPolygonPlan(
     const AABBSplit3i &split,
     SplitChildPolygonPlan &plan)
 {
-    REEMBER_PROFILE_ZONE("SubdivisionSolver::buildSplitChildPolygonSoups");
+    REEMBER_PROFILE_ZONE("SubdivisionSolver::buildSplitChildPolygonPlan");
 
     plan.routes.clear();
     plan.left = SplitChildMetadata();
@@ -835,8 +823,8 @@ bool buildSplitChildPolygonPlan(
             appendChildMetadata(plan.right, polygons[i]);
             break;
         case SplitPolygonRouteKind::Split:
-            appendChildMetadata(plan.left, route.backClipped);
-            appendChildMetadata(plan.right, route.frontClipped);
+            appendChildMetadata(plan.left, polygons[i].plane, polygons[i].WNTV);
+            appendChildMetadata(plan.right, polygons[i].plane, polygons[i].WNTV);
             break;
         }
 
@@ -848,39 +836,90 @@ bool buildSplitChildPolygonPlan(
     return true;
 }
 
-void materializeSplitChildPolygons(
-    SplitChildSide side,
+bool materializeCreatedSplitChildren(
+    bool createLeftChild,
+    bool createRightChild,
+    const AABBSplit3i &split,
     SplitChildPolygonPlan &plan,
     std::vector<Polygon256> &sourcePolygons,
-    std::vector<Polygon256> &outPolygons)
+    std::vector<Polygon256> &leftPolygons,
+    std::vector<Polygon256> &rightPolygons)
 {
-    REEMBER_PROFILE_ZONE("SubdivisionSolver::materializeSplitChildPolygons");
+    REEMBER_PROFILE_ZONE("SubdivisionSolver::materializeCreatedSplitChildren");
 
-    const std::size_t childPolygonCount =
-        side == SplitChildSide::Left ? plan.left.supportPlanes.size() : plan.right.supportPlanes.size();
-    outPolygons.clear();
-    outPolygons.reserve(childPolygonCount);
+    leftPolygons.clear();
+    rightPolygons.clear();
+    if (createLeftChild)
+        leftPolygons.reserve(plan.left.supportPlanes.size());
+    if (createRightChild)
+        rightPolygons.reserve(plan.right.supportPlanes.size());
 
     for (SplitPolygonRoute &route : plan.routes)
     {
-        if (route.kind == SplitPolygonRouteKind::LeftOriginal && side == SplitChildSide::Left)
+        if (route.kind == SplitPolygonRouteKind::LeftOriginal)
         {
-            outPolygons.push_back(std::move(sourcePolygons[route.sourceIndex]));
+            if (createLeftChild)
+                leftPolygons.push_back(std::move(sourcePolygons[route.sourceIndex]));
             continue;
         }
-        if (route.kind == SplitPolygonRouteKind::RightOriginal && side == SplitChildSide::Right)
+        if (route.kind == SplitPolygonRouteKind::RightOriginal)
         {
-            outPolygons.push_back(std::move(sourcePolygons[route.sourceIndex]));
+            if (createRightChild)
+                rightPolygons.push_back(std::move(sourcePolygons[route.sourceIndex]));
             continue;
         }
         if (route.kind != SplitPolygonRouteKind::Split)
             continue;
 
-        if (side == SplitChildSide::Left)
-            outPolygons.push_back(std::move(route.backClipped));
-        else
-            outPolygons.push_back(std::move(route.frontClipped));
+        if (!createLeftChild && !createRightChild)
+            continue;
+
+        Polygon256 frontClipped;
+        Polygon256 backClipped;
+        {
+            REEMBER_PROFILE_ZONE("appendSplitChildPolygons::clip");
+            if (createLeftChild && createRightChild)
+            {
+                if (!detail::clipLeafGeometryByPlaneTrustedWithSides(
+                            sourcePolygons[route.sourceIndex],
+                            split.splitPlane,
+                            route.vertexSides,
+                            frontClipped,
+                            backClipped,
+                            PolygonEdgeProvenance::SubdivisionClip))
+                    return false;
+            }
+            else if (createLeftChild)
+            {
+                if (!detail::clipLeafGeometryByPlaneTrustedWithSidesToSide(
+                            sourcePolygons[route.sourceIndex],
+                            split.splitPlane,
+                            route.vertexSides,
+                            false,
+                            backClipped,
+                            PolygonEdgeProvenance::SubdivisionClip))
+                    return false;
+            }
+            else if (createRightChild)
+            {
+                if (!detail::clipLeafGeometryByPlaneTrustedWithSidesToSide(
+                            sourcePolygons[route.sourceIndex],
+                            split.splitPlane,
+                            route.vertexSides,
+                            true,
+                            frontClipped,
+                            PolygonEdgeProvenance::SubdivisionClip))
+                    return false;
+            }
+        }
+
+        if (createLeftChild)
+            leftPolygons.push_back(std::move(backClipped));
+        if (createRightChild)
+            rightPolygons.push_back(std::move(frontClipped));
     }
+
+    return true;
 }
 
 bool isPointStrictlyInsideAABB(const PlanePoint3i &point, const AABB3i &box) noexcept
@@ -1463,17 +1502,24 @@ bool SubdivisionSolver::createChildrenFromSplit(const AABBSplit3i &split)
     if (hasRightPolygons)
         createRightChild = shouldCreateChildNode(splitPlan.right.scan, rightReference);
 
+    std::vector<Polygon256> leftPolygons;
+    std::vector<Polygon256> rightPolygons;
+    if ((createLeftChild || createRightChild) &&
+        !materializeCreatedSplitChildren(
+            createLeftChild,
+            createRightChild,
+            split,
+            splitPlan,
+            polygons_,
+            leftPolygons,
+            rightPolygons))
+        return false;
+
     if (createLeftChild)
-    {
-        std::vector<Polygon256> leftPolygons;
-        materializeSplitChildPolygons(SplitChildSide::Left, splitPlan, polygons_, leftPolygons);
         createChildSolver(leftChild_, split.left, std::move(leftPolygons), std::move(leftReference), splitPlan.left.scan);
-    }
 
     if (createRightChild)
     {
-        std::vector<Polygon256> rightPolygons;
-        materializeSplitChildPolygons(SplitChildSide::Right, splitPlan, polygons_, rightPolygons);
         createChildSolver(rightChild_, split.right, std::move(rightPolygons), std::move(rightReference), splitPlan.right.scan);
     }
 
