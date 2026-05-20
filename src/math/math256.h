@@ -231,6 +231,37 @@ inline Integer ceilDiv(const Integer& a, const Integer& b) noexcept
     return num / den;
 }
 
+inline void floorCeilDiv(const Integer& a, const Integer& b, Integer& outFloor, Integer& outCeil) noexcept
+{
+    REEMBER_PROFILE_MATH_ZONE("math256::floorCeilDiv");
+    Integer num = a;
+    Integer den = b;
+    if (den < 0)
+    {
+        num = -num;
+        den = -den;
+    }
+
+    const Integer quotient = num / den;
+    const Integer remainder = num % den;
+    if (isZero(remainder))
+    {
+        outFloor = quotient;
+        outCeil = quotient;
+        return;
+    }
+
+    if (num >= 0)
+    {
+        outFloor = quotient;
+        outCeil = quotient + 1;
+        return;
+    }
+
+    outFloor = quotient - 1;
+    outCeil = quotient;
+}
+
 /**
  * @brief 表示三维齐次点坐标。
  */
