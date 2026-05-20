@@ -207,6 +207,12 @@ void runMath256Tests()
         ember::floorCeilDiv(Integer(6), Integer(-3), divFloor, divCeil);
         assert(divFloor == Integer(-2));
         assert(divCeil == Integer(-2));
+        Integer exactQuotient = 0;
+        assert(ember::tryExactDiv(Integer(12), Integer(3), exactQuotient));
+        assert(exactQuotient == Integer(4));
+        assert(ember::tryExactDiv(Integer(12), Integer(-3), exactQuotient));
+        assert(exactQuotient == Integer(-4));
+        assert(!ember::tryExactDiv(Integer(13), Integer(3), exactQuotient));
         assert(ember::floorDivByTwo(Integer(7)) == Integer(3));
         assert(ember::floorDivByTwo(Integer(6)) == Integer(3));
         assert(ember::floorDivByTwo(Integer(-7)) == Integer(-4));

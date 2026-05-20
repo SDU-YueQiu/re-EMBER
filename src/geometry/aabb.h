@@ -110,26 +110,11 @@ inline bool tryExtractExactIntegerPoint(
         return true;
     }
 
-    Integer numeratorX = point.x.x;
-    Integer numeratorY = point.x.y;
-    Integer numeratorZ = point.x.z;
-    Integer denominator = point.x.w;
-    if (denominator < 0)
-    {
-        numeratorX = -numeratorX;
-        numeratorY = -numeratorY;
-        numeratorZ = -numeratorZ;
-        denominator = -denominator;
-    }
-
-    if (numeratorX % denominator != 0 ||
-            numeratorY % denominator != 0 ||
-            numeratorZ % denominator != 0)
+    if (!tryExactDiv(point.x.x, point.x.w, x) ||
+            !tryExactDiv(point.x.y, point.x.w, y) ||
+            !tryExactDiv(point.x.z, point.x.w, z))
         return false;
 
-    x = numeratorX / denominator;
-    y = numeratorY / denominator;
-    z = numeratorZ / denominator;
     return true;
 }
 
