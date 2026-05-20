@@ -83,6 +83,21 @@ bool clipLeafGeometryByPlaneTrustedWithSides(
     Polygon256& frontClipped,
     Polygon256& backClipped,
     PolygonEdgeProvenance insertedEdgeProvenance = PolygonEdgeProvenance::Regular);
+
+/**
+ * @brief 使用调用方已缓存的顶点侧分类，只构造裁剪后指定半空间的叶片几何。
+ *
+ * @pre `source` 满足 `Polygon256::isValid()`。
+ * @pre `vertexSides[i]` 是第 i 个顶点相对 `clipPlane` 的分类。
+ * @param keepFront 为 true 时保留 `clipPlane` 正侧，否则保留负侧。
+ */
+bool clipLeafGeometryByPlaneTrustedWithSidesToSide(
+    const Polygon256& source,
+    const Plane3i& clipPlane,
+    const std::vector<int>& vertexSides,
+    bool keepFront,
+    Polygon256& clipped,
+    PolygonEdgeProvenance insertedEdgeProvenance = PolygonEdgeProvenance::Regular);
 }
 
 bool clipLeafGeometryByPlane(const Polygon256& source, const Plane3i& clipPlane, Polygon256& frontClipped, Polygon256& backClipped);
