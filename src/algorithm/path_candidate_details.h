@@ -363,7 +363,8 @@ inline bool buildAxisProbeInteriorPoint(
     SplitAxis3i axis,
     const Plane3i &plane0,
     const Plane3i &plane1,
-    PlanePoint3i &outPoint)
+    PlanePoint3i &outPoint,
+    AxisProbeTarget *outTarget = nullptr)
 {
     Line256 probeLine;
     switch (axis)
@@ -382,6 +383,32 @@ inline bool buildAxisProbeInteriorPoint(
     const PlanePoint3i candidate = intersect(probeLine, polygon.plane);
     if (!candidate.hasUniqueIntersection() || !polygon.containsStrictly(candidate))
         return false;
+
+    if (outTarget)
+    {
+        AxisProbeTarget target;
+        target.freeAxis = axis;
+        target.supportPlane = polygon.plane;
+
+        SplitAxis3i coordAxis0 = SplitAxis3i::X;
+        SplitAxis3i coordAxis1 = SplitAxis3i::X;
+        Integer coord0 = 0;
+        Integer coord1 = 0;
+        if (!tryExtractUnitCoordinatePlane(plane0, coordAxis0, coord0) ||
+                !tryExtractUnitCoordinatePlane(plane1, coordAxis1, coord1))
+            return false;
+
+        const int coordAxisIndex0 = axisOrderKey(coordAxis0);
+        const int coordAxisIndex1 = axisOrderKey(coordAxis1);
+        if (coordAxisIndex0 == coordAxisIndex1 || coordAxis0 == axis || coordAxis1 == axis)
+            return false;
+
+        target.hasCoordinate[coordAxisIndex0] = true;
+        target.hasCoordinate[coordAxisIndex1] = true;
+        target.coordinate[coordAxisIndex0] = coord0;
+        target.coordinate[coordAxisIndex1] = coord1;
+        *outTarget = target;
+    }
 
     outPoint = candidate;
     return true;
@@ -580,7 +607,10 @@ inline bool buildRoundedCentroidPoint(const Polygon256 &polygon, PlanePoint3i &o
 /**
  * @brief 按论文 4.4 的第一启发式生成一个严格内部分类点。
  */
-inline bool buildLeafClassificationCentroidTargetPoint(const Polygon256 &polygon, PlanePoint3i &outPoint)
+inline bool buildLeafClassificationCentroidTargetPoint(
+    const Polygon256 &polygon,
+    PlanePoint3i &outPoint,
+    AxisProbeTarget *outAxisProbeTarget = nullptr)
 {
     PlanePoint3i centroid;
     if (!buildRoundedCentroidPoint(polygon, centroid))
@@ -638,7 +668,8 @@ inline bool buildLeafClassificationCentroidTargetPoint(const Polygon256 &polygon
                         probeAxis,
                         makeIntegerCoordinatePlane(axisFromIndex(coordAxis0), coord0),
                         makeIntegerCoordinatePlane(axisFromIndex(coordAxis1), coord1),
-                        outPoint))
+                        outPoint,
+                        outAxisProbeTarget))
                 return true;
         }
         return false;
@@ -1102,7 +1133,8 @@ inline bool buildAxisProbePath(
     const PlanePoint3i &startPoint,
     const AxisProbeTarget &target,
     const AABB3i &box,
-    std::vector<Segment256> &outPath)
+    std::vector<Segment256> &outPath,
+    const PlanePoint3i *knownTargetPoint = nullptr)
 {
     Integer startX;
     Integer startY;
@@ -1156,8 +1188,15 @@ inline bool buildAxisProbePath(
     const int freeAxisIndex = axisOrderKey(target.freeAxis);
     std::array<Plane3i, 3> targetPlanes = currentPlanes;
     targetPlanes[freeAxisIndex] = target.supportPlane;
-    const PlanePoint3i targetPoint = makePointFromPlanes(targetPlanes);
-    if (!targetPoint.hasUniqueIntersection() || !isPointInsideOrOnAABB(targetPoint, box))
+
+    PlanePoint3i computedTargetPoint;
+    const PlanePoint3i *targetPoint = knownTargetPoint;
+    if (!targetPoint)
+    {
+        computedTargetPoint = makePointFromPlanes(targetPlanes);
+        targetPoint = &computedTargetPoint;
+    }
+    if (!targetPoint->hasUniqueIntersection() || !isPointInsideOrOnAABB(*targetPoint, box))
     {
         outPath.clear();
         return false;
