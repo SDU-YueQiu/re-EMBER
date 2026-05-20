@@ -5,6 +5,11 @@ param(
     [ValidateSet("union", "intersection", "difference")][string]$Op = "difference",
     [string]$Out,
     [string]$InputRoot,
+    [switch]$UsePaperExperimentSet,
+    [int]$PaperSmallCount = 10,
+    [int]$PaperMediumCount = 10,
+    [int]$PaperLargeCount = 2,
+    [string]$PaperExperimentDir,
     [string]$ExecutablePath,
     [ValidateSet("Debug", "Release", "RelWithDebInfo", "MinSizeRel")][string]$Configuration = "RelWithDebInfo",
     [int]$LeafThreshold = 25,
@@ -53,6 +58,7 @@ Usage:
   powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1
   powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -Lhs <lhs.obj> -Rhs <rhs.obj> -Op difference
   powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -InputRoot <case-root> -Op difference -ExecutablePath .\build\Debug\re-EMBER.exe
+  powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 -UsePaperExperimentSet -NoTracy -VerifyWithOracle
 
 Outputs:
   build\performance\run_<timestamp>\profile.log
@@ -71,6 +77,8 @@ Notes:
   - When -SkipBuild is not specified, the script configures the mode-matched profiling build tree automatically.
   - Use -ExecutablePath to reuse an existing re-EMBER.exe directly and skip all configure/build logic.
   - Use -InputRoot when one parent directory contains multiple case subdirectories, each with exactly one lhs.obj|stl and one rhs.obj|stl.
+  - Use -UsePaperExperimentSet to select a manifest-driven paper batch. Defaults are 10 small, 10 medium, and 2 large cases.
+  - Use -PaperSmallCount/-PaperMediumCount/-PaperLargeCount to resize that paper batch. The generated input root is written under the current run directory.
   - Use -EnableMathTracy to additionally enable low-level math256 Tracy zones; the default is OFF to avoid steady-state overhead.
   - -EnableMathTracy uses build\profile_clang_tracy_math\ and enables REEMBER_ENABLE_TRACY_MATH automatically.
   - Install the required tools with: vcpkg install tracy[cli-tools]:x64-windows
@@ -119,8 +127,20 @@ if ($InputRoot -and ($Lhs -or $Rhs)) {
     throw "-InputRoot cannot be combined with -Lhs/-Rhs."
 }
 
+if ($UsePaperExperimentSet -and ($InputRoot -or $Lhs -or $Rhs)) {
+    throw "-UsePaperExperimentSet cannot be combined with -InputRoot or -Lhs/-Rhs."
+}
+
 if ($InputRoot -and $Out) {
     throw "-Out applies only to single-workload mode and cannot be combined with -InputRoot."
+}
+
+if ($UsePaperExperimentSet -and $Out) {
+    throw "-Out applies only to single-workload mode and cannot be combined with -UsePaperExperimentSet."
+}
+
+if ($PaperSmallCount -lt 0 -or $PaperMediumCount -lt 0 -or $PaperLargeCount -lt 0) {
+    throw "Paper workload counts must be non-negative."
 }
 
 if (-not $ThreadsWasExplicit -and $Threads -eq 0) {
@@ -140,6 +160,10 @@ if ($InputRoot) {
 }
 
 function Get-RunMode {
+    if ($UsePaperExperimentSet) {
+        return "paper_experiment"
+    }
+
     if ($script:ResolvedInputRoot) {
         return "batch"
     }
@@ -1180,6 +1204,94 @@ function Resolve-BatchCaseMeshPath {
     }
 
     return $matches[0]
+}
+
+function Copy-Or-LinkPaperExperimentMesh {
+    param(
+        [string]$SourcePath,
+        [string]$DestinationPath
+    )
+
+    if (Test-Path -LiteralPath $DestinationPath) {
+        Remove-Item -LiteralPath $DestinationPath -Force
+    }
+
+    try {
+        New-Item -ItemType HardLink -Path $DestinationPath -Target $SourcePath | Out-Null
+    }
+    catch {
+        Copy-Item -LiteralPath $SourcePath -Destination $DestinationPath -Force
+    }
+}
+
+function Select-PaperExperimentRows {
+    param(
+        [object[]]$ManifestRows,
+        [string]$Stratum,
+        [int]$Count
+    )
+
+    if ($Count -eq 0) {
+        return @()
+    }
+
+    $rows = @($ManifestRows | Where-Object { $_.stratum -eq $Stratum })
+    if ($rows.Count -lt $Count) {
+        throw ("Paper experiment manifest has only {0} {1} rows, but {2} were requested." -f $rows.Count, $Stratum, $Count)
+    }
+
+    return @($rows | Select-Object -First $Count)
+}
+
+function New-PaperExperimentInputRoot {
+    $experimentDir = $PaperExperimentDir
+    if (-not $experimentDir) {
+        $experimentDir = Join-Path $RepoRoot "tests\paper_experiments"
+    }
+    $resolvedExperimentDir = (Resolve-Path -LiteralPath $experimentDir).Path
+    $manifestPath = Join-Path $resolvedExperimentDir "manifest.csv"
+    if (-not (Test-Path -LiteralPath $manifestPath)) {
+        throw ("Paper experiment manifest not found: {0}" -f $manifestPath)
+    }
+
+    $manifestRows = @(Import-Csv -LiteralPath $manifestPath)
+    $selectedRows = @()
+    $selectedRows += Select-PaperExperimentRows $manifestRows "small" $PaperSmallCount
+    $selectedRows += Select-PaperExperimentRows $manifestRows "medium" $PaperMediumCount
+    $selectedRows += Select-PaperExperimentRows $manifestRows "large" $PaperLargeCount
+    if ($selectedRows.Count -eq 0) {
+        throw "Paper experiment workload selection is empty."
+    }
+
+    $inputRootName = "paper_experiment_{0}s_{1}m_{2}l" -f $PaperSmallCount, $PaperMediumCount, $PaperLargeCount
+    $inputRoot = Join-Path $PerfRoot $inputRootName
+    New-Item -ItemType Directory -Force -Path $inputRoot | Out-Null
+
+    foreach ($row in $selectedRows) {
+        $caseDir = Join-Path $inputRoot $row.pair_id
+        New-Item -ItemType Directory -Force -Path $caseDir | Out-Null
+
+        $lhsSource = Join-Path $resolvedExperimentDir $row.lhs_path
+        $rhsSource = Join-Path $resolvedExperimentDir $row.rhs_path
+        if (-not (Test-Path -LiteralPath $lhsSource)) {
+            throw ("Missing paper experiment lhs mesh: {0}" -f $lhsSource)
+        }
+        if (-not (Test-Path -LiteralPath $rhsSource)) {
+            throw ("Missing paper experiment rhs mesh: {0}" -f $rhsSource)
+        }
+
+        Copy-Or-LinkPaperExperimentMesh $lhsSource (Join-Path $caseDir "lhs.obj")
+        Copy-Or-LinkPaperExperimentMesh $rhsSource (Join-Path $caseDir "rhs.obj")
+    }
+
+    $selectionCsv = Join-Path $inputRoot "selection.csv"
+    $selectedRows |
+        Select-Object pair_id, stratum, operation, current_status, oracle_status, lhs_obj_faces, rhs_obj_faces |
+        Export-Csv -LiteralPath $selectionCsv -NoTypeInformation -Encoding UTF8
+
+    Write-Info ("Generated paper experiment input root: {0}" -f $inputRoot)
+    Write-Info ("Selected paper experiment workloads: small={0} medium={1} large={2}" -f $PaperSmallCount, $PaperMediumCount, $PaperLargeCount)
+    return (Resolve-Path -LiteralPath $inputRoot).Path
 }
 
 function Get-BatchWorkloads {
@@ -2482,6 +2594,10 @@ try {
         $tracyCapturePath = Resolve-ToolPath "tracy-capture.exe"
         $tracyCsvExportPath = Resolve-ToolPath "tracy-csvexport.exe"
         Assert-TracyTools $tracyCapturePath $tracyCsvExportPath
+    }
+
+    if ($UsePaperExperimentSet) {
+        $script:ResolvedInputRoot = New-PaperExperimentInputRoot
     }
 
     $workloads = @(Get-Workloads)
