@@ -231,6 +231,22 @@ inline Integer ceilDiv(const Integer& a, const Integer& b) noexcept
     return num / den;
 }
 
+/**
+ * @brief 若 `numerator / denominator` 是整数商，则返回该商。
+ */
+inline bool tryExactDiv(const Integer& numerator, const Integer& denominator, Integer& outQuotient) noexcept
+{
+    if (isZero(denominator))
+        return false;
+
+    const Integer quotient = numerator / denominator;
+    if (quotient * denominator != numerator)
+        return false;
+
+    outQuotient = quotient;
+    return true;
+}
+
 inline void floorCeilDiv(const Integer& a, const Integer& b, Integer& outFloor, Integer& outCeil) noexcept
 {
     REEMBER_PROFILE_MATH_ZONE("math256::floorCeilDiv");
@@ -337,12 +353,14 @@ inline HomPoint4i primitiveHomPoint(const HomPoint4i& point) noexcept
     Integer y = normalized.y;
     Integer z = normalized.z;
     Integer w = normalized.w;
-    if (!isZero(w) &&
-            x % w == 0 &&
-            y % w == 0 &&
-            z % w == 0)
+    Integer quotientX;
+    Integer quotientY;
+    Integer quotientZ;
+    if (tryExactDiv(x, w, quotientX) &&
+            tryExactDiv(y, w, quotientY) &&
+            tryExactDiv(z, w, quotientZ))
     {
-        return HomPoint4i(x / w, y / w, z / w, 1);
+        return HomPoint4i(quotientX, quotientY, quotientZ, 1);
     }
 
     const Integer divisor = gcdMagnitude(x, y, z, w);
