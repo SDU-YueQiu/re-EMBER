@@ -245,14 +245,16 @@ inline bool appendPointToAABB(AABB3i &box, const PlanePoint3i &point) noexcept
         return true;
     }
 
-    appendPointCoordinateIntervalToAABB(
-        box,
-        floorDiv(point.x.x, point.x.w),
-        ceilDiv(point.x.x, point.x.w),
-        floorDiv(point.x.y, point.x.w),
-        ceilDiv(point.x.y, point.x.w),
-        floorDiv(point.x.z, point.x.w),
-        ceilDiv(point.x.z, point.x.w));
+    Integer xMin = 0;
+    Integer xMax = 0;
+    Integer yMin = 0;
+    Integer yMax = 0;
+    Integer zMin = 0;
+    Integer zMax = 0;
+    floorCeilDiv(point.x.x, point.x.w, xMin, xMax);
+    floorCeilDiv(point.x.y, point.x.w, yMin, yMax);
+    floorCeilDiv(point.x.z, point.x.w, zMin, zMax);
+    appendPointCoordinateIntervalToAABB(box, xMin, xMax, yMin, yMax, zMin, zMax);
     return true;
 }
 

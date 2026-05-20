@@ -196,6 +196,18 @@ void runMath256Tests()
         assert(ember::gcdMagnitude(Integer(-18), Integer(24)) == Integer(6));
         assert(ember::gcdMagnitude(Integer(6), Integer(9), Integer(12), Integer(15)) == Integer(3));
 
+        Integer divFloor = 0;
+        Integer divCeil = 0;
+        ember::floorCeilDiv(Integer(7), Integer(3), divFloor, divCeil);
+        assert(divFloor == Integer(2));
+        assert(divCeil == Integer(3));
+        ember::floorCeilDiv(Integer(-7), Integer(3), divFloor, divCeil);
+        assert(divFloor == Integer(-3));
+        assert(divCeil == Integer(-2));
+        ember::floorCeilDiv(Integer(6), Integer(-3), divFloor, divCeil);
+        assert(divFloor == Integer(-2));
+        assert(divCeil == Integer(-2));
+
         const ember::HomPoint4i primitivePoint = ember::primitiveHomPoint(ember::HomPoint4i(2, 4, 6, 2));
         assert(primitivePoint.x == Integer(1));
         assert(primitivePoint.y == Integer(2));
