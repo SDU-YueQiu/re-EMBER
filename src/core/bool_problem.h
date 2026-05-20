@@ -93,7 +93,7 @@ struct BoolSolveMetrics
     std::size_t leafClassificationCandidateGeneratedCount = 0; ///< 叶片分类阶段由枚举器生成的候选路径总数。
     std::size_t leafClassificationCandidateUniqueCount = 0; ///< 叶片分类阶段去重后保留的候选路径总数。
     std::size_t leafClassificationCandidateDuplicateSkipCount = 0; ///< 叶片分类阶段因路径重复跳过的候选数。
-    std::size_t leafClassificationCandidateRejectedCount = 0; ///< 叶片分类阶段结构非法且无法局部修复的候选数。
+    std::size_t leafClassificationCandidateRejectedCount = 0; ///< 叶片分类阶段预检不可用、结构非法或无法局部修复的候选数。
     std::size_t leafClassificationCandidateIntermediateEndpointRejectedCount = 0; ///< 叶片分类阶段因非末段端点落在输入多边形上而预检拒绝的候选数。
     std::size_t leafClassificationCandidateRepairAttemptCount = 0; ///< 叶片分类阶段尝试局部重建候选路径的次数。
     std::size_t leafClassificationCandidateRepairSuccessCount = 0; ///< 叶片分类阶段局部重建候选路径成功的次数。

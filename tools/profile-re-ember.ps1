@@ -1984,6 +1984,7 @@ function New-WorkloadSummaryRow {
         avg_leaf_traces = Measure-AverageProperty $Rows "leaf_classification_trace_attempt_count"
         avg_leaf_candidates = Measure-AverageProperty $Rows "leaf_classification_candidate_generated_count"
         avg_unique_candidates = Measure-AverageProperty $Rows "leaf_classification_candidate_unique_count"
+        avg_intermediate_endpoint_rejects = Measure-AverageProperty $Rows "leaf_classification_candidate_intermediate_endpoint_rejected_count"
         avg_repair_attempts = Measure-AverageProperty $Rows "leaf_classification_candidate_repair_attempt_count"
         avg_repair_successes = Measure-AverageProperty $Rows "leaf_classification_candidate_repair_success_count"
         avg_child_ref_candidates = Measure-AverageProperty $Rows "child_reference_candidate_count"
@@ -2174,6 +2175,7 @@ function Write-Reports {
         "avg_leaf_traces",
         "avg_leaf_candidates",
         "avg_unique_candidates",
+        "avg_intermediate_endpoint_rejects",
         "avg_repair_attempts",
         "avg_repair_successes",
         "avg_child_ref_candidates",
@@ -2393,6 +2395,7 @@ function Write-Reports {
         $summaryLines.Add(("  avg_centroid_points={0}" -f $row.avg_centroid_points))
         $summaryLines.Add(("  avg_inset_point_attempts={0}" -f $row.avg_inset_point_attempts))
         $summaryLines.Add(("  avg_leaf_traces={0}" -f $row.avg_leaf_traces))
+        $summaryLines.Add(("  avg_intermediate_endpoint_rejects={0}" -f $row.avg_intermediate_endpoint_rejects))
     }
     foreach ($unwrapExport in ($UnwrapExports | Sort-Object workload, iteration, zone_filter)) {
         $summaryLines.Add(("unwrap={0} workload={1} iteration={2} events={3} path={4}" -f $unwrapExport.zone_filter, $unwrapExport.workload, $unwrapExport.iteration, $unwrapExport.event_count, $unwrapExport.path))
