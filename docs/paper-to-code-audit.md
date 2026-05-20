@@ -5,10 +5,10 @@
 
 ## 当前基线
 
-- 代码基线：`777c752 跳过无关末段终点分类`。
-- 计时基线：`build/performance/run_20260520_174831/timings.csv`，Release
-  NoTracy，`benchmark_plan_10s_5m_1l`，`--threads 20`。
-- Tracy 归因：`build/performance/run_20260520_174915/`，单个 large
+- 最近可比性能基线：`9b907a3 复用centroid轴探测目标元数据`。
+- 计时基线：`build/performance/run_20260521_030519/timings.csv`，Release
+  NoTracy，论文实验集 `10 small / 10 medium / 2 large`，`--threads 20`。
+- 最近 Tracy 归因：`build/performance/run_20260521_030032/`，单个 large
   workload，RelWithDebInfo，Tracy 开启。
 - 当前流水线仍是 `OBJ/STL -> Polygon256 soup -> BoolProblem ->
   SubdivisionSolver -> resultFragments -> OBJ n-gon`。
@@ -32,7 +32,7 @@
 
 ## 当前 profile 结论
 
-`run_20260520_174915` 的 single-large Tracy self hot zones 显示，下一阶段
+`run_20260521_030032` 的 single-large Tracy self hot zones 显示，下一阶段
 最值得处理的不是 I/O 或导出，而是 solver 内部工作量：
 
 - `Polygon256::rebuildVertexAndAABBCaches` / `rebuildVertexCache` 很高，但
@@ -76,6 +76,12 @@
   三平面结构和重复构造目标交点。`run_20260521_030519` 对同一 10 small / 10 medium /
   2 large workload 做了 `-NoTracy -VerifyWithOracle`，22 个 verifier 全部通过，结构计数
   与 `run_20260521_025314` 一致，聚合 `solve_ms` 从 2454.058ms 降到 2438.915ms。
+- `clipLeafGeometryByPlaneTrusted()` 只在调用点没有现成顶点侧分类时自行计算侧别；
+  小多边形侧别改用栈上缓冲，内部裁剪实现改成 `int* + count`，已有
+  `SplitPolygonRoute::vertexSides` 调用仍沿用原公开面。`run_20260521_031822` 对同一
+  10 small / 10 medium / 2 large workload 做了 `-NoTracy -VerifyWithOracle`，22 个 verifier
+  全部通过且 oracle cache hit，结构计数与 `run_20260521_030519` 一致，聚合 `solve_ms`
+  从 2438.915ms 降到 2423.462ms。
 
 ## 已测但不保留的局部实验
 

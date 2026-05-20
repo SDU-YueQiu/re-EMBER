@@ -12,6 +12,8 @@ namespace ember
 {
 namespace
 {
+constexpr std::size_t kStackClipSideCapacity = 16u;
+
 bool tryBuildIntersectionCarrierFromCuts(
     const Polygon256& target,
     const Polygon256& incoming,
@@ -122,13 +124,14 @@ bool buildTrustedClippedPolygon(
 bool buildTrustedClippedPolygonSide(
     const Polygon256& source,
     const Plane3i& clipPlane,
-    const std::vector<int>& vertexSides,
+    const int* vertexSides,
+    std::size_t vertexSideCount,
     bool keepFront,
     Polygon256& clipped,
     PolygonEdgeProvenance insertedEdgeProvenance)
 {
     const std::size_t n = source.edgeCount();
-    if (vertexSides.size() != n)
+    if (vertexSideCount != n)
         return false;
 
     std::vector<Plane3i> edges;
@@ -211,6 +214,137 @@ bool buildTrustedClippedPolygonSide(
         return false;
     }
 
+    return true;
+}
+
+bool clipLeafGeometryByPlaneTrustedWithSidesBuffer(
+    const Polygon256& source,
+    const Plane3i& clipPlane,
+    const int* vertexSides,
+    std::size_t vertexSideCount,
+    Polygon256& frontClipped,
+    Polygon256& backClipped,
+    PolygonEdgeProvenance insertedEdgeProvenance)
+{
+    const std::size_t n = source.edgeCount();
+    if (vertexSideCount != n)
+        return false;
+
+    std::vector<Plane3i> frontEdges;
+    std::vector<PolygonEdgeProvenance> frontProvenances;
+    std::vector<Plane3i> backEdges;
+    std::vector<PolygonEdgeProvenance> backProvenances;
+    frontEdges.reserve(n + 1u);
+    frontProvenances.reserve(n + 1u);
+    backEdges.reserve(n + 1u);
+    backProvenances.reserve(n + 1u);
+
+    const Plane3i trustedClipPlane = primitivePlane(clipPlane);
+    const Plane3i oppositePlane = primitivePlane(Plane3i(
+        -trustedClipPlane.a,
+        -trustedClipPlane.b,
+        -trustedClipPlane.c,
+        -trustedClipPlane.d));// 取反后表示裁剪平面的另一侧。
+
+    for (std::size_t i = 0; i < n; ++i)
+    {
+        const std::size_t next = (i + 1 == n) ? 0 : (i + 1);
+        const Plane3i& segmentEdge = source.edgePlanes[i];
+        const PolygonEdgeProvenance segmentEdgeProvenance = source.edgeProvenance(i);
+
+        const int sSide = vertexSides[i];
+        const int eSide = vertexSides[next];
+        const bool sInside = (sSide >= 0);
+        const bool eInside = (eSide >= 0);
+
+        if (sSide == 0 && eSide == 0)
+        {
+            frontClipped = Polygon256();
+            backClipped = Polygon256();
+            return false;
+        }
+
+        if (sInside && eInside)
+        {
+            frontEdges.push_back(segmentEdge);
+            frontProvenances.push_back(segmentEdgeProvenance);
+            continue;
+        }
+
+        if (!sInside && !eInside)
+        {
+            backEdges.push_back(segmentEdge);
+            backProvenances.push_back(segmentEdgeProvenance);
+            continue;
+        }
+
+        if (sInside && !eInside)
+        {
+            if (sSide == 1) // (s,e) == (1, -1)
+            {
+                frontEdges.push_back(segmentEdge);
+                frontProvenances.push_back(segmentEdgeProvenance);
+            }
+            frontEdges.push_back(oppositePlane);
+            frontProvenances.push_back(insertedEdgeProvenance);
+
+            backEdges.push_back(segmentEdge);
+            backProvenances.push_back(segmentEdgeProvenance);
+            continue;
+        }
+
+        if (!sInside && eInside)
+        {
+            backEdges.push_back(segmentEdge);
+            backProvenances.push_back(segmentEdgeProvenance);
+            backEdges.push_back(trustedClipPlane);
+            backProvenances.push_back(insertedEdgeProvenance);
+            if (eSide == 1) // (s,e) == (-1, 1)
+            {
+                frontEdges.push_back(segmentEdge);
+                frontProvenances.push_back(segmentEdgeProvenance);
+            }
+        }
+    }
+
+    Polygon256 orientedFront;
+    Polygon256 orientedBack;
+    const bool frontValid = buildTrustedClippedPolygon(
+        source,
+        std::move(frontEdges),
+        std::move(frontProvenances),
+        orientedFront);
+    const bool backValid = buildTrustedClippedPolygon(
+        source,
+        std::move(backEdges),
+        std::move(backProvenances),
+        orientedBack);
+    bool ret = backValid && frontValid;
+    if (!ret) {
+        std::ostringstream message;
+        message << "Rejected leaf clipping because one clipped polygon is invalid"
+                << " source_plane=" << source.plane
+                << " clip_plane=" << clipPlane
+                << " source_edges=" << source.edgeCount()
+                << " front_edges=" << orientedFront.edgeCount()
+                << " back_edges=" << orientedBack.edgeCount()
+                << " front_valid=" << frontValid
+                << " back_valid=" << backValid
+                << " sides=[";
+        for (std::size_t i = 0; i < vertexSideCount; ++i)
+        {
+            if (i != 0)
+                message << ",";
+            message << vertexSides[i];
+        }
+        message << "].";
+        frontClipped = Polygon256();
+        backClipped = Polygon256();
+        return false;
+    }
+
+    frontClipped = std::move(orientedFront);
+    backClipped = std::move(orientedBack);
     return true;
 }
 }
@@ -435,18 +569,27 @@ bool detail::clipLeafGeometryByPlaneTrusted(
     if (arePlaneNormalsParallel(source.plane, clipPlane))
         return false;
 
-    std::vector<int> sides;
-    sides.resize(source.edgeCount());
-    for (std::size_t i = 0; i < source.edgeCount(); ++i)
+    const std::size_t n = source.edgeCount();
+    std::array<int, kStackClipSideCapacity> stackSides;
+    std::vector<int> heapSides;
+    int* sides = stackSides.data();
+    if (n > stackSides.size())
+    {
+        heapSides.resize(n);
+        sides = heapSides.data();
+    }
+
+    for (std::size_t i = 0; i < n; ++i)
     {
         const PlanePoint3i &v = source.vertex(i);
         sides[i] = v.classify(clipPlane);
     }
 
-    return clipLeafGeometryByPlaneTrustedWithSides(
+    return clipLeafGeometryByPlaneTrustedWithSidesBuffer(
                source,
                clipPlane,
                sides,
+               n,
                frontClipped,
                backClipped,
                insertedEdgeProvenance);
@@ -460,126 +603,14 @@ bool detail::clipLeafGeometryByPlaneTrustedWithSides(
     Polygon256& backClipped,
     PolygonEdgeProvenance insertedEdgeProvenance)
 {
-    const std::size_t n = source.edgeCount();
-    if (vertexSides.size() != n)
-        return false;
-
-    std::vector<Plane3i> frontEdges;
-    std::vector<PolygonEdgeProvenance> frontProvenances;
-    std::vector<Plane3i> backEdges;
-    std::vector<PolygonEdgeProvenance> backProvenances;
-    frontEdges.reserve(n + 1u);
-    frontProvenances.reserve(n + 1u);
-    backEdges.reserve(n + 1u);
-    backProvenances.reserve(n + 1u);
-
-    const Plane3i trustedClipPlane = primitivePlane(clipPlane);
-    const Plane3i oppositePlane = primitivePlane(Plane3i(
-        -trustedClipPlane.a,
-        -trustedClipPlane.b,
-        -trustedClipPlane.c,
-        -trustedClipPlane.d));// 取反后表示裁剪平面的另一侧。
-
-    for (std::size_t i = 0; i < n; ++i)
-    {
-        const std::size_t next = (i + 1 == n) ? 0 : (i + 1);
-        const Plane3i& segmentEdge = source.edgePlanes[i];
-        const PolygonEdgeProvenance segmentEdgeProvenance = source.edgeProvenance(i);
-
-        const int sSide = vertexSides[i];
-        const int eSide = vertexSides[next];
-        const bool sInside = (sSide >= 0);
-        const bool eInside = (eSide >= 0);
-
-        if (sSide == 0 && eSide == 0)
-        {
-            frontClipped = Polygon256();
-            backClipped = Polygon256();
-            return false;
-        }
-
-        if (sInside && eInside)
-        {
-            frontEdges.push_back(segmentEdge);
-            frontProvenances.push_back(segmentEdgeProvenance);
-            continue;
-        }
-
-        if (!sInside && !eInside)
-        {
-            backEdges.push_back(segmentEdge);
-            backProvenances.push_back(segmentEdgeProvenance);
-            continue;
-        }
-
-        if (sInside && !eInside)
-        {
-            if (sSide == 1) // (s,e) == (1, -1)
-            {
-                frontEdges.push_back(segmentEdge);
-                frontProvenances.push_back(segmentEdgeProvenance);
-            }
-            frontEdges.push_back(oppositePlane);
-            frontProvenances.push_back(insertedEdgeProvenance);
-
-            backEdges.push_back(segmentEdge);
-            backProvenances.push_back(segmentEdgeProvenance);
-            continue;
-        }
-
-        if (!sInside && eInside)
-        {
-            backEdges.push_back(segmentEdge);
-            backProvenances.push_back(segmentEdgeProvenance);
-            backEdges.push_back(trustedClipPlane);
-            backProvenances.push_back(insertedEdgeProvenance);
-            if (eSide == 1) // (s,e) == (-1, 1)
-            {
-                frontEdges.push_back(segmentEdge);
-                frontProvenances.push_back(segmentEdgeProvenance);
-            }
-        }
-    }
-
-    Polygon256 orientedFront;
-    Polygon256 orientedBack;
-    const bool frontValid = buildTrustedClippedPolygon(
+    return clipLeafGeometryByPlaneTrustedWithSidesBuffer(
         source,
-        std::move(frontEdges),
-        std::move(frontProvenances),
-        orientedFront);
-    const bool backValid = buildTrustedClippedPolygon(
-        source,
-        std::move(backEdges),
-        std::move(backProvenances),
-        orientedBack);
-    bool ret = backValid && frontValid;
-    if (!ret) {
-        std::ostringstream message;
-        message << "Rejected leaf clipping because one clipped polygon is invalid"
-                << " source_plane=" << source.plane
-                << " clip_plane=" << clipPlane
-                << " source_edges=" << source.edgeCount()
-                << " front_edges=" << orientedFront.edgeCount()
-                << " back_edges=" << orientedBack.edgeCount()
-                << " front_valid=" << frontValid
-                << " back_valid=" << backValid
-                << " sides=[";
-        for (std::size_t i = 0; i < vertexSides.size(); ++i)
-        {
-            if (i != 0)
-                message << ",";
-            message << vertexSides[i];
-        }
-        message << "].";
-        frontClipped = Polygon256();
-        backClipped = Polygon256();
-        return false;
-    }
-
-    frontClipped = std::move(orientedFront);
-    backClipped = std::move(orientedBack);
-    return true;
+        clipPlane,
+        vertexSides.data(),
+        vertexSides.size(),
+        frontClipped,
+        backClipped,
+        insertedEdgeProvenance);
 }
 
 bool detail::clipLeafGeometryByPlaneTrustedWithSidesToSide(
@@ -593,7 +624,8 @@ bool detail::clipLeafGeometryByPlaneTrustedWithSidesToSide(
     return buildTrustedClippedPolygonSide(
         source,
         clipPlane,
-        vertexSides,
+        vertexSides.data(),
+        vertexSides.size(),
         keepFront,
         clipped,
         insertedEdgeProvenance);
