@@ -998,22 +998,27 @@ inline bool buildAxisAlignedCoordinatePath(
     const PlanePoint3i &targetPoint,
     const std::array<Plane3i, 3> &startCoordinatePlanes,
     const std::array<Plane3i, 3> &targetCoordinatePlanes,
-    const std::vector<SplitAxis3i> &axisOrder,
+    const std::array<SplitAxis3i, 3> &axisOrder,
+    std::size_t axisCount,
     std::vector<Segment256> &outPath)
 {
     REEMBER_PROFILE_ZONE("buildAxisAlignedCoordinatePath");
+
+    if (axisCount > axisOrder.size())
+        return false;
 
     std::array<Plane3i, 3> currentCoordinatePlanes = startCoordinatePlanes;
     PlanePoint3i currentPoint = startPoint;
     std::array<Segment256, 3> segmentBuffer;
     std::size_t segmentCount = 0;
     outPath.clear();
-    for (const SplitAxis3i axis : axisOrder)
+    for (std::size_t orderIndex = 0; orderIndex < axisCount; ++orderIndex)
     {
         REEMBER_PROFILE_ZONE("buildAxisAlignedCoordinatePath::axisStep");
         if (segmentCount == segmentBuffer.size())
             return false;
 
+        const SplitAxis3i axis = axisOrder[orderIndex];
         const int axisIndex = axisOrderKey(axis);
         const std::array<Plane3i, 3> startCoordinatePlanes = currentCoordinatePlanes;
         currentCoordinatePlanes[axisIndex] = targetCoordinatePlanes[axisIndex];

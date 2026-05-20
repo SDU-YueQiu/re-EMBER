@@ -366,20 +366,20 @@ bool buildAxisRepairPath(
     const std::array<Plane3i, 3> targetCoordinatePlanes =
         detail::makeIntegerCoordinatePlanes(targetX, targetY, targetZ);
 
-    std::vector<SplitAxis3i> changedAxes;
-    changedAxes.reserve(3);
+    std::array<SplitAxis3i, 3> changedAxes = {};
+    std::size_t changedAxisCount = 0;
     if (!areSamePlaneEquation(referenceCoordinatePlanes[0], targetCoordinatePlanes[0]))
-        changedAxes.push_back(SplitAxis3i::X);
+        changedAxes[changedAxisCount++] = SplitAxis3i::X;
     if (!areSamePlaneEquation(referenceCoordinatePlanes[1], targetCoordinatePlanes[1]))
-        changedAxes.push_back(SplitAxis3i::Y);
+        changedAxes[changedAxisCount++] = SplitAxis3i::Y;
     if (!areSamePlaneEquation(referenceCoordinatePlanes[2], targetCoordinatePlanes[2]))
-        changedAxes.push_back(SplitAxis3i::Z);
-    if (changedAxes.empty())
+        changedAxes[changedAxisCount++] = SplitAxis3i::Z;
+    if (changedAxisCount == 0)
         return false;
 
     std::sort(
         changedAxes.begin(),
-        changedAxes.end(),
+        changedAxes.begin() + static_cast<std::ptrdiff_t>(changedAxisCount),
         detail::axisOrderLess);
     do
     {
@@ -390,6 +390,7 @@ bool buildAxisRepairPath(
                     referenceCoordinatePlanes,
                     targetCoordinatePlanes,
                     changedAxes,
+                    changedAxisCount,
                     path) &&
                 isTraceableSurfaceCandidatePath(referencePoint, targetPoint, path))
         {
@@ -398,7 +399,7 @@ bool buildAxisRepairPath(
         }
     } while (std::next_permutation(
                  changedAxes.begin(),
-                 changedAxes.end(),
+                 changedAxes.begin() + static_cast<std::ptrdiff_t>(changedAxisCount),
                  detail::axisOrderLess));
 
     return false;
