@@ -70,7 +70,7 @@ struct BoolSolveMetrics
     std::size_t childReferenceFastCandidateTriedCount = 0; ///< 子参考点快速候选阶段实际尝试追踪的候选数。
     std::size_t childReferenceExhaustiveCandidateTriedCount = 0; ///< 子参考点穷举候选阶段实际尝试追踪的候选数。
     std::size_t tracePathStartPointOnBoundaryCount = 0; ///< WNV 追踪中起点落在多边形边界上的次数。
-    std::size_t tracePathEndPointOnBoundaryCount = 0; ///< WNV 追踪中终点落在多边形边界上的次数。
+    std::size_t tracePathEndPointOnBoundaryCount = 0; ///< WNV 追踪中非末段终点落在多边形边界上的次数。
     std::size_t tracePathEndpointOnBoundaryContactCount = 0; ///< WNV 追踪中命中端点边界接触的次数。
     std::size_t tracePathEdgeOverlapCount = 0; ///< WNV 追踪中命中边重叠的次数。
     std::size_t tracePathBoundaryHitRejectedRegularEdgeCount = 0; ///< WNV 追踪中命中原始边而被拒绝的次数。
@@ -94,6 +94,7 @@ struct BoolSolveMetrics
     std::size_t leafClassificationCandidateUniqueCount = 0; ///< 叶片分类阶段去重后保留的候选路径总数。
     std::size_t leafClassificationCandidateDuplicateSkipCount = 0; ///< 叶片分类阶段因路径重复跳过的候选数。
     std::size_t leafClassificationCandidateRejectedCount = 0; ///< 叶片分类阶段结构非法且无法局部修复的候选数。
+    std::size_t leafClassificationCandidateIntermediateEndpointRejectedCount = 0; ///< 叶片分类阶段因非末段端点落在输入多边形上而预检拒绝的候选数。
     std::size_t leafClassificationCandidateRepairAttemptCount = 0; ///< 叶片分类阶段尝试局部重建候选路径的次数。
     std::size_t leafClassificationCandidateRepairSuccessCount = 0; ///< 叶片分类阶段局部重建候选路径成功的次数。
     std::size_t leafClassificationCentroidAxisSuccessCount = 0; ///< 重心 axis 阶段 trace 成功次数。
