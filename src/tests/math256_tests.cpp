@@ -675,7 +675,8 @@ void runMath256Tests()
         tree.insert(square2);
         tree.insert(square3);
 
-        auto leafGeometries = tree.collectLeafGeometries();
+        std::vector<ember::Polygon256> leafGeometries;
+        tree.extractLeafGeometriesInto(leafGeometries);
         assert(leafGeometries.size() == 3);
 
         for (const auto& leaf : leafGeometries)
@@ -752,7 +753,8 @@ void runMath256Tests()
         highOrderTree.setBasePolygon(baseSquare, 1);
         highOrderTree.insert(overlapSquare, 0);
 
-        auto disabledLeaves = highOrderTree.collectLeafGeometries();
+        std::vector<ember::Polygon256> disabledLeaves;
+        highOrderTree.extractLeafGeometriesInto(disabledLeaves);
         assert(disabledLeaves.size() == 1);
         assert(disabledLeaves[0].containsOrOnBoundary(leftInterior));
         assert(!disabledLeaves[0].containsOrOnBoundary(overlapInterior));
@@ -761,7 +763,8 @@ void runMath256Tests()
         lowOrderTree.setBasePolygon(baseSquare, 0);
         lowOrderTree.insert(overlapSquare, 1);
 
-        auto keptLeaves = lowOrderTree.collectLeafGeometries();
+        std::vector<ember::Polygon256> keptLeaves;
+        lowOrderTree.extractLeafGeometriesInto(keptLeaves);
         assert(keptLeaves.size() == 2);
 
         bool foundLeftLeaf = false;
