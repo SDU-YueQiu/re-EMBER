@@ -19,6 +19,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -30,6 +31,25 @@ namespace
 constexpr bool kLeafClassificationDebug = false;
 constexpr std::size_t kMaxDirectInsetTargets = 3u;
 constexpr std::size_t kMaxBridgeRescuePoints = 2u;
+
+struct LeafClassificationNullDebugLog
+{
+    template <typename T>
+    LeafClassificationNullDebugLog &operator<<(const T &)
+    {
+        return *this;
+    }
+
+    std::string str() const
+    {
+        return {};
+    }
+};
+
+using LeafClassificationDebugLog = std::conditional_t<
+    kLeafClassificationDebug,
+    std::ostringstream,
+    LeafClassificationNullDebugLog>;
 
 std::size_t mixHashValue(std::size_t seed, std::size_t value) noexcept
 {
@@ -100,7 +120,7 @@ struct LeafClassificationAttemptStats
         detail::PlaneReplacementBuildSignature,
         PlaneReplacementBuildSignatureHash,
         PlaneReplacementBuildSignatureEqual> seenPlaneReplacementBuildSignatures;
-    std::ostringstream debugLog;
+    LeafClassificationDebugLog debugLog;
 };
 
 enum class LeafClassificationResult
@@ -555,8 +575,9 @@ std::string formatPathForDebug(const std::vector<Segment256> &path)
     return out.str();
 }
 
+template <typename DebugLog>
 void appendPlaneReplacementFailureDebug(
-    std::ostringstream &debugLog,
+    DebugLog &debugLog,
     const PlanePoint3i &referencePoint,
     const PlanePoint3i &targetPoint,
     const AABB3i &box)
