@@ -5,6 +5,7 @@
 #include "math256_tests.h"
 
 #include <cassert>
+#include <limits>
 #include <stdexcept>
 
 #include "geometry/geometry256.h"
@@ -15,6 +16,7 @@
 #include "algorithm/path_candidates.h"
 #include "math/fixed_int256.h"
 #include "math/fixed_paper_kernel.h"
+#include "math/int256_checked.h"
 #include "math/paper_kernel.h"
 
 using ember::Integer;
@@ -178,6 +180,31 @@ void runMath256Tests()
         const ember::HomPoint4i differentPointWithLargeWeight(0, 0, 0, Integer(1) << 56);
         assert(!ember::areSameHomPoint(overflowSensitivePoint, differentPointWithLargeWeight));
     }
+
+    {
+        Integer out;
+        assert(ember::detail::tryMultiplyInteger(Integer(1) << 120, Integer(1) << 100, out));
+        assert(out == (Integer(1) << 220));
+        assert(!ember::detail::tryMultiplyInteger(Integer(1) << 200, Integer(1) << 60, out));
+
+        const ember::Plane3i highCoefficientPlane(
+            Integer(1) << 85,
+            -(Integer(1) << 84),
+            7,
+            Integer(1) << 86);
+        ember::Plane3i scaledPlane;
+        assert(ember::detail::tryScalePlaneByPositiveInteger(highCoefficientPlane, Integer(1), scaledPlane));
+        assert(scaledPlane.d == (Integer(1) << 86));
+        assert(!ember::detail::tryScalePlaneByPositiveInteger(
+                   highCoefficientPlane,
+                   Integer(1) << 180,
+                   scaledPlane));
+
+        const Integer maxInteger = (std::numeric_limits<Integer>::max)();
+        assert(ember::detail::tryAddInteger(maxInteger - 3, 3, out));
+        assert(out == maxInteger);
+        assert(!ember::detail::tryAddInteger(maxInteger, 1, out));
+    }
 
     {
         using ember::fixed::FixedInt256;

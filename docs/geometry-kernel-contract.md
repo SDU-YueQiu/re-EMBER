@@ -26,6 +26,7 @@
 - `math256_tests` 使用 `cpp_int` 只作为 oracle，验证 `classify_vertex` 与 4x4 行列式符号一致。
 - leaf classification 已移除 homogeneous average、equalized edge、free-coordinate path fallback、齐次点反推坐标平面和 normal-approach 造平面 fallback。
 - leaf classification 的 plane-replacement 仍允许目标三平面排列和替换顺序枚举，但只对受限 inset 目标点与受限 bridge 点执行，避免把闭包安全 fallback 放大成默认穷举。
+- inset 构点不再使用 `2^70` / `2^80` 这类经验 headroom 提前拒绝合法边平面；它只复用已有 support/edge plane，并通过 `math/int256_checked.h` 在实际缩放和 `d` 偏移时检查 `Integer` 可表示范围。
 - axis path 只允许端点都能精确提取为整数坐标；分数齐次点必须走平面替换路径或显式失败。
 - polygon-plane intersection 的 carrier 去重不再依赖 `areSameHomPoint`，而按 carrier plane 身份去重。
 

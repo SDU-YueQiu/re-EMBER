@@ -4,30 +4,12 @@
  */
 #include "geometry256.h"
 
+#include "math/int256_checked.h"
+
 #include <utility>
 
 namespace ember
 {
-namespace
-{
-Integer absInteger(const Integer &value) noexcept
-{
-    return value < 0 ? -value : value;
-}
-
-bool canScalePlaneWithinInsetHeadroom(const Plane3i &plane, const Integer &scale) noexcept
-{
-    if (scale <= 0)
-        return false;
-
-    const Integer coefficientLimit = Integer(1) << 70;
-    return absInteger(plane.a) <= coefficientLimit / scale &&
-           absInteger(plane.b) <= coefficientLimit / scale &&
-           absInteger(plane.c) <= coefficientLimit / scale &&
-           absInteger(plane.d) <= coefficientLimit / scale;
-}
-}
-
 // 返回使用平面方程反转后的平面
 Plane3i flippedPlane(const Plane3i &plane) noexcept
 {
@@ -399,16 +381,13 @@ bool Polygon256::findStrictInteriorPoint(PlanePoint3i &outPoint) const
         Integer scale = 1;
         for (int iter = 0; iter < 40; ++iter)
         {
-            if (!canScalePlaneWithinInsetHeadroom(edge, scale))
+            Plane3i scaledEdge;
+            if (!detail::tryScalePlaneByPositiveInteger(edge, scale, scaledEdge))
                 return false;
 
-            const Plane3i scaledEdge(edge.a * scale,
-                                     edge.b * scale,
-                                     edge.c * scale,
-                                     edge.d * scale);
-
-            Plane3i inset = scaledEdge;
-            inset.d -= interiorSide;
+            Plane3i inset;
+            if (!detail::tryOffsetPlaneD(scaledEdge, -Integer(interiorSide), inset))
+                return false;
 
             const int refSide = refVertex.classify(inset);
             const int boundarySide = boundaryVertex.classify(inset);
@@ -485,4 +464,3 @@ bool intersectionSegmentPolygon(const Segment256 &seg, const Polygon256 &poly, P
     return false;
 }
 }
-

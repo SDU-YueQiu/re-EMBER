@@ -6,6 +6,7 @@
 
 #include "algorithm/tracing_geometry.h"
 #include "core/perf_tracing.h"
+#include "math/int256_checked.h"
 
 #include <algorithm>
 #include <array>
@@ -408,18 +409,6 @@ inline Integer absInteger(const Integer &value) noexcept
     return value < 0 ? -value : value;
 }
 
-inline bool canScalePlaneWithinInsetHeadroom(const Plane3i &plane, const Integer &scale) noexcept
-{
-    if (scale <= 0)
-        return false;
-
-    const Integer coefficientLimit = Integer(1) << 80;
-    return absInteger(plane.a) <= coefficientLimit / scale &&
-           absInteger(plane.b) <= coefficientLimit / scale &&
-           absInteger(plane.c) <= coefficientLimit / scale &&
-           absInteger(plane.d) <= coefficientLimit / scale;
-}
-
 inline bool isZeroPlaneEquation(const Plane3i &plane) noexcept
 {
     return isZero(plane.a) && isZero(plane.b) && isZero(plane.c) && isZero(plane.d);
@@ -668,20 +657,10 @@ inline bool buildScaledInsetEdgePlanes(
     Plane3i &scaledA,
     Plane3i &scaledB) noexcept
 {
-    if (!canScalePlaneWithinInsetHeadroom(polygon.edgePlanes[edgeIndex], scale) ||
-            !canScalePlaneWithinInsetHeadroom(polygon.edgePlanes[prevEdgeIndex], scale))
+    if (!tryScalePlaneByPositiveInteger(polygon.edgePlanes[edgeIndex], scale, scaledA) ||
+            !tryScalePlaneByPositiveInteger(polygon.edgePlanes[prevEdgeIndex], scale, scaledB))
         return false;
 
-    scaledA = Plane3i(
-                  polygon.edgePlanes[edgeIndex].a * scale,
-                  polygon.edgePlanes[edgeIndex].b * scale,
-                  polygon.edgePlanes[edgeIndex].c * scale,
-                  polygon.edgePlanes[edgeIndex].d * scale);
-    scaledB = Plane3i(
-                  polygon.edgePlanes[prevEdgeIndex].a * scale,
-                  polygon.edgePlanes[prevEdgeIndex].b * scale,
-                  polygon.edgePlanes[prevEdgeIndex].c * scale,
-                  polygon.edgePlanes[prevEdgeIndex].d * scale);
     return true;
 }
 
@@ -693,7 +672,7 @@ inline void appendInsetCandidatesForEdge(
     const std::array<Integer, 4> &offsets,
     std::vector<PlanePoint3i> &candidates,
     std::size_t maxTotalCandidates,
-    bool &anyEdgeWithinHeadroom)
+    bool &anyEdgeWithinInt256Range)
 {
     if (candidates.size() >= maxTotalCandidates)
         return;
@@ -710,7 +689,7 @@ inline void appendInsetCandidatesForEdge(
     if (!buildScaledInsetEdgePlanes(polygon, edgeIndex, prevEdgeIndex, scale, scaledA, scaledB))
         return;
 
-    anyEdgeWithinHeadroom = true;
+    anyEdgeWithinInt256Range = true;
     int interiorSideA = -1;
     int interiorSideB = -1;
     for (const Integer &offsetA : offsets)
@@ -718,8 +697,9 @@ inline void appendInsetCandidatesForEdge(
         if (candidates.size() >= maxTotalCandidates)
             break;
 
-        Plane3i insetA = scaledA;
-        insetA.d -= Integer(interiorSideA) * offsetA;
+        Plane3i insetA;
+        if (!tryOffsetPlaneD(scaledA, -Integer(interiorSideA) * offsetA, insetA))
+            continue;
         if (vertices[refIdxA].classify(insetA) != interiorSideA)
             continue;
 
@@ -728,8 +708,9 @@ inline void appendInsetCandidatesForEdge(
             if (candidates.size() >= maxTotalCandidates)
                 break;
 
-            Plane3i insetB = scaledB;
-            insetB.d -= Integer(interiorSideB) * offsetB;
+            Plane3i insetB;
+            if (!tryOffsetPlaneD(scaledB, -Integer(interiorSideB) * offsetB, insetB))
+                continue;
             if (vertices[refIdxB].classify(insetB) != interiorSideB ||
                     !hasUniqueIntersection(polygon.plane, insetA, insetB))
                 continue;
@@ -776,12 +757,17 @@ inline bool tryBuildInsetPointCandidateAtVertex(
         if (!buildScaledInsetEdgePlanes(polygon, vertexIndex, prevEdgeIndex, scale, scaledA, scaledB))
         {
             if (debugReason != nullptr)
-                *debugReason = "scale headroom exhausted at scale=" + integerToString(scale);
+                *debugReason = "scale exceeds int256 range at scale=" + integerToString(scale);
             break;
         }
 
-        Plane3i insetA = scaledA;
-        insetA.d -= Integer(kInteriorSide) * offsetA;
+        Plane3i insetA;
+        if (!tryOffsetPlaneD(scaledA, -Integer(kInteriorSide) * offsetA, insetA))
+        {
+            if (debugReason != nullptr)
+                *debugReason = "insetA offset exceeds int256 range at scale=" + integerToString(scale);
+            break;
+        }
         const int refASide = vertices[refIdxA].classify(insetA);
         const int boundaryASide = vertices[vertexIndex].classify(insetA);
         if (refASide != kInteriorSide || boundaryASide != 1)
@@ -796,8 +782,13 @@ inline bool tryBuildInsetPointCandidateAtVertex(
             continue;
         }
 
-        Plane3i insetB = scaledB;
-        insetB.d -= Integer(kInteriorSide) * offsetB;
+        Plane3i insetB;
+        if (!tryOffsetPlaneD(scaledB, -Integer(kInteriorSide) * offsetB, insetB))
+        {
+            if (debugReason != nullptr)
+                *debugReason = "insetB offset exceeds int256 range at scale=" + integerToString(scale);
+            break;
+        }
         const int refBSide = vertices[refIdxB].classify(insetB);
         const int boundaryBSide = vertices[vertexIndex].classify(insetB);
         const bool uniqueIntersection = hasUniqueIntersection(polygon.plane, insetA, insetB);
