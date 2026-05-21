@@ -383,6 +383,17 @@
 
 ## 已测但不保留的局部实验
 
+- 叶片编排 adjacency 计数前移和 fragments 预留：尝试在
+  `buildLeafArrangement()` 枚举 pair relation 并写入 adjacency 时同步累计
+  `adjacencyOffsets`，删除排序后的第二次 adjacency 扫描；同时对输出
+  `fragments` 做 `polygonCount` 级别的最低预留。该改动不改变 pair 枚举、
+  排序键、每个 base polygon 的 BSP 插入顺序或 raw OBJ 输出语义。Debug 构建和
+  `ctest --preset default --output-on-failure --timeout 120` 通过；100 组论文样本
+  `run_20260522_054036` 与当前保留基线 `run_20260522_045123` 的结构计数、
+  trace 诊断计数和 100 个 raw OBJ SHA256 完全一致，但平均 `solve_ms`
+  为 116.550ms，未优于当前保留优化 `run_20260522_053232` /
+  `run_20260522_053346` 的两轮均值 116.541ms，`export_ms` 和端到端也没有改善。
+  说明这次少一次 adjacency 线性计数和初始 reserve 的收益落在噪声内，源码不保留。
 - raw trusted OBJ 导出合并有限性检查：尝试删除
   `recoverRawTrustedPolygonSoupData()` 开头的并行 fragment 顶点缓存/有限性检查，
   改为在后续顺序全局齐次顶点去重循环里同时检查 `hasUniqueIntersection()` 和
