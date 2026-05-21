@@ -24,24 +24,40 @@ Input OBJ/STL coordinates are quantized to signed 26-bit integer coordinates unl
 All build artifacts go under `build/`.
 
 ```powershell
-$clang = "$env:USERPROFILE\scoop\apps\llvm\current\bin\clang-cl.exe"
-$rc = "$env:USERPROFILE\scoop\apps\llvm\current\bin\llvm-rc.exe"
-$ninja = "D:\Program Files\VisualStudio\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe"
-cmake -S . -B build -G Ninja `
-  -DCMAKE_MAKE_PROGRAM="$ninja" `
-  -DCMAKE_CXX_COMPILER="$clang" `
-  -DCMAKE_RC_COMPILER="$rc" `
-  -DCMAKE_BUILD_TYPE=Debug
-cmake --build build --target re-EMBER_tests
-ctest --test-dir build --output-on-failure --timeout 120
-cmake --build build --target re-EMBER
+cmake --preset default
+cmake --build --preset default-app
 ```
 
-The default supported local configuration is clang-cl plus Boost.Multiprecision. The optional CGAL oracle verifier is controlled by `REEMBER_BUILD_VERIFY` and is enabled in the normal local build. If `TBB`, LLVM, or CGAL is missing, install them first:
+The default local build only requires the core dependencies used by `reember_lib` and `re-EMBER`. If `VCPKG_ROOT` is set, `CMakeLists.txt` picks up the vcpkg toolchain automatically. `CMakePresets.json` pins the generator to Ninja so the existing `clang-cl` auto-detection path works without manually passing compiler variables.
+
+Tests now live in their own preset and build tree:
 
 ```powershell
-vcpkg install tbb:x64-windows cgal:x64-windows
+cmake --preset tests
+cmake --build --preset tests
+ctest --preset default
+```
+
+For the default build, install the core packages first:
+
+```powershell
+vcpkg install tinyobjloader tbb boost-multiprecision
 scoop install llvm
+```
+
+`re-EMBER_verify` and `visual-test` are optional extra targets. They stay off by default so a normal configure does not require `CGAL`, `Eigen3`, or `libigl`. Each preset uses its own build subtree under `build/` to avoid sharing one large cache directory. Enable them explicitly when needed:
+
+```powershell
+cmake --preset verify
+cmake --build --preset verify
+cmake --preset visual-test
+cmake --build --preset visual-test
+```
+
+Those optional targets require the following extra packages:
+
+```powershell
+vcpkg install cgal eigen3 libigl
 ```
 
 ## Run
@@ -49,7 +65,7 @@ scoop install llvm
 Minimal boolean smoke test:
 
 ```powershell
-build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\boolean_smoke.obj --leaf-threshold 25
+build\default\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\boolean_smoke.obj --leaf-threshold 25
 ```
 
 `.obj` output keeps n-gon faces. `.stl` output is triangulated at the I/O boundary. `--output-topology conforming` enables the exact T-junction repair pass before export. This mode is intended for debugging and MeshLab inspection, not performance measurement; it can be much slower than raw output. Coplanar merging and Nef regularized output remain disabled in the application CLI.
@@ -59,8 +75,9 @@ build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\mo
 `re-EMBER_verify` checks a `BoolProblem::resultFragments()` candidate against a cached CGAL Nef oracle:
 
 ```powershell
-cmake --build build --target re-EMBER_verify
-build\Debug\re-EMBER_verify.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --leaf-threshold 25 --oracle-cache-dir build\oracle_cache\nef
+cmake --preset verify
+cmake --build --preset verify
+build\verify\re-EMBER_verify.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --leaf-threshold 25 --oracle-cache-dir build\oracle_cache\nef
 ```
 
 The oracle is exact over the quantized `Polygon256` input used by re-EMBER. It does not claim to validate the original floating OBJ/STL CAD intent before import and quantization. Oracle Nef files are cached under `build\oracle_cache\nef\` by default; pass `--refresh-oracle` to rebuild a cached entry. `--candidate-mode fragments-nef|export-conforming|export-nef` selects whether the candidate is compared from result fragments, from the conforming export topology, or from the Nef export topology path; this does not change the oracle cache key. The default `fragments-nef` candidate reuses the exact conforming mesh recovery before constructing CGAL Nef, avoiding the older quadratic Nef-side T-junction refinement. Before falling back to CGAL Nef overlay, the verifier first compares simple candidate/oracle Nef surfaces as exact vertices and face cycles; `surface_compare_used=1` in the report means this exact surface check proved equality without running the final overlay. Pass `--disable-surface-compare` to force the older overlay-only comparison.
@@ -104,7 +121,8 @@ The script writes `build\performance\run_<timestamp>\` with `summary.txt`, `timi
 
 ## Notes
 
-- `build\Debug\re-EMBER_tests.exe` runs the repository tests.
-- `build\Debug\visual-test.exe` exposes the same Ember output topology controls in the interactive panel, including `nef`.
+- The default presets now configure `Release`; each preset writes to its own subtree such as `build\default\`, `build\tests\`, `build\verify\`, or `build\visual-test\`.
+- `build\tests\re-EMBER_tests.exe` runs the repository tests.
+- `build\visual-test\visual-test.exe` exposes the same Ember output topology controls in the interactive panel, including `nef`.
 - `--threads 1` forces a serial run across application-layer preparation and solving when you need to debug.
 - `--timings-out <file>` writes the timing summary for a single run.

@@ -24,24 +24,40 @@ OBJ/STL 输入默认会量化到 signed 26-bit 整数坐标，除非显式传入
 所有构建产物都放在 `build/` 下。
 
 ```powershell
-$clang = "$env:USERPROFILE\scoop\apps\llvm\current\bin\clang-cl.exe"
-$rc = "$env:USERPROFILE\scoop\apps\llvm\current\bin\llvm-rc.exe"
-$ninja = "D:\Program Files\VisualStudio\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe"
-cmake -S . -B build -G Ninja `
-  -DCMAKE_MAKE_PROGRAM="$ninja" `
-  -DCMAKE_CXX_COMPILER="$clang" `
-  -DCMAKE_RC_COMPILER="$rc" `
-  -DCMAKE_BUILD_TYPE=Debug
-cmake --build build --target re-EMBER_tests
-ctest --test-dir build --output-on-failure --timeout 120
-cmake --build build --target re-EMBER
+cmake --preset default
+cmake --build --preset default-app
 ```
 
-默认支持的本地构建组合是 clang-cl + Boost.Multiprecision。可选的 CGAL oracle 校验工具由 `REEMBER_BUILD_VERIFY` 控制，普通本地构建默认开启。如果缺少 `TBB`、LLVM 或 CGAL，先安装：
+默认本地构建只要求 `reember_lib` 和 `re-EMBER` 所需的核心依赖。如果已经设置 `VCPKG_ROOT`，`CMakeLists.txt` 会自动接入 vcpkg toolchain。仓库内的 `CMakePresets.json` 会把 generator 固定为 Ninja，这样现有的 `clang-cl` 自动发现路径就能直接生效，不需要手动传编译器变量。
+
+测试现在单独放在自己的 preset 和构建树里：
 
 ```powershell
-vcpkg install tbb:x64-windows cgal:x64-windows
+cmake --preset tests
+cmake --build --preset tests
+ctest --preset default
+```
+
+默认构建先安装这些核心包：
+
+```powershell
+vcpkg install tinyobjloader tbb boost-multiprecision
 scoop install llvm
+```
+
+`re-EMBER_verify` 和 `visual-test` 是额外工具目标，默认关闭，这样普通 configure 不会强制要求 `CGAL`、`Eigen3` 或 `libigl`。每个 preset 都会落到 `build/` 下独立的子目录，避免共用一个大而混杂的构建树。需要时再显式开启：
+
+```powershell
+cmake --preset verify
+cmake --build --preset verify
+cmake --preset visual-test
+cmake --build --preset visual-test
+```
+
+这些可选目标额外需要：
+
+```powershell
+vcpkg install cgal eigen3 libigl
 ```
 
 ## 运行
@@ -49,7 +65,7 @@ scoop install llvm
 最小布尔测试命令：
 
 ```powershell
-build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\boolean_smoke.obj --leaf-threshold 25
+build\default\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\boolean_smoke.obj --leaf-threshold 25
 ```
 
 `.obj` 输出保留 n 边面；`.stl` 输出会在 I/O 边界三角化。`--output-topology conforming` 会在导出前启用精确 T-junction 修复。该模式主要用于调试和 MeshLab 检查，不用于性能计时；它可能明显慢于 raw 输出。共面合并和 Nef 正则化输出仍在应用层 CLI 禁用。
@@ -59,8 +75,9 @@ build\Debug\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\mo
 `re-EMBER_verify` 会把 `BoolProblem::resultFragments()` 候选结果和缓存的 CGAL Nef oracle 做集合相等校验：
 
 ```powershell
-cmake --build build --target re-EMBER_verify
-build\Debug\re-EMBER_verify.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --leaf-threshold 25 --oracle-cache-dir build\oracle_cache\nef
+cmake --preset verify
+cmake --build --preset verify
+build\verify\re-EMBER_verify.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --leaf-threshold 25 --oracle-cache-dir build\oracle_cache\nef
 ```
 
 oracle 的精确性边界是 re-EMBER 已经量化后的 `Polygon256` 输入；它不声明验证原始浮点 OBJ/STL 在 CAD 语义上的真实布尔结果。默认缓存目录是 `build\oracle_cache\nef\`；需要强制重算时传 `--refresh-oracle`。`--candidate-mode fragments-nef|export-conforming|export-nef` 可选择用原始结果片段或 verifier 内部诊断候选构造候选结果；这些模式不代表应用层输出后处理已经启用，也不改变 oracle cache key。
@@ -102,7 +119,8 @@ oracle 的精确性边界是 re-EMBER 已经量化后的 `Polygon256` 输入；�
 
 ## 备注
 
-- `build\Debug\re-EMBER_tests.exe` 可以运行仓库测试。
-- `build\Debug\visual-test.exe` 的 Ember 面板同样提供 `raw` / `conforming` 输出拓扑。
+- 默认 preset 现在会配置成 `Release`；每个 preset 会写入自己的子目录，例如 `build\default\`、`build\tests\`、`build\verify\`、`build\visual-test\`。
+- `build\tests\re-EMBER_tests.exe` 可以运行仓库测试。
+- `build\visual-test\visual-test.exe` 的 Ember 面板同样提供 `raw` / `conforming` 输出拓扑。
 - `--threads 1` 可让应用层准备和求解都强制串行，方便排查问题。
 - `--timings-out <file>` 会输出单次运行的计时摘要。
