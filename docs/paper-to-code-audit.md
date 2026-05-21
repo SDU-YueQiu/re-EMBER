@@ -484,6 +484,12 @@
   对 34 个 small 样本做 `-VerifyWithOracle` 全部通过；`run_20260522_074534`
   与保留基线 `run_20260522_074030` 的 100 个 raw OBJ SHA256 完全一致，但平均
   `export_ms` 仅从 69.227ms 到 69.220ms，属于噪声级，源码不保留。
+- 合并输入准备扫描后重新试探 leaf threshold 90/100：更高阈值继续减少递归节点和
+  输出片段，但 leaf 局部 BSP/分类规模变大，`solve_ms` 上升抵消了 export 下降。
+  保留基线 75 的 `run_20260522_074030` 平均 `solve_ms/export_ms/end_to_end_ms`
+  为 `115.327ms / 69.227ms / 247.759ms`；90 的 `run_20260522_074750`
+  为 `118.033ms / 66.976ms / 247.945ms`；100 的 `run_20260522_074832`
+  为 `119.843ms / 65.758ms / 248.326ms`。当前默认阈值仍保持 75。
 - CLI 默认路径关闭 `BoolProblem::leafSummaries()` 收集：为 `BoolProblem` 增加
   `setCollectLeafSummaries(false)` 并把该开关传入 `SubdivisionSolver`，尝试避免每个
   叶子摘要在子树合并时向上搬运；公开默认仍收集 leaf summaries。`ctest --test-dir build\tests --output-on-failure --timeout 120`
