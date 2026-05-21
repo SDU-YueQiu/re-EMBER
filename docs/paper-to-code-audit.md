@@ -356,6 +356,15 @@
 
 ## 已测但不保留的局部实验
 
+- 通用 exact-integer axis path 直构：在非 axis-probe 的整数参考点到整数目标点
+  1-3 段路径中，尝试复用已知起止整数坐标和 `PlanePoint3i`，绕过
+  `buildAxisAlignedCoordinatePath()` 内每段通用 coordinate-plane 端点恢复与互侧分类。
+  该改动接入 axis path 单点/多点枚举和 repair path，候选数量、axis path 尝试数、
+  trace 次数和输出均不变。Debug 构建和 ctest 通过；`run_20260522_041527`
+  与当前保留基线 `run_20260522_040952` 的结构计数完全一致，100 个 raw OBJ 与基线
+  逐文件 SHA256 完全一致；但单轮 `solve_ms` 为 117.882ms，差于当前保留基线
+  `run_20260522_040610` / `run_20260522_040952` 的 117.172ms 均值。
+  这说明该通用整数路径不是当前主导成本，新增分支和端点选择没有稳定收益；不保留。
 - `computePolygonPlaneIntersection()` 顶点侧别直接分类：尝试给 `Polygon256`
   增加按顶点下标分类到目标平面的入口；已有 vertex cache 时复用缓存，否则直接用
   未约分三平面交点做 4D dot，避免 `computePolygonPlaneIntersection()` 为
