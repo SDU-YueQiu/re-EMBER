@@ -477,6 +477,13 @@
 
 ## 已测但不保留的局部实验
 
+- raw OBJ 导出按文本块直接写 `ofstream`：尝试保留现有并行顶点/面文本块生成，
+  但不再把所有块拼接成一个完整 `objText` 后单次写出，而是按 header、顶点块、
+  面块顺序直接写文件，目标是减少最终大缓冲复制和峰值内存。`ctest --test-dir
+  build\tests --output-on-failure --timeout 120` 通过，`run_20260522_074347`
+  对 34 个 small 样本做 `-VerifyWithOracle` 全部通过；`run_20260522_074534`
+  与保留基线 `run_20260522_074030` 的 100 个 raw OBJ SHA256 完全一致，但平均
+  `export_ms` 仅从 69.227ms 到 69.220ms，属于噪声级，源码不保留。
 - CLI 默认路径关闭 `BoolProblem::leafSummaries()` 收集：为 `BoolProblem` 增加
   `setCollectLeafSummaries(false)` 并把该开关传入 `SubdivisionSolver`，尝试避免每个
   叶子摘要在子树合并时向上搬运；公开默认仍收集 leaf summaries。`ctest --test-dir build\tests --output-on-failure --timeout 120`
