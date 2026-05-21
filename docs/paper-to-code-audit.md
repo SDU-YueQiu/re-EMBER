@@ -426,6 +426,15 @@
   不优于 `run_20260522_005611` / `run_20260522_005732` 两轮保留基线均值
   118.736ms / 337.992ms。重复判定本身不是当前主导成本，新增分支和额外入口没有
   换回稳定收益；不保留。
+- axis-aligned corner path 底层构造预留 `axisCount` 容量：尝试给
+  `buildAxisAlignedCornerPathFromIntegers()` 的最多三段路径提前 `reserve()`，
+  减少 axis path 和 AABB bridge path 的短 vector 扩容。Debug 构建和 ctest 通过，
+  两轮 100 组论文样本 `run_20260522_022424` / `run_20260522_022541` 与
+  `run_20260522_021956` 的结构计数、result 计数、axis/plane replacement 尝试数和
+  trace 次数完全一致；但两轮新结果均值 `solve_ms` 约 118.605ms，差于
+  `run_20260522_021842` / `run_20260522_021956` 当前保留基线均值 118.252ms，
+  `end_to_end_ms` 基本持平。通用 corner path 的短 vector 扩容不是当前主导成本；
+  不保留。
 - trusted clipped polygon eager 顶点/AABB 缓存：结构计数不变，solve 信号为负。
 - BSP 插入端点齐次交点沿递归缓存：结构计数不变，22 个 verifier 全部通过，
   但 `run_20260521_032931` 相比 `run_20260521_031822` 的聚合 `solve_ms`
