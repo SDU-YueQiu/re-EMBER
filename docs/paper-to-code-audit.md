@@ -216,6 +216,15 @@
   全部通过；`run_20260521_140622` 三次无 oracle 重复计时为 1640.84ms、
   1625.48ms、1656.14ms，均值 1640.82ms，较 `run_20260521_134044`
   的 1647.70ms 继续降低约 0.42%。
+- 叶片分类候选路径由枚举器逐段构造并在生成边界完成可 trace 闭包检查，Release
+  热路径在 `prepareLeafClassificationCandidate()` 中不再重复调用
+  `isTraceableSurfaceCandidatePath()` 和 repair fallback；Debug 仍保留完整校验与修复逻辑，
+  用于捕获未来候选生成器破坏前置条件的回归。`run_20260521_140622` 的指标中
+  `leaf_classification_candidate_repair_attempt_count` 和 repair success 均为 0，说明当前
+  paper workload 没有实际依赖该 fallback。Debug 测试和 ctest 通过，
+  `run_20260521_141316` 的 22 个 verifier 全部通过；`run_20260521_141226`
+  三次无 oracle 重复计时为 1642.17ms、1637.29ms、1622.52ms，均值
+  1633.99ms，较 `run_20260521_140622` 的 1640.82ms 继续降低约 0.42%。
 
 ## 已测但不保留的局部实验
 

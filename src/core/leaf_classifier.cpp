@@ -547,10 +547,12 @@ bool prepareLeafClassificationCandidate(
     }
 #endif
 
+#ifndef NDEBUG
+    // 候选路径由枚举器逐段构造并校验；Release 直接进入 trace，避免重复扫路径。
     if (!isTraceableSurfaceCandidatePath(
-                context.localReference.point,
-                candidate.targetPoint,
-                candidate.path))
+            context.localReference.point,
+            candidate.targetPoint,
+            candidate.path))
     {
         REEMBER_PROFILE_ZONE("LeafClassification::candidateRepair");
         ++context.solveMetrics.leafClassificationCandidateRepairAttemptCount;
@@ -565,6 +567,7 @@ bool prepareLeafClassificationCandidate(
         candidate.path = std::move(repairedPath);
         ++context.solveMetrics.leafClassificationCandidateRepairSuccessCount;
     }
+#endif
 
     if (hasIntermediateEndpointOnInputSurface(context.polygons, candidate.path))
     {
