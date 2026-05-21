@@ -1175,6 +1175,86 @@ LeafClassificationResult classifyLeafFragment(
     return LeafClassificationResult::Failure;
 }
 
+BoolStatus evaluateBooleanIndicatorForOp(BoolOp op, const WNV &wnv) noexcept
+{
+    switch (op)
+    {
+    case BoolOp::Union:
+        return f_union(wnv, static_cast<int>(detail::kLhsOperandIndex), static_cast<int>(detail::kRhsOperandIndex));
+    case BoolOp::Intersection:
+        return f_intersection(wnv, static_cast<int>(detail::kLhsOperandIndex), static_cast<int>(detail::kRhsOperandIndex));
+    case BoolOp::Difference:
+        return f_diff(wnv, static_cast<int>(detail::kLhsOperandIndex), static_cast<int>(detail::kRhsOperandIndex));
+    }
+
+    return OUT;
+}
+
+void appendResultFragmentForClassification(
+    std::vector<Polygon256> &resultFragments,
+    BoolOp op,
+    const ClassifiedFragment &classifiedFragment)
+{
+    const BoolStatus frontStatus = evaluateBooleanIndicatorForOp(op, classifiedFragment.frontWNV);
+    const BoolStatus backStatus = evaluateBooleanIndicatorForOp(op, classifiedFragment.backWNV);
+    if (frontStatus == OUT && backStatus == IN)
+        resultFragments.push_back(classifiedFragment.polygon);
+    else if (frontStatus == IN && backStatus == OUT)
+        resultFragments.push_back(reversePolygonOrientation(classifiedFragment.polygon));
+}
+
+struct StreamingLeafClassificationState
+{
+    LeafClassificationContext &context;
+    BoolOp op = BoolOp::Intersection;
+    bool mayReuseClassification = false;
+    WNV reusableFrontWNV;
+    WNV reusableBackWNV;
+    bool hasReusableClassification = false;
+    std::size_t fragmentIndex = 0;
+    std::vector<Polygon256> &resultFragments;
+};
+
+void classifyVisitedLeafArrangementFragment(void *userData, Polygon256 &&fragment)
+{
+    REEMBER_PROFILE_ZONE("LeafClassification::classifyVisitedArrangementFragment");
+
+    auto &state = *static_cast<StreamingLeafClassificationState *>(userData);
+    const std::size_t fragmentIndex = state.fragmentIndex++;
+
+    if (state.mayReuseClassification && state.hasReusableClassification)
+    {
+        REEMBER_PROFILE_ZONE("LeafClassification::reuseSingleOperandClassification");
+        ++state.context.solveMetrics.singleOperandClassificationReuseCount;
+        state.context.classifiedFragments.push_back(
+            ClassifiedFragment{fragment, state.reusableFrontWNV, state.reusableBackWNV});
+        appendResultFragmentForClassification(
+            state.resultFragments,
+            state.op,
+            state.context.classifiedFragments.back());
+        return;
+    }
+
+    LeafClassificationAttemptStats attemptStats;
+    const LeafClassificationResult classificationResult =
+        classifyLeafFragment(state.context, fragmentIndex, fragment, attemptStats);
+    if (classificationResult == LeafClassificationResult::Failure)
+        throwLeafClassificationFailure(fragmentIndex, state.context.depth, fragment, attemptStats);
+
+    if (state.mayReuseClassification && !state.hasReusableClassification)
+    {
+        const ClassifiedFragment &classifiedFragment = state.context.classifiedFragments.back();
+        state.reusableFrontWNV = classifiedFragment.frontWNV;
+        state.reusableBackWNV = classifiedFragment.backWNV;
+        state.hasReusableClassification = true;
+    }
+
+    appendResultFragmentForClassification(
+        state.resultFragments,
+        state.op,
+        state.context.classifiedFragments.back());
+}
+
 }
 
 // 对叶子节点内的每个多边形建立局部 BSP，并收集启用的片段。
@@ -1205,14 +1285,64 @@ void SubdivisionSolver::solveLeafArrangement()
 
 }
 
+void SubdivisionSolver::solveLeafArrangementAndClassifyFragments()
+{
+    REEMBER_PROFILE_ZONE("SubdivisionSolver::solveLeafArrangementAndClassifyFragments");
+
+    leafFragmentsAliasPolygons_ = false;
+    leafFragments_.clear();
+    classifiedFragments_.clear();
+    resultFragments_.clear();
+    leafFragmentCount_ = 0;
+    classifiedFragmentCount_ = 0;
+    if (discarded_ || polygons_.empty())
+        return;
+
+    if (singleOperandPolicy_.maySkipLeafBsp)
+    {
+        solveLeafArrangement();
+        classifyLeafFragmentsAndCollectResults();
+        return;
+    }
+
+    ++solveMetrics_.leafBspBuildCount;
+
+    const refPoint localReference(reference_.point, reference_.wnv);
+    std::vector<int> localReferencePolygonSideCache(
+        polygons_.size(),
+        kUnknownLocalReferencePolygonSide);
+
+    std::mt19937 leafRng(42u);
+    LeafClassificationContext context{
+        localReference,
+        polygons_,
+        localReferencePolygonSideCache,
+        aabb_,
+        leafRng,
+        solveMetrics_,
+        classifiedFragments_,
+        depth_};
+
+    StreamingLeafClassificationState streamingState{
+        context,
+        op_,
+        singleOperandPolicy_.mayReuseLeafClassification,
+        WNV(),
+        WNV(),
+        false,
+        0u,
+        resultFragments_};
+
+    leafFragmentCount_ = visitLeafArrangementFragments(
+        polygons_,
+        &streamingState,
+        classifyVisitedLeafArrangementFragment);
+    classifiedFragmentCount_ = leafFragmentCount_;
+}
+
 void SubdivisionSolver::appendResultFragmentFromClassification(const ClassifiedFragment &classifiedFragment)
 {
-    const BoolStatus frontStatus = evaluateBooleanIndicator(classifiedFragment.frontWNV);
-    const BoolStatus backStatus = evaluateBooleanIndicator(classifiedFragment.backWNV);
-    if (frontStatus == OUT && backStatus == IN)
-        resultFragments_.push_back(classifiedFragment.polygon);
-    else if (frontStatus == IN && backStatus == OUT)
-        resultFragments_.push_back(reversePolygonOrientation(classifiedFragment.polygon));
+    appendResultFragmentForClassification(resultFragments_, op_, classifiedFragment);
 }
 
 bool SubdivisionSolver::tryReuseSingleOperandFragmentClassification(
@@ -1357,8 +1487,7 @@ bool SubdivisionSolver::trySolveSingleOperandAssumptionLeaf()
         return false;
 
     isLeaf_ = true;
-    solveLeafArrangement();
-    classifyLeafFragmentsAndCollectResults();
+    solveLeafArrangementAndClassifyFragments();
     ++solveMetrics_.singleOperandAssumptionStopCount;
     finalizeLeafNode();
     return true;
@@ -1367,16 +1496,6 @@ bool SubdivisionSolver::trySolveSingleOperandAssumptionLeaf()
 // 将 WNV 交给当前布尔运算的二元指示函数，返回内外状态。
 BoolStatus SubdivisionSolver::evaluateBooleanIndicator(const WNV &wnv) const noexcept
 {
-    switch (op_)
-    {
-    case BoolOp::Union:
-        return f_union(wnv, static_cast<int>(detail::kLhsOperandIndex), static_cast<int>(detail::kRhsOperandIndex));
-    case BoolOp::Intersection:
-        return f_intersection(wnv, static_cast<int>(detail::kLhsOperandIndex), static_cast<int>(detail::kRhsOperandIndex));
-    case BoolOp::Difference:
-        return f_diff(wnv, static_cast<int>(detail::kLhsOperandIndex), static_cast<int>(detail::kRhsOperandIndex));
-    }
-
-    return OUT;
+    return evaluateBooleanIndicatorForOp(op_, wnv);
 }
 }

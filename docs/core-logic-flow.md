@@ -340,17 +340,17 @@ flowchart TD
 
 ## 8. 叶子阶段：局部 BSP 编排
 
-当前叶子节点并不是直接分类原始多边形，而是先得到叶片片段 `leafFragments_`。
+当前叶子节点并不是直接分类原始多边形，而是先用局部 BSP 得到叶片片段。普通路径现在使用逐片 visitor：局部 BSP 每抽出一个启用片段就立即进入叶片分类，避免把整批片段先保存到 `leafFragments_` 再第二轮遍历。`leafFragments_` 仍保留给单操作数跳过 leaf BSP 的别名路径、旧入口和诊断清理。
 
 默认路径：
 
 1. 对叶子内每个多边形建立局部 `BSPTree`。
-2. 收集该叶子的 leaf geometries。
-3. 合并为当前叶子的 `leafFragments_`。
+2. 对启用 leaf geometry 逐片回调。
+3. 普通路径中每个片段立即进入分类和结果收集。
 
 单操作数快路径：
 
-- 如果当前叶子只包含单一 `WNTV` 类，且调用方声明了 `noSelfIntersections`，则直接跳过 leaf BSP，`leafFragments_ = polygons_`。
+- 如果当前叶子只包含单一 `WNTV` 类，且调用方声明了 `noSelfIntersections`，则直接跳过 leaf BSP，`leafFragments_` 通过别名语义指向 `polygons_`。
 
 `buildLeafArrangement()` 的实现还有一个小分叉：
 
@@ -359,35 +359,36 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["solveLeafArrangement()"] --> B{"discarded 或 polygons 为空?"}
+    A["solveLeafArrangementAndClassifyFragments()"] --> B{"discarded 或 polygons 为空?"}
     B -->|是| C["直接返回"]
     B -->|否| D{"单操作数且 noSelfIntersections?"}
-    D -->|是| E["跳过 BSP; leafFragments = polygons"]
-    D -->|否| F["buildLeafArrangement(polygons)"]
-    F --> G["leafFragments_"]
+    D -->|是| E["跳过 BSP; polygons_ 别名分类"]
+    D -->|否| F["visitLeafArrangementFragments(polygons)"]
+    F --> G["逐片 classifyLeafFragment"]
+    G --> H["resultFragments_"]
 ```
 
 ## 9. 叶片分类流程
 
-`classifyLeafFragmentsAndCollectResults()` 会对叶片片段求出其支撑平面两侧的 `frontWNV/backWNV`，再用布尔指示函数决定是否输出。若当前叶子满足 NSI/NNC 单操作数快路径，并且 `leafFragments_` 实际直接别名到原始 `polygons_`，则不会逐片复用分类结果，而是只真实分类一个代表面，再把该结果直接作用到整批多边形。
+`classifyLeafFragment()` 会对叶片片段求出其支撑平面两侧的 `frontWNV/backWNV`，再用布尔指示函数决定是否输出。普通局部 BSP 路径由 `solveLeafArrangementAndClassifyFragments()` 在 visitor 回调中逐片调用它；若当前叶子满足 NSI/NNC 单操作数快路径，并且 `leafFragments_` 实际直接别名到原始 `polygons_`，则仍走 `classifyLeafFragmentsAndCollectResults()` 的 bulk fast path，只真实分类一个代表面，再把该结果直接作用到整批多边形。
 
 核心顺序：
 
 1. 以当前节点参考点 `reference_` 作为局部参考点。
-2. 先判断是否命中 NSI/NNC 单操作数 bulk fast path；否则再进入普通逐片遍历。
+2. 先判断是否命中 NSI/NNC 单操作数 bulk fast path；否则由局部 BSP visitor 进入普通逐片分类。
 3. 如果命中 NSI/NNC 单操作数 bulk fast path，则只对一个代表面调用 `classifyLeafFragment()`。
 4. 代表面分类成功后，直接根据 `(frontStatus, backStatus)` 对整批 `polygons_` 做三选一处理：整体直接输出、整体翻转后输出，或整体丢弃。
-5. 如果没有命中 bulk fast path，则回到普通逐片流程：当前片段调用 `classifyLeafFragment()`；在允许单操作数逐片复用时，后续片段可以复用首个片段的 `front/back WNV`。
+5. 如果没有命中 bulk fast path，则每个局部 BSP 启用片段在回调中调用 `classifyLeafFragment()`；在允许单操作数逐片复用时，后续片段可以复用首个片段的 `front/back WNV`。
 6. 任一真实分类失败都会先携带最后一次 trace 状态向上报告；只有阈值叶片上的 `PATH_INVALID` 可触发继续细分，其他失败仍直接抛异常，不输出不可信结果。
 
 ```mermaid
 flowchart TD
-    A["classifyLeafFragmentsAndCollectResults()"] --> B{"命中 NSI/NNC bulk fast path?"}
+    A["叶片分类入口"] --> B{"命中 NSI/NNC bulk fast path?"}
     B -->|是| C["只分类一个代表面"]
     C --> D{"分类成功?"}
     D -->|否| E["记录诊断并抛异常"]
     D -->|是| F["按 front/back 状态整批直接输出/翻转/丢弃 polygons_"]
-    B -->|否| G["遍历 leafFragments_"]
+    B -->|否| G["局部 BSP visitor 逐片产出 fragment"]
     G --> H{"可逐片复用单操作数分类?"}
     H -->|是| I["复用 front/back WNV"]
     H -->|否| J["classifyLeafFragment()"]
