@@ -330,6 +330,18 @@
   raw 导出 fast path 保留基线 `run_20260522_023707` / `run_20260522_023820`，
   两轮新结果均值 `solve_ms` 从 118.826ms 降到 118.311ms，`export_ms` 从
   84.127ms 降到 83.857ms，`end_to_end_ms` 从 332.007ms 降到 331.715ms。
+- WNV trace 的整条 path 预筛移除 `doesPlaneIntersectAABB(polygonPlane, pathBox)`
+  粗判断，只保留 path AABB 与 polygon AABB 的重叠判断；逐 segment 相关性预筛中
+  的 `doesPlaneIntersectAABB(poly.plane, segmentBox)` 仍保留。原因是整条 path box
+  对 polygon plane 的粗测试在当前 100 组论文样本中不减少 trace 次数，却会给每个
+  polygon/path 组合增加一次 plane-box 分类成本。Debug 构建和
+  `ctest --preset default --output-on-failure --timeout 120` 通过；两轮 100 组论文样本
+  `run_20260522_033808` / `run_20260522_033921` 与当前保留基线
+  `run_20260522_030701` / `run_20260522_030809` 的结构计数和
+  `leaf_classification_trace_attempt_count` 完全一致，第二轮 100 个 raw OBJ 与
+  `run_20260522_030809` 逐文件 SHA256 完全一致。两轮新结果均值 `solve_ms`
+  从 118.311ms 降到 117.948ms，`end_to_end_ms` 从 331.715ms 降到
+  331.085ms，`process_elapsed_ms` 从 376.917ms 降到 376.034ms。
 
 ## 已测但不保留的局部实验
 
