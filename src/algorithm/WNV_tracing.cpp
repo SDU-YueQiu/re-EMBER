@@ -550,7 +550,7 @@ traceStatus tracePathWNVToSurfacePointImpl(
                 if (hitLocation == detail::PolygonSurfaceLocation::Boundary)
                 {
                     const detail::PolygonBoundaryContact boundaryContact =
-                        detail::classifySegmentPolygonBoundaryContactUnchecked(seg, poly, segmentBox);
+                        detail::classifyKnownSegmentPolygonBoundaryPointHitUnchecked(seg, poly, intersectPoint);
                     if (!canTreatSubdivisionClipBoundaryHitAsCrossing(
                                 BoundaryPolicy::AllowSubdivisionClipCrossing,
                                 pcs,

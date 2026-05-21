@@ -289,6 +289,15 @@
   `total_polygon_count`、`leaf_fragment_count`、trace 次数和 split 策略计数完全一致。
   平均 `solve_ms` 从 120.266ms 降到 119.261ms，`end_to_end_ms` 从
   340.942ms 到 339.122ms。
+- WNV surface-point trace 在已经算出 segment 与 polygon 支撑面交点、且该交点被分类为
+  polygon 边界命中时，改用已知命中点直接收集边界边来源，不再调用通用
+  `classifySegmentPolygonBoundaryContactUnchecked()` 重复求支撑面交点和面内位置。
+  该改动只影响允许 subdivision clip 边界穿越的判定前置分类，不改变 WNV 更新、
+  候选路径或边界策略。Debug 构建和 `ctest --preset default --output-on-failure --timeout 120`
+  通过；两轮 100 组论文样本 `-NoTracy`、不跑 verifier 与 `run_20260522_004433`
+  的结构计数和 trace 状态计数完全一致。`run_20260522_005611` 平均 `solve_ms`
+  为 118.241ms、`end_to_end_ms` 为 337.422ms；`run_20260522_005732`
+  平均 `solve_ms` 为 119.231ms、`end_to_end_ms` 为 338.561ms。
 
 ## 已测但不保留的局部实验
 
