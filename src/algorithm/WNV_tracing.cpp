@@ -113,6 +113,17 @@ bool isSegmentRelevantToPolygon(
            : detail::isSegmentRelevantToPolygonByAABB(seg, poly);
 }
 
+PlanePoint3i intersectLinePlaneUnnormalized(const Line256 &line, const Plane3i &plane) noexcept
+{
+    // 追踪热路径只需要交点相对多边形边平面的符号，直接保留 intersect_3_planes
+    // 的未规范化齐次输出，避免把论文核心 primitive 退回 canonical 点构造。
+    return PlanePoint3i(
+               line.p1,
+               line.p2,
+               plane,
+               intersectHomogeneousUnnormalized(line.p1, line.p2, plane));
+}
+
 void recordTracePathInvalid(
     BoolSolveMetrics *solveMetrics,
     TracePathInvalidReason reason) noexcept
@@ -532,7 +543,7 @@ traceStatus tracePathWNVToSurfacePointImpl(
             PlanePoint3i intersectPoint;
             {
                 REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::intersectSupportPlane");
-                intersectPoint = intersect(seg.direction, poly.plane);
+                intersectPoint = intersectLinePlaneUnnormalized(seg.direction, poly.plane);
             }
             if (intersectPoint.hasUniqueIntersection())
             {

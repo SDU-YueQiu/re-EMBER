@@ -181,6 +181,13 @@
   `run_20260521_120915` 的 22 个 verifier 全部通过且单轮 `solve_ms`
   为 1714.28ms；`run_20260521_121337` 三次无 oracle 重复计时为
   1709.71ms、1719.26ms、1716.58ms，均值 1715.18ms。
+- 叶片曲面点 WNV trace 在计算线段与 polygon 支撑平面的交点时，改用
+  `intersectHomogeneousUnnormalized()` 构造未规范化齐次点；后续只做边半空间符号分类，
+  不需要 canonical 齐次点。该改动对应 BSP 论文中 `intersect_3_planes` 输出直接供
+  `classify_vertex` 复用的数学边界，避免把核心求解热路径拉回点规范化。Debug 测试通过，
+  `run_20260521_122941` 的 22 个 verifier 全部通过且单轮 `solve_ms`
+  为 1660.13ms；`run_20260521_123402` 三次无 oracle 重复计时为
+  1695.42ms、1674.61ms、1685.70ms，均值 1685.24ms。
 
 ## 已测但不保留的局部实验
 
