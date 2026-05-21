@@ -281,6 +281,14 @@
   从 116.628ms 降到 112.873ms，`end_to_end_ms` 从 344.953ms 降到 341.895ms；
   `run_20260522_000710` 平均 `prepare_ms` 为 112.997ms，`end_to_end_ms`
   为 340.942ms，确认 prepare 阶段收益稳定。
+- center-range fallback 的三轴候选成本估计从“每个候选一次完整 polygon AABB
+  扫描”改成收集候选后单次扫描同时累计三组成本。候选集合、tie-break 顺序和
+  切分结果不变，只减少固定平均中心策略的重复 broad-phase 统计工作。Debug 构建和
+  `ctest --preset default --output-on-failure --timeout 120` 通过；100 组论文样本
+  `run_20260522_004433` 与 `run_20260522_000710` 的 `node_count`、
+  `total_polygon_count`、`leaf_fragment_count`、trace 次数和 split 策略计数完全一致。
+  平均 `solve_ms` 从 120.266ms 降到 119.261ms，`end_to_end_ms` 从
+  340.942ms 到 339.122ms。
 
 ## 已测但不保留的局部实验
 
