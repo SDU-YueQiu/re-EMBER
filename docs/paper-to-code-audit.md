@@ -427,7 +427,11 @@
   `run_20260522_065445` 的 100 组 NoTracy 与 `run_20260522_064654` 的 key structural
   counters、leaf classification trace/candidate 计数完全一致，100 个 raw OBJ SHA256
   完全一致；平均 `export_ms` 从 83.672ms 降到 81.736ms，`end_to_end_ms`
-  从 265.735ms 到 264.485ms。
+  从 265.735ms 到 264.485ms。后续把该紧凑路径的每 fragment 错误字符串槽改为
+  原子记录最小失败下标，成功导出时不再构造整批空字符串；`run_20260522_065912`
+  的 34 个 small verifier 全部通过，`run_20260522_065758` 相比 `run_20260522_065445`
+  的结构计数和 100 个 raw OBJ SHA256 完全一致，平均 `export_ms` 从 81.736ms
+  到 81.431ms，`end_to_end_ms` 从 264.485ms 到 263.519ms。
 
 ## 已测但不保留的局部实验
 
