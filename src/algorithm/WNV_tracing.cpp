@@ -554,22 +554,31 @@ traceStatus tracePathWNVToSurfacePointImpl(
             }
 
             PlanePoint3i intersectPoint;
+            const PlanePoint3i *surfaceHit = nullptr;
+            if (isLastSegment && pce == 0 && (pcs == -1 || pcs == 1))
+            {
+                surfaceHit = &endPoint;
+            }
+            else
             {
                 REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::intersectSupportPlane");
                 intersectPoint = intersectLinePlaneUnnormalized(seg.direction, poly.plane);
+                if (intersectPoint.hasUniqueIntersection())
+                    surfaceHit = &intersectPoint;
             }
-            if (intersectPoint.hasUniqueIntersection())
+
+            if (surfaceHit != nullptr)
             {
                 detail::PolygonSurfaceLocation hitLocation = detail::PolygonSurfaceLocation::Outside;
                 {
                     REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::classifySurfaceHit");
                     hitLocation =
-                        detail::classifyPolygonSurfacePointUnchecked(poly, intersectPoint);
+                        detail::classifyPolygonSurfacePointUnchecked(poly, *surfaceHit);
                 }
                 if (hitLocation == detail::PolygonSurfaceLocation::Boundary)
                 {
                     const detail::PolygonBoundaryContact boundaryContact =
-                        detail::classifyKnownSegmentPolygonBoundaryPointHitUnchecked(seg, poly, intersectPoint);
+                        detail::classifyKnownSegmentPolygonBoundaryPointHitUnchecked(seg, poly, *surfaceHit);
                     if (!canTreatSubdivisionClipBoundaryHitAsCrossing(
                                 BoundaryPolicy::AllowSubdivisionClipCrossing,
                                 pcs,
