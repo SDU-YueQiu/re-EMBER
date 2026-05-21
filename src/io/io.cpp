@@ -1580,6 +1580,17 @@ void appendObjVertexLine(std::string &buffer, const PlanePoint3i &vertex, std::u
     buffer.push_back('\n');
 }
 
+void appendObjFaceLine(std::string &buffer, const std::vector<std::size_t> &face)
+{
+    buffer.push_back('f');
+    for (const std::size_t vertexIndex : face)
+    {
+        buffer.push_back(' ');
+        appendIndex(buffer, vertexIndex + 1u);
+    }
+    buffer.push_back('\n');
+}
+
 std::size_t estimateObjTextSize(const RecoveredPolygonSoupData &recovered) noexcept
 {
     std::size_t faceVertexSlots = 0;
@@ -1590,6 +1601,66 @@ std::size_t estimateObjTextSize(const RecoveredPolygonSoupData &recovered) noexc
            recovered.uniqueVertices.size() * 96u +
            recovered.faces.size() * 4u +
            faceVertexSlots * 12u;
+}
+
+void appendObjVertexLines(std::string &buffer, const std::vector<PlanePoint3i> &vertices, std::uint64_t coordinateScale)
+{
+    constexpr std::size_t kParallelThreshold = 8192u;
+    constexpr std::size_t kChunkSize = 4096u;
+    if (vertices.size() < kParallelThreshold)
+    {
+        for (const PlanePoint3i &vertex : vertices)
+            appendObjVertexLine(buffer, vertex, coordinateScale);
+        return;
+    }
+
+    const std::size_t chunkCount = (vertices.size() + kChunkSize - 1u) / kChunkSize;
+    std::vector<std::string> chunks(chunkCount);
+    parallelForStatic(chunkCount, [&](std::size_t chunkIndex)
+    {
+        const std::size_t begin = chunkIndex * kChunkSize;
+        const std::size_t end = std::min(vertices.size(), begin + kChunkSize);
+        std::string chunk;
+        chunk.reserve((end - begin) * 96u);
+        for (std::size_t vertexIndex = begin; vertexIndex < end; ++vertexIndex)
+            appendObjVertexLine(chunk, vertices[vertexIndex], coordinateScale);
+        chunks[chunkIndex] = std::move(chunk);
+    });
+
+    for (std::string &chunk : chunks)
+        buffer += chunk;
+}
+
+void appendObjFaceLines(std::string &buffer, const std::vector<std::vector<std::size_t>> &faces)
+{
+    constexpr std::size_t kParallelThreshold = 8192u;
+    constexpr std::size_t kChunkSize = 4096u;
+    if (faces.size() < kParallelThreshold)
+    {
+        for (const std::vector<std::size_t> &face : faces)
+            appendObjFaceLine(buffer, face);
+        return;
+    }
+
+    const std::size_t chunkCount = (faces.size() + kChunkSize - 1u) / kChunkSize;
+    std::vector<std::string> chunks(chunkCount);
+    parallelForStatic(chunkCount, [&](std::size_t chunkIndex)
+    {
+        const std::size_t begin = chunkIndex * kChunkSize;
+        const std::size_t end = std::min(faces.size(), begin + kChunkSize);
+        std::size_t faceVertexSlots = 0;
+        for (std::size_t faceIndex = begin; faceIndex < end; ++faceIndex)
+            faceVertexSlots += faces[faceIndex].size();
+
+        std::string chunk;
+        chunk.reserve((end - begin) * 4u + faceVertexSlots * 12u);
+        for (std::size_t faceIndex = begin; faceIndex < end; ++faceIndex)
+            appendObjFaceLine(chunk, faces[faceIndex]);
+        chunks[chunkIndex] = std::move(chunk);
+    });
+
+    for (std::string &chunk : chunks)
+        buffer += chunk;
 }
 
 bool buildStlTrianglesFromRecoveredData(
@@ -2083,19 +2154,8 @@ bool writePolygonSoupObj(
     std::string objText;
     objText.reserve(estimateObjTextSize(recovered));
     objText += "# Ember exact polygon soup export\n";
-    for (const PlanePoint3i &vertex : recovered.uniqueVertices)
-        appendObjVertexLine(objText, vertex, options.coordinateScale);
-
-    for (const std::vector<std::size_t> &face : recovered.faces)
-    {
-        objText.push_back('f');
-        for (const std::size_t vertexIndex : face)
-        {
-            objText.push_back(' ');
-            appendIndex(objText, vertexIndex + 1u);
-        }
-        objText.push_back('\n');
-    }
+    appendObjVertexLines(objText, recovered.uniqueVertices, options.coordinateScale);
+    appendObjFaceLines(objText, recovered.faces);
     output.write(objText.data(), static_cast<std::streamsize>(objText.size()));
     if (!output)
         return failIo(outError, "Failed to finish writing OBJ output file: " + path);
