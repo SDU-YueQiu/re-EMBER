@@ -371,6 +371,15 @@
   `run_20260522_045009` / `run_20260522_045123` 与当前保留基线
   `run_20260522_042538` 的结构计数、trace 诊断计数和 100 个 raw OBJ SHA256
   完全一致。两轮新结果均值 `solve_ms` 从 117.035ms 降到 116.842ms。
+- 叶片局部 BSP 在 `polygonCount >= 8` 的预计算 pair-relation 路径中不再保存完整
+  `basePolygon` 副本；该路径已经提前得到双向 carrier 或共面关系，后续只需要
+  root leaf geometry、base 支撑平面、稳定 order key 和插入多边形本身。small-case
+  `insertTrusted()` 路径仍保留完整 base polygon，避免破坏公开 BSP 插入前置条件。
+  Debug 构建和 `ctest --preset default --output-on-failure --timeout 120` 通过；两轮
+  100 组论文样本 `run_20260522_053232` / `run_20260522_053346` 与当前保留基线
+  `run_20260522_045123` 的结构计数、trace 诊断计数和 100 个 raw OBJ SHA256
+  完全一致。两轮新结果均值 `solve_ms` 从 116.842ms 降到 116.541ms；
+  `export_ms` / `end_to_end_ms` 基本处于导出和调度噪声内。
 
 ## 已测但不保留的局部实验
 

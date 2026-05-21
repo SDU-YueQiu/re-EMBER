@@ -44,6 +44,16 @@ public:
     void setBasePolygon(const Polygon256& polygon, std::size_t orderKey = 0);
 
     /**
+     * @brief 设置只消费预计算交线载体的局部 BSP 基底多边形。
+     *
+     * @param[in] polygon 当前局部 BSP 所对应的输入多边形。
+     * @param[in] orderKey 用于重叠区域去重的稳定顺序键。
+     * @note 该入口不会保存完整 `basePolygon` 副本；调用方随后只能使用
+     *       `addSegment()` / `insertCoplanarPolygonTrusted()` 这类已预计算关系的入口。
+     */
+    void setBasePolygonForPrecomputedRelations(const Polygon256& polygon, std::size_t orderKey = 0);
+
+    /**
      * @brief 将另一输入多边形对当前基底多边形的影响插入局部 BSP。
      *
      * @param[in] polygon 待插入多边形。
@@ -99,6 +109,8 @@ private:
     static void extractLeafGeometriesRecursive(BSPNode* node, std::vector<Polygon256>& outLeafGeometries);
     std::unique_ptr<BSPNode> root;
     Polygon256 basePolygon;
+    Plane3i basePlane;
+    bool hasFullBasePolygon = false;
     std::size_t baseOrderKey = 0;
 };
 }
