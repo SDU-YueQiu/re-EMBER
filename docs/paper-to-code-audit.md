@@ -356,6 +356,15 @@
 
 ## 已测但不保留的局部实验
 
+- WNV trace 单段路径 AABB 预筛内联缓存：尝试在 `PathAABBPrecheck` 中为
+  `path.size()==1` 的候选路径单独保存 `singleSegmentBox`，避免初始化和填充
+  `small_vector<AABB3i, 4>`；多段路径仍走原小缓冲。该改动不改变 path AABB、
+  segment AABB、polygon AABB 剪枝或 WNV 传播数学。Debug 构建和 ctest 通过；
+  `run_20260522_042002` / `run_20260522_042117` 与当前保留基线
+  `run_20260522_040952` 的结构计数和 trace 次数完全一致，100 个 raw OBJ 与基线
+  逐文件 SHA256 完全一致；但两轮候选均值 `solve_ms` 为 117.550ms，差于当前保留
+  基线 `run_20260522_040610` / `run_20260522_040952` 的 117.172ms 均值。
+  说明这层 small-vector 维护不是当前主导成本，新增分支反而拖慢；不保留。
 - 通用 exact-integer axis path 直构：在非 axis-probe 的整数参考点到整数目标点
   1-3 段路径中，尝试复用已知起止整数坐标和 `PlanePoint3i`，绕过
   `buildAxisAlignedCoordinatePath()` 内每段通用 coordinate-plane 端点恢复与互侧分类。
