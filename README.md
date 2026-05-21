@@ -104,7 +104,7 @@ Application-layer parallelism uses the same `--threads` limit for coarse left/ri
 
 - `-Lhs` / `-Rhs` and `-Op` run one explicit boolean workload.
 - `-InputRoot` runs a batch of cases from a directory tree.
-- `-UsePaperExperimentSet` builds a manifest-driven paper batch under the current run directory. By default it selects 10 small, 10 medium, and 2 large workloads; adjust with `-PaperSmallCount`, `-PaperMediumCount`, and `-PaperLargeCount`.
+- `-UsePaperExperimentSet` builds a manifest-driven paper batch under the current run directory. The checked-in paper corpus contains 100 workloads: 34 small, 33 medium, and 33 large. The default quick batch still selects 10 small, 10 medium, and 2 large workloads; pass `-PaperSmallCount 34 -PaperMediumCount 33 -PaperLargeCount 33` for a full-corpus run.
 - `-Out` writes a single-workload result file.
 - `-ExecutablePath` reuses an existing `re-EMBER.exe` instead of rebuilding.
 - `-Configuration` chooses the profiling build type. Timing-only `-NoTracy` runs default to `Release`; Tracy runs default to `RelWithDebInfo`.
