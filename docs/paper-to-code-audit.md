@@ -337,6 +337,13 @@
   通过，但 `run_20260521_150724` 三次无 oracle 重复计时为 1610.62ms、
   1616.98ms、1604.68ms，均值 1610.76ms，差于 `run_20260521_144122`
   的 1599.87ms。额外平面识别分支没有换回足够的 256 位除法节省；不保留。
+- `clipLeafGeometryByPlaneTrusted()` 尝试绕过 `source.vertex(i)`，直接用
+  `intersectHomogeneousUnnormalized()` 加 4D dot 分类裁剪源 polygon 顶点，目标是让
+  叶片 BSP clipping 更贴近 BSP 论文的 `classify_vertex` 热路径。Debug 构建和 ctest
+  通过，100 组论文样本 `run_20260522_005043` 的结构计数与
+  `run_20260522_004433` 完全一致，但平均 `solve_ms` 从 119.261ms 退化到
+  120.397ms，`end_to_end_ms` 从 339.122ms 到 341.185ms。当前缓存顶点仍会被
+  后续有效性、AABB 或分类路径复用，单独绕过缓存没有收益；不保留。
 - leaf 停止条件尝试从固定 `polygonCount <= 25` 扩展为“低于阈值但 AABB 重叠对很密时
   继续细分”，以减少局部 BSP pair 和分类 trace。Debug 构建通过，paper small batch
   通过，但 `re-EMBER_tests` 的 IO 断言 `problem.resultFragments().size() == 12u`
