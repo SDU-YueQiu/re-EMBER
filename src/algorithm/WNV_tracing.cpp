@@ -7,6 +7,8 @@
 #include "core/bool_problem.h"
 #include "core/perf_tracing.h"
 
+#include <boost/container/small_vector.hpp>
+
 #include <utility>
 #include <vector>
 
@@ -43,23 +45,19 @@ enum class BoundaryHitRejectedKind
 struct PathAABBPrecheck
 {
     AABB3i pathBox;
-    AABB3i singleSegmentBox;
-    std::vector<AABB3i> segmentBoxes;
-    std::size_t segmentCount = 0;
+    boost::container::small_vector<AABB3i, 4> segmentBoxes;
     bool valid = false;
 
     const AABB3i &segmentBox(std::size_t index) const noexcept
     {
-        return segmentBoxes.empty() ? singleSegmentBox : segmentBoxes[index];
+        return segmentBoxes[index];
     }
 };
 
 bool buildPathAABBPrecheck(const Path &path, PathAABBPrecheck &outPrecheck)
 {
     outPrecheck = PathAABBPrecheck();
-    const bool useVector = path.size() > 1;
-    if (useVector)
-        outPrecheck.segmentBoxes.reserve(path.size());
+    outPrecheck.segmentBoxes.reserve(path.size());
 
     for (const Segment256 &segment : path)
     {
@@ -74,16 +72,12 @@ bool buildPathAABBPrecheck(const Path &path, PathAABBPrecheck &outPrecheck)
         }
 
         mergeAABB(outPrecheck.pathBox, segmentBox);
-        if (useVector)
-            outPrecheck.segmentBoxes.push_back(std::move(segmentBox));
-        else
-            outPrecheck.singleSegmentBox = std::move(segmentBox);
-        ++outPrecheck.segmentCount;
+        outPrecheck.segmentBoxes.push_back(std::move(segmentBox));
     }
 
     outPrecheck.valid =
         isValidAABB(outPrecheck.pathBox) &&
-        outPrecheck.segmentCount == path.size();
+        outPrecheck.segmentBoxes.size() == path.size();
     if (!outPrecheck.valid)
         outPrecheck = PathAABBPrecheck();
 
