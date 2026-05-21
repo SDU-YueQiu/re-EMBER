@@ -89,14 +89,14 @@ bool canSkipPolygonForPathAABB(
     const AABB3i &polygonBox,
     const AABB3i &pathBox) noexcept
 {
+    (void)polygonPlane;
     if (!isValidAABB(pathBox))
         return false;
 
     if (!isValidAABB(polygonBox))
         return false;
 
-    return !doAABBsOverlap(pathBox, polygonBox) ||
-           !doesPlaneIntersectAABB(polygonPlane, pathBox);
+    return !doAABBsOverlap(pathBox, polygonBox);
 }
 
 bool isSegmentRelevantToPolygon(
