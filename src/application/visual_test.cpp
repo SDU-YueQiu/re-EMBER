@@ -97,7 +97,7 @@ std::string resolveDefaultAssetPath(const std::string &relativeStemPath)
 }
 using Clock = std::chrono::steady_clock;
 
-inline std::size_t kLeafThreshold = 25;
+inline std::size_t kLeafThreshold = ember::kDefaultLeafPolygonThreshold;
 inline double kRotationMinDegrees = -180.0;
 inline double kRotationMaxDegrees = 180.0;
 inline double kToolScaleMin = 0.01;

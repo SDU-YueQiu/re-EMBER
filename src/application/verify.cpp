@@ -63,7 +63,7 @@ struct VerifyOptions
     std::string rhsPath;
     BoolOp operation = BoolOp::Intersection;
     std::optional<std::uint64_t> scale;
-    std::size_t leafThreshold = 25;
+    std::size_t leafThreshold = ember::kDefaultLeafPolygonThreshold;
     std::size_t threadCount = 0;
     BoolOperandAssumptions lhsAssumptions;
     BoolOperandAssumptions rhsAssumptions;

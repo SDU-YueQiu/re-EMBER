@@ -135,7 +135,7 @@ flowchart TD
 当前 `solveRecursive()` 的决策顺序非常关键，真实实现顺序如下：
 
 1. 尝试 `single operand assumption leaf` 快路径；一旦命中，当前节点直接按普通叶节点完整求解。
-2. 若达到叶子阈值，或 AABB 已不可再切分，则转叶子求解；阈值叶片若只因 `PATH_INVALID` 候选耗尽失败且 AABB 还能切，会放弃当前叶子并继续细分。
+2. 若达到叶子阈值，或 AABB 已不可再切分，则转叶子求解；默认叶子阈值为 75，显式 `--leaf-threshold` / `-LeafThreshold` 可覆盖。阈值叶片若只因 `PATH_INVALID` 候选耗尽失败且 AABB 还能切，会放弃当前叶子并继续细分。
 3. 否则选择切分面并创建左右子节点。
 4. 常量 indicator 剪枝只发生在 child 创建前。
 5. 若两个 child 都存在，且 sibling 并行门槛满足，则当前线程继续 polygon soup 更大的 child，把较小的 sibling 作为 `oneTBB` task 提交。

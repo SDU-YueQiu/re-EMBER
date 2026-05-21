@@ -441,6 +441,19 @@
   counters、leaf classification trace/candidate 计数完全一致，100 个 raw OBJ SHA256
   完全一致；平均 `solve_ms` 从 114.365ms 降到 109.153ms，`export_ms` 基本持平
   （81.431ms 到 81.898ms），`end_to_end_ms` 从 263.519ms 降到 258.271ms。
+- 默认 leaf threshold 从 25 调到 75，并同步 CLI、verifier、visual-test、CTest
+  paper small 批量入口和 `tools/profile-re-ember.ps1` 默认参数；显式传入的阈值仍覆盖默认值。
+  该调整不改变几何判定，只改变递归停止点和 leaf 局部 BSP 规模。100 组 NoTracy
+  参数扫描显示：`run_20260522_070657`（25）平均 `solve_ms=109.153ms`、
+  `export_ms=81.898ms`、`end_to_end_ms=258.271ms`；`run_20260522_072029`（50）
+  为 `112.015ms / 73.514ms / 252.890ms`；`run_20260522_072122`（75）
+  为 `114.069ms / 68.916ms / 250.008ms`；`run_20260522_072214`（125）
+  为 `124.081ms / 64.799ms / 256.101ms`。75 在当前 raw OBJ 默认流水线中端到端最优，
+  同时相比 25 将平均 `node_count` 从 1485.36 降到 547.12、`leaf_bsp_build_count`
+  从 423.04 降到 166.34、`result_fragment_count` 从 29698.00 降到 27036.72。
+  改默认值后的保留重跑 `run_20260522_072754` 确认脚本默认传入 75，结构计数与扫描一致，
+  平均 `solve_ms=115.096ms`、`export_ms=69.116ms`、`end_to_end_ms=252.100ms`。
+  `run_20260522_072559` 对 34 个 small 样本使用默认 75 和 CGAL oracle 校验，全部通过。
 
 ## 已测但不保留的局部实验
 
