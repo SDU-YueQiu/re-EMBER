@@ -27,7 +27,7 @@
 | 分类路径最多三段，由点的定义平面替换构造 | EMBER 3.2、4.4、Fig. 9 | `path_candidates.h` / `path_candidate_details.h` 提供 axis path、plane replacement、bridge rescue；centroid axis 目标会在四舍五入中心附近试少量整数轴探测线 | exhaustive plane replacement 是高 self time；邻近 centroid probe 已减少 inset/trace 放大量，但仍未解决所有 fallback | 下一步审计目标三平面排列和替换顺序是否存在语义重复，而不是只做局部分配优化 |
 | operator indicator early-out | EMBER 4.5.2 | `constant_discard_count`、single-operand assumption、leaf BSP/classification reuse 已接入 | 早停仍依赖当前 reference WNV 和局部保守判定；错误早停会直接破坏结果 | 只在能证明 entire child indicator 常量时扩展；用 oracle 或 metrics 对照验证 |
 | split strategy 减少热点工作量 | EMBER 4.5.3 | WNTV-aware split、center range split、midpoint fallback 已有 metrics | 当前 split 仍可能造成 polygon 放大，且未直接把 leaf trace/BSP 成本纳入策略 | 先用 profile 找“polygon 放大 -> leaf trace 放大”的 workload，再动 split 逻辑 |
-| work-stealing parallel | EMBER 4.5.4、5.3 | 当前 child 子树级 oneTBB 任务，merge 固定 left -> right；sibling task 提交门槛已降到 leaf threshold | 并行边界仍较粗；叶内 BSP 和分类串行。继续扩展前必须证明无共享状态和稳定聚合 | 下一步看更细粒度并行是否会被 task 开销抵消，不能改动结果聚合顺序 |
+| work-stealing parallel | EMBER 4.5.4、5.3 | 当前 child 子树级 oneTBB 任务，merge 固定 left -> right；sibling task 提交门槛已降到半个 leaf threshold | 并行边界仍较粗；叶内 BSP 和分类串行。继续扩展前必须证明无共享状态和稳定聚合 | 下一步看更细粒度并行是否会被 task 开销抵消，不能改动结果聚合顺序 |
 | 固定宽度齐次整数图元 | EMBER 3.2；BSP paper Table 1、4.1 | `PlanePoint3i` 已改为默认保留未约分三平面齐次交点；`classify_vertex` 暂用 512 位点积防止现有 `int256_t` 符号溢出 | 这是过渡层，不是最终 fixed 256 backend；导出阶段也因未约分点变重 | 下一步闭合平面系数预算或把 `classify_vertex` 接到自定义 fixed backend，并把 I/O canonical 化留在边界 |
 
 ## 当前 profile 结论
@@ -201,6 +201,13 @@
   为 1650.381ms；`run_20260521_131933` 三次无 oracle 重复计时为
   1644.79ms、1658.35ms、1669.02ms，均值 1657.38ms，较
   `run_20260521_125353` 的 1676.89ms 继续降低约 1.16%。
+- sibling 子树并行提交门槛继续降到 `leafPolygonThreshold / 2`（下限 8），
+  进一步暴露中小子树给 oneTBB work-stealing；仍保持父节点固定先 merge
+  left 再 merge right，因此只改变执行调度。Debug 测试通过，
+  `run_20260521_134123` 的 22 个 verifier 全部通过且单轮 `solve_ms`
+  为 1645.242ms；`run_20260521_134044` 三次无 oracle 重复计时为
+  1649.68ms、1649.91ms、1643.52ms，均值 1647.70ms，较
+  `run_20260521_131933` 的 1657.38ms 继续降低约 0.58%。
 
 ## 已测但不保留的局部实验
 
