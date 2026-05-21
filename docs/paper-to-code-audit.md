@@ -219,6 +219,11 @@
   1704.47ms，均值 1688.33ms，差于 `run_20260521_125353` 的 1676.89ms。
   该路径上的中间点会反复参与 AABB 和半空间分类，未约分齐次代表元放大了后续
   256 位乘法成本；暂时保留 normalized 路径点。
+- sibling 子树并行提交门槛继续降到 `leafPolygonThreshold / 4`（下限 4），
+  Debug 测试通过，但 `run_20260521_134738` 三次无 oracle 重复计时为
+  1644.60ms、1655.29ms、1653.80ms，均值 1651.23ms，差于半阈值版本
+  `run_20260521_134044` 的 1647.70ms；更细任务已开始被调度开销抵消，
+  保留 `leafPolygonThreshold / 2`（下限 8）。
 - 叶片分类候选路径 view：结构和 trace 计数不变，但 NoTracy solve 变慢。
 - `buildLeafArrangement()` 结果 vector 预留容量：结构计数不变，solve 信号为负。
 - `buildLeafArrangement()` 删除 `polygonCount < 8` 小叶片旧路径，并改用统一
