@@ -902,11 +902,82 @@ struct RecoveredPolygonSoupData
     std::vector<std::vector<PolygonEdgeProvenance>> faceEdgeProvenances;
 };
 
+struct RawRecoveredPolygonSoupData
+{
+    std::vector<PlanePoint3i> uniqueVertices;
+    std::vector<std::size_t> faceVertexIndices;
+    std::vector<std::size_t> faceOffsets;
+};
+
 struct RecoveredPolygonBuildResult
 {
     std::vector<PlanePoint3i> orderedVertices;
     std::string error;
 };
+
+bool recoverRawTrustedPolygonSoupDataCompact(
+    const std::vector<Polygon256> &fragments,
+    RawRecoveredPolygonSoupData &outData,
+    std::string &outError)
+{
+    outData.uniqueVertices.clear();
+    outData.faceVertexIndices.clear();
+    outData.faceOffsets.clear();
+
+    std::vector<std::string> fragmentErrors(fragments.size());
+    parallelForStatic(fragments.size(), [&](std::size_t polygonIndex)
+    {
+        const std::vector<PlanePoint3i> &vertices = fragments[polygonIndex].vertices();
+        for (const PlanePoint3i &vertex : vertices)
+        {
+            if (!vertex.hasUniqueIntersection() || isZero(vertex.x.w))
+            {
+                fragmentErrors[polygonIndex] =
+                    "Failed to recover polygon " + std::to_string(polygonIndex) +
+                    ": Failed to recover an ordered polygon vertex with a unique finite homogeneous point.";
+                return;
+            }
+        }
+    });
+
+    for (const std::string &fragmentError : fragmentErrors)
+    {
+        if (!fragmentError.empty())
+            return failIo(outError, fragmentError);
+    }
+
+    std::size_t totalVertexSlotCount = 0;
+    for (const Polygon256 &fragment : fragments)
+        totalVertexSlotCount += fragment.edgeCount();
+
+    std::unordered_map<
+        HomogeneousPointKey,
+        std::size_t,
+        HomogeneousPointKeyHash,
+        HomogeneousPointKeyEqual> vertexIndexByKey;
+    vertexIndexByKey.reserve(totalVertexSlotCount);
+    outData.uniqueVertices.reserve(totalVertexSlotCount);
+    outData.faceVertexIndices.reserve(totalVertexSlotCount);
+    outData.faceOffsets.reserve(fragments.size() + 1u);
+    outData.faceOffsets.push_back(0u);
+
+    for (const Polygon256 &fragment : fragments)
+    {
+        const std::vector<PlanePoint3i> &vertices = fragment.vertices();
+        for (const PlanePoint3i &vertex : vertices)
+        {
+            HomogeneousPointKey key(vertex.x);
+            const auto [entry, inserted] = vertexIndexByKey.emplace(std::move(key), outData.uniqueVertices.size());
+            if (inserted)
+                outData.uniqueVertices.push_back(vertex);
+
+            outData.faceVertexIndices.push_back(entry->second);
+        }
+        outData.faceOffsets.push_back(outData.faceVertexIndices.size());
+    }
+
+    return true;
+}
 
 bool recoverRawTrustedPolygonSoupData(
     const std::vector<Polygon256> &fragments,
@@ -1654,6 +1725,21 @@ void appendObjFaceLine(std::string &buffer, const std::vector<std::size_t> &face
     buffer.push_back('\n');
 }
 
+void appendObjFaceLine(
+    std::string &buffer,
+    const std::vector<std::size_t> &faceVertexIndices,
+    std::size_t begin,
+    std::size_t end)
+{
+    buffer.push_back('f');
+    for (std::size_t index = begin; index < end; ++index)
+    {
+        buffer.push_back(' ');
+        appendIndex(buffer, faceVertexIndices[index] + 1u);
+    }
+    buffer.push_back('\n');
+}
+
 std::size_t estimateObjTextSize(const RecoveredPolygonSoupData &recovered) noexcept
 {
     std::size_t faceVertexSlots = 0;
@@ -1664,6 +1750,15 @@ std::size_t estimateObjTextSize(const RecoveredPolygonSoupData &recovered) noexc
            recovered.uniqueVertices.size() * 96u +
            recovered.faces.size() * 4u +
            faceVertexSlots * 12u;
+}
+
+std::size_t estimateObjTextSize(const RawRecoveredPolygonSoupData &recovered) noexcept
+{
+    const std::size_t faceCount = recovered.faceOffsets.empty() ? 0u : recovered.faceOffsets.size() - 1u;
+    return 36u +
+           recovered.uniqueVertices.size() * 96u +
+           faceCount * 4u +
+           recovered.faceVertexIndices.size() * 12u;
 }
 
 void appendObjVertexLines(std::string &buffer, const std::vector<PlanePoint3i> &vertices, std::uint64_t coordinateScale)
@@ -1726,6 +1821,52 @@ void appendObjFaceLines(std::string &buffer, const std::vector<std::vector<std::
         buffer += chunk;
 }
 
+void appendObjFaceLines(
+    std::string &buffer,
+    const std::vector<std::size_t> &faceVertexIndices,
+    const std::vector<std::size_t> &faceOffsets)
+{
+    constexpr std::size_t kParallelThreshold = 8192u;
+    constexpr std::size_t kChunkSize = 4096u;
+    const std::size_t faceCount = faceOffsets.empty() ? 0u : faceOffsets.size() - 1u;
+    if (faceCount < kParallelThreshold)
+    {
+        for (std::size_t faceIndex = 0; faceIndex < faceCount; ++faceIndex)
+        {
+            appendObjFaceLine(
+                buffer,
+                faceVertexIndices,
+                faceOffsets[faceIndex],
+                faceOffsets[faceIndex + 1u]);
+        }
+        return;
+    }
+
+    const std::size_t chunkCount = (faceCount + kChunkSize - 1u) / kChunkSize;
+    std::vector<std::string> chunks(chunkCount);
+    parallelForStatic(chunkCount, [&](std::size_t chunkIndex)
+    {
+        const std::size_t begin = chunkIndex * kChunkSize;
+        const std::size_t end = std::min(faceCount, begin + kChunkSize);
+        const std::size_t faceVertexSlots = faceOffsets[end] - faceOffsets[begin];
+
+        std::string chunk;
+        chunk.reserve((end - begin) * 4u + faceVertexSlots * 12u);
+        for (std::size_t faceIndex = begin; faceIndex < end; ++faceIndex)
+        {
+            appendObjFaceLine(
+                chunk,
+                faceVertexIndices,
+                faceOffsets[faceIndex],
+                faceOffsets[faceIndex + 1u]);
+        }
+        chunks[chunkIndex] = std::move(chunk);
+    });
+
+    for (std::string &chunk : chunks)
+        buffer += chunk;
+}
+
 bool buildStlTrianglesFromRecoveredData(
     const RecoveredPolygonSoupData &recovered,
     std::uint64_t coordinateScale,
@@ -1763,6 +1904,42 @@ bool buildStlTrianglesFromRecoveredData(
         }
     }
 
+    return true;
+}
+
+bool writeRawTrustedPolygonSoupObj(
+    const std::vector<Polygon256> &fragments,
+    const std::string &path,
+    std::size_t &outFaceCount,
+    std::string &outError,
+    const PolygonSoupExportOptions &options)
+{
+    RawRecoveredPolygonSoupData recovered;
+    if (!recoverRawTrustedPolygonSoupDataCompact(fragments, recovered, outError))
+    {
+        outError = "Failed to prepare polygon soup OBJ export: " + outError;
+        return false;
+    }
+
+    std::ofstream output(path, std::ios::trunc);
+    if (!output)
+    {
+        return failIo(
+                   outError,
+                   "Failed to open OBJ output file for writing: " + path);
+    }
+
+    // raw 可信路径只需要顶点表和面索引，避免为每个面分配独立小 vector。
+    std::string objText;
+    objText.reserve(estimateObjTextSize(recovered));
+    objText += "# Ember exact polygon soup export\n";
+    appendObjVertexLines(objText, recovered.uniqueVertices, options.coordinateScale);
+    appendObjFaceLines(objText, recovered.faceVertexIndices, recovered.faceOffsets);
+    output.write(objText.data(), static_cast<std::streamsize>(objText.size()));
+    if (!output)
+        return failIo(outError, "Failed to finish writing OBJ output file: " + path);
+
+    outFaceCount = recovered.faceOffsets.empty() ? 0u : recovered.faceOffsets.size() - 1u;
     return true;
 }
 }
@@ -2184,6 +2361,9 @@ bool writePolygonSoupObj(
         return failIo(outError, "Coordinate scale must be a positive integer.");
     if (!ensureOutputDirectoryExists(path, "OBJ", outError))
         return false;
+
+    if (options.topologyMode == PolygonSoupTopologyMode::Raw && !options.validateFragments)
+        return writeRawTrustedPolygonSoupObj(fragments, path, outFaceCount, outError, options);
 
     RecoveredPolygonSoupData recovered;
     const bool needsTopologyMetadata = options.topologyMode != PolygonSoupTopologyMode::Raw;
