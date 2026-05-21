@@ -84,27 +84,44 @@ bool buildPathAABBPrecheck(const Path &path, PathAABBPrecheck &outPrecheck)
     return outPrecheck.valid;
 }
 
-bool canSkipPolygonForPathAABB(const Polygon256 &polygon, const AABB3i &pathBox) noexcept
+bool canSkipPolygonForPathAABB(
+    const Plane3i &polygonPlane,
+    const AABB3i &polygonBox,
+    const AABB3i &pathBox) noexcept
 {
     if (!isValidAABB(pathBox))
         return false;
 
-    const AABB3i &polygonBox = polygon.aabb();
     if (!isValidAABB(polygonBox))
         return false;
 
     return !doAABBsOverlap(pathBox, polygonBox) ||
-           !doesPlaneIntersectAABB(polygon.plane, pathBox);
+           !doesPlaneIntersectAABB(polygonPlane, pathBox);
 }
 
 bool isSegmentRelevantToPolygon(
     const Segment256 &seg,
     const Polygon256 &poly,
+    const AABB3i &polygonBox,
     const AABB3i *knownSegmentBox) noexcept
 {
-    return knownSegmentBox != nullptr
-           ? detail::isSegmentRelevantToPolygonByAABB(*knownSegmentBox, poly)
-           : detail::isSegmentRelevantToPolygonByAABB(seg, poly);
+    if (!isValidAABB(polygonBox))
+        return true;
+
+    if (knownSegmentBox != nullptr)
+    {
+        if (!isValidAABB(*knownSegmentBox))
+            return true;
+        return doAABBsOverlap(*knownSegmentBox, polygonBox) &&
+               doesPlaneIntersectAABB(poly.plane, *knownSegmentBox);
+    }
+
+    AABB3i segmentBox;
+    if (!buildPointPairAABB(seg.getStartPointRef(), seg.getEndPointRef(), segmentBox))
+        return true;
+
+    return doAABBsOverlap(segmentBox, polygonBox) &&
+           doesPlaneIntersectAABB(poly.plane, segmentBox);
 }
 
 PlanePoint3i intersectLinePlaneUnnormalized(const Line256 &line, const Plane3i &plane) noexcept
@@ -294,7 +311,8 @@ traceStatus tracePathWNVImpl(
     for (const Polygon256 &poly : polygons)
     {
         REEMBER_PROFILE_ZONE("tracePathWNVImpl::polygon");
-        if (hasPathBox && canSkipPolygonForPathAABB(poly, pathAABB.pathBox))
+        const AABB3i &polygonBox = poly.aabb();
+        if (hasPathBox && canSkipPolygonForPathAABB(poly.plane, polygonBox, pathAABB.pathBox))
             continue;
 
         int pcs = 0;
@@ -331,7 +349,7 @@ traceStatus tracePathWNVImpl(
                 continue;
             }
 
-            if (!isSegmentRelevantToPolygon(seg, poly, segmentBox))
+            if (!isSegmentRelevantToPolygon(seg, poly, polygonBox, segmentBox))
             {
                 pcs = pce;
                 continue;
@@ -473,7 +491,8 @@ traceStatus tracePathWNVToSurfacePointImpl(
     {
         REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::polygon");
         const Polygon256 &poly = polygons[polygonIndex];
-        if (hasPathBox && canSkipPolygonForPathAABB(poly, pathAABB.pathBox))
+        const AABB3i &polygonBox = poly.aabb();
+        if (hasPathBox && canSkipPolygonForPathAABB(poly.plane, polygonBox, pathAABB.pathBox))
             continue;
 
         int previousEndSide = 0;
@@ -485,7 +504,7 @@ traceStatus tracePathWNVToSurfacePointImpl(
                 hasPathBox ? &pathAABB.segmentBox(segmentIndex) : nullptr;
             const PlanePoint3i &endPoint = seg.getEndPointRef();
             const bool isLastSegment = (segmentIndex + 1 == path.size());
-            const bool segmentRelevant = isSegmentRelevantToPolygon(seg, poly, segmentBox);
+            const bool segmentRelevant = isSegmentRelevantToPolygon(seg, poly, polygonBox, segmentBox);
             if (!segmentRelevant)
             {
                 hasPreviousEndSide = false;

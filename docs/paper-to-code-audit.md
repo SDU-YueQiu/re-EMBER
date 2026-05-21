@@ -319,6 +319,17 @@
   `run_20260522_021842` / `run_20260522_021956` 当前保留基线，两轮新结果均值
   `export_ms` 从 89.545ms 降到 84.127ms，`end_to_end_ms` 从 337.345ms 降到
   332.007ms，`process_elapsed_ms` 从 387.247ms 降到 376.655ms。
+- WNV trace 的 polygon 级 AABB 预筛改为每个 polygon 只读取一次缓存 AABB，
+  并把同一 `polygonBox` 传给整条 path 预筛和逐 segment 相关性预筛，避免在
+  `tracePathWNVImpl::polygon` / `tracePathWNVToSurfacePointImpl::polygon` 内对同一
+  polygon 反复走 `poly.aabb()` 访问路径。该改动不改变 path、候选、分类侧别或
+  WNV/WNTV 累加数学。Debug 构建和
+  `ctest --preset default --output-on-failure --timeout 120` 通过；两轮 100 组论文样本
+  `run_20260522_030701` / `run_20260522_030809` 与 `run_20260522_023820`
+  的结构计数完全一致，100 个 raw OBJ 与基线逐文件 SHA256 完全一致。相对
+  raw 导出 fast path 保留基线 `run_20260522_023707` / `run_20260522_023820`，
+  两轮新结果均值 `solve_ms` 从 118.826ms 降到 118.311ms，`export_ms` 从
+  84.127ms 降到 83.857ms，`end_to_end_ms` 从 332.007ms 降到 331.715ms。
 
 ## 已测但不保留的局部实验
 
