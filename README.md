@@ -65,7 +65,7 @@ vcpkg install cgal eigen3 libigl
 Minimal boolean smoke test:
 
 ```powershell
-build\default\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\boolean_smoke.obj --leaf-threshold 25
+build\default\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\boolean_smoke.obj --leaf-threshold 75
 ```
 
 `.obj` output keeps n-gon faces. `.stl` output is triangulated at the I/O boundary. `--output-topology conforming` enables the exact T-junction repair pass before export. This mode is intended for debugging and MeshLab inspection, not performance measurement; it can be much slower than raw output. Coplanar merging and Nef regularized output remain disabled in the application CLI.
@@ -77,7 +77,7 @@ build\default\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\
 ```powershell
 cmake --preset verify
 cmake --build --preset verify
-build\verify\re-EMBER_verify.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --leaf-threshold 25 --oracle-cache-dir build\oracle_cache\nef
+build\verify\re-EMBER_verify.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --leaf-threshold 75 --oracle-cache-dir build\oracle_cache\nef
 ```
 
 The oracle is exact over the quantized `Polygon256` input used by re-EMBER. It does not claim to validate the original floating OBJ/STL CAD intent before import and quantization. Oracle Nef files are cached under `build\oracle_cache\nef\` by default; pass `--refresh-oracle` to rebuild a cached entry. `--candidate-mode fragments-nef|export-conforming|export-nef` selects whether the candidate is compared from result fragments, from the conforming export topology, or from the Nef export topology path; this does not change the oracle cache key. The default `fragments-nef` candidate reuses the exact conforming mesh recovery before constructing CGAL Nef, avoiding the older quadratic Nef-side T-junction refinement. Before falling back to CGAL Nef overlay, the verifier first compares simple candidate/oracle Nef surfaces as exact vertices and face cycles; `surface_compare_used=1` in the report means this exact surface check proved equality without running the final overlay. Pass `--disable-surface-compare` to force the older overlay-only comparison.
@@ -90,7 +90,7 @@ For CGAL Nef failures, `--diagnose-nef` prints exact mesh topology statistics be
 - `--op union|intersection|difference` selects the boolean operation.
 - `--out <result.obj|result.stl>` sets the output file.
 - `--scale <positive_integer>` overrides the shared quantization scale.
-- `--leaf-threshold <positive_integer>` controls when subdivision stops at a leaf.
+- `--leaf-threshold <positive_integer>` controls when subdivision stops at a leaf; the default is 75.
 - `--threads <positive_integer>` sets the application-layer task arena size and solver thread count; use `1` to force serial execution.
 - `--output-topology raw|conforming` chooses application export topology. `raw` writes solver result chunks directly and skips conforming-only topology metadata; `conforming` globally inserts existing vertices that lie on other face edges to remove T-junctions. `conforming` is exact but slow and should be used for debugging/inspection rather than performance runs. Coplanar merging and Nef output are disabled.
 - `--timings-out <metrics.txt>` writes the timing and solve summary for a single run.
@@ -109,7 +109,7 @@ Application-layer parallelism uses the same `--threads` limit for coarse left/ri
 - `-ExecutablePath` reuses an existing `re-EMBER.exe` instead of rebuilding.
 - `-Configuration` chooses the profiling build type. Timing-only `-NoTracy` runs default to `Release`; Tracy runs default to `RelWithDebInfo`.
 - `-Iterations`, `-TimeoutSeconds`, `-BuildTimeoutSeconds`, and `-ReportTimeoutSeconds` control runtime limits.
-- `-LeafThreshold` is passed through to the solver; `-Threads` sets the application-layer task arena size and solver thread count.
+- `-LeafThreshold` is passed through to the solver; the default is 75. `-Threads` sets the application-layer task arena size and solver thread count.
 - `-NoTracy` skips Tracy capture and uses `build\profile_clang_notracy\`.
 - `-EnableMathTracy` also enables low-level `math256` Tracy zones and uses `build\profile_clang_tracy_math\`.
 - `-SkipBuild` reuses an already prepared profiling tree.

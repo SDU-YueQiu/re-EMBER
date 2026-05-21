@@ -41,7 +41,7 @@ struct CliOptions
     std::string timingsOutputPath;
     BoolOp operation = BoolOp::Intersection;
     std::optional<std::uint64_t> scale;
-    std::size_t leafThreshold = 25;
+    std::size_t leafThreshold = ember::kDefaultLeafPolygonThreshold;
     std::size_t threadCount = 0;
     ember::app::AppOutputTopologyMode outputTopologyMode = ember::app::AppOutputTopologyMode::Raw;
     BoolOperandAssumptions lhsAssumptions;

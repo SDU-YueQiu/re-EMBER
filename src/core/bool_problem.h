@@ -13,6 +13,14 @@
 namespace ember
 {
 /**
+ * @brief 默认叶片停止阈值。
+ *
+ * @note 当前默认值按 100 组 paper workload 的 CLI 端到端时间校准；调用方仍可显式传入
+ *       leaf threshold 覆盖它。
+ */
+inline constexpr std::size_t kDefaultLeafPolygonThreshold = 75;
+
+/**
  * @brief 二元布尔运算类型。
  */
 enum class BoolOp
@@ -131,7 +139,7 @@ struct BoolOperandAssumptions
 class BoolProblem
 {
 public:
-    explicit BoolProblem(std::size_t leafPolygonThreshold = 25) noexcept;
+    explicit BoolProblem(std::size_t leafPolygonThreshold = kDefaultLeafPolygonThreshold) noexcept;
     ~BoolProblem() noexcept = default;
 
     BoolProblem(const BoolProblem &) = delete;
@@ -257,7 +265,7 @@ private:
     BoolOp op_ = BoolOp::Intersection;
 
     /// 叶子阶段停止继续细分的多边形数量阈值。
-    std::size_t leafPolygonThreshold_ = 25;
+    std::size_t leafPolygonThreshold_ = kDefaultLeafPolygonThreshold;
 
     /// 左操作数调用方声明的输入假设。
     BoolOperandAssumptions lhsAssumptions_;
