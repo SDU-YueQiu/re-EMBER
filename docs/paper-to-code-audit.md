@@ -255,6 +255,14 @@
   Debug 测试和 ctest 通过，`run_20260521_152314` 的 22 个 verifier 全部通过；
   `run_20260521_152227` 三次无 oracle 重复计时为 1601.40ms、1595.39ms、
   1593.52ms，均值 1596.77ms，略优于 `run_20260521_144122` 的 1599.87ms。
+- OBJ raw 导出阶段从逐项 `operator<<` 改为先用 `std::to_chars` 组装单个文本缓冲，
+  再一次性写入文件；顶点恢复、齐次点 primitive 去重、face 顺序和输出拓扑语义不变。
+  该改动针对 100 组论文样本里 `export_ms` 已超过 `solve_ms` 的端到端瓶颈，不改变
+  solver 结构指标。`ctest --preset default --output-on-failure --timeout 120` 通过；
+  `run_20260521_233848` 对 34 small / 33 medium / 33 large 做 `-NoTracy`、不跑 verifier，
+  平均 `export_ms` 从 `run_20260521_231745` 的 140.127ms 降到 91.831ms，
+  `end_to_end_ms` 从 394.360ms 降到 344.953ms；slowest `large_021_1396886_minus_551020`
+  的 `export_ms` 从 710.786ms 降到 479.708ms，`result_fragment_count` 仍为 116537。
 
 ## 已测但不保留的局部实验
 
