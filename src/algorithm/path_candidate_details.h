@@ -1040,7 +1040,9 @@ inline bool buildAxisAlignedSegmentFromCoordinatePlanes(
     const std::array<Plane3i, 3> &startCoordinatePlanes,
     const std::array<Plane3i, 3> &endCoordinatePlanes,
     SplitAxis3i changedAxis,
-    Segment256 &outSegment)
+    Segment256 &outSegment,
+    const PlanePoint3i *knownStartPoint = nullptr,
+    const PlanePoint3i *knownEndPoint = nullptr)
 {
     std::array<int, 2> fixedIndices = {1, 2};
     if (changedAxis == SplitAxis3i::Y)
@@ -1059,12 +1061,49 @@ inline bool buildAxisAlignedSegmentFromCoordinatePlanes(
         return false;
 
     const int changedIndex = axisOrderKey(changedAxis);
+    Plane3i startPlane = startCoordinatePlanes[changedIndex];
+    Plane3i endPlane = endCoordinatePlanes[changedIndex];
+    PlanePoint3i computedStartPoint;
+    PlanePoint3i computedEndPoint;
+    const PlanePoint3i *startPoint = knownStartPoint;
+    const PlanePoint3i *endPoint = knownEndPoint;
+    if (!startPoint)
+    {
+        computedStartPoint = PlanePoint3i(direction.p1, direction.p2, startPlane);
+        startPoint = &computedStartPoint;
+    }
+    if (!endPoint)
+    {
+        computedEndPoint = PlanePoint3i(direction.p1, direction.p2, endPlane);
+        endPoint = &computedEndPoint;
+    }
+    if (!startPoint->hasUniqueIntersection() || !endPoint->hasUniqueIntersection())
+        return false;
+
+    PlanePoint3i orientedStartPoint = *startPoint;
+    PlanePoint3i orientedEndPoint = *endPoint;
+    if (orientedEndPoint.classify(startPlane) > 0)
+    {
+        startPlane = reversedPlaneOrientationPreservingScale(startPlane);
+        orientedStartPoint = PlanePoint3i(direction.p1, direction.p2, startPlane, orientedStartPoint.x);
+    }
+    if (orientedStartPoint.classify(endPlane) > 0)
+    {
+        endPlane = reversedPlaneOrientationPreservingScale(endPlane);
+        orientedEndPoint = PlanePoint3i(direction.p1, direction.p2, endPlane, orientedEndPoint.x);
+    }
+    if (orientedStartPoint.classify(endPlane) != -1 ||
+            orientedEndPoint.classify(startPlane) != -1)
+        return false;
+
     outSegment = Segment256(
                      AssumePrimitivePlanes,
-                     startCoordinatePlanes[changedIndex],
-                     endCoordinatePlanes[changedIndex],
-                     direction);
-    return outSegment.isValid();
+                     startPlane,
+                     endPlane,
+                     direction,
+                     orientedStartPoint,
+                     orientedEndPoint);
+    return true;
 }
 
 /**
@@ -1108,7 +1147,13 @@ inline bool buildAxisAlignedCoordinatePath(
         }
 
         Segment256 segment;
-        if (!buildAxisAlignedSegmentFromCoordinatePlanes(startCoordinatePlanes, currentCoordinatePlanes, axis, segment))
+        if (!buildAxisAlignedSegmentFromCoordinatePlanes(
+                    startCoordinatePlanes,
+                    currentCoordinatePlanes,
+                    axis,
+                    segment,
+                    &currentPoint,
+                    &nextPoint))
         {
             outPath.clear();
             return false;
@@ -1151,6 +1196,11 @@ inline bool buildAxisProbePath(
     std::array<Integer, 3> current = {startX, startY, startZ};
     std::array<Plane3i, 3> currentPlanes =
         makeIntegerCoordinatePlanes(current[0], current[1], current[2]);
+    PlanePoint3i currentPoint(
+        currentPlanes[0],
+        currentPlanes[1],
+        currentPlanes[2],
+        HomPoint4i(current[0], current[1], current[2], 1));
     outPath.clear();
     outPath.reserve(3);
 
@@ -1175,9 +1225,20 @@ inline bool buildAxisProbePath(
 
         std::array<Plane3i, 3> nextPlanes = currentPlanes;
         nextPlanes[axisIndex] = makeIntegerCoordinatePlane(axis, next[axisIndex]);
+        PlanePoint3i nextPoint(
+            nextPlanes[0],
+            nextPlanes[1],
+            nextPlanes[2],
+            HomPoint4i(next[0], next[1], next[2], 1));
 
         Segment256 segment;
-        if (!buildAxisAlignedSegmentFromCoordinatePlanes(currentPlanes, nextPlanes, axis, segment))
+        if (!buildAxisAlignedSegmentFromCoordinatePlanes(
+                    currentPlanes,
+                    nextPlanes,
+                    axis,
+                    segment,
+                    &currentPoint,
+                    &nextPoint))
         {
             outPath.clear();
             return false;
@@ -1186,6 +1247,7 @@ inline bool buildAxisProbePath(
         outPath.push_back(std::move(segment));
         current = next;
         currentPlanes = nextPlanes;
+        currentPoint = nextPoint;
     }
 
     const int freeAxisIndex = axisOrderKey(target.freeAxis);
@@ -1206,7 +1268,13 @@ inline bool buildAxisProbePath(
     }
 
     Segment256 finalSegment;
-    if (!buildAxisAlignedSegmentFromCoordinatePlanes(currentPlanes, targetPlanes, target.freeAxis, finalSegment))
+    if (!buildAxisAlignedSegmentFromCoordinatePlanes(
+                currentPlanes,
+                targetPlanes,
+                target.freeAxis,
+                finalSegment,
+                &currentPoint,
+                targetPoint))
     {
         outPath.clear();
         return false;

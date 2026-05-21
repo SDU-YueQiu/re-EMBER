@@ -137,6 +137,30 @@ Segment256::Segment256(
     orientSegmentBoundsOutwardAndCache(start, end, direction, startPointCache_, endPointCache_);
 }
 
+Segment256::Segment256(
+    AssumePrimitivePlanesTag,
+    const Plane3i &startPlane,
+    const Plane3i &endPlane,
+    const Line256 &directionLine,
+    const PlanePoint3i &startPoint,
+    const PlanePoint3i &endPoint) noexcept
+    : start(startPlane),
+      end(endPlane),
+      direction(directionLine),
+      startPointCache_(startPoint),
+      endPointCache_(endPoint)
+{
+#ifndef NDEBUG
+    assert(isPrimitivePlaneEquation(startPlane));
+    assert(isPrimitivePlaneEquation(endPlane));
+    assert(directionLine.isValid());
+    assert(directionLine.contains(startPoint));
+    assert(directionLine.contains(endPoint));
+    assert(startPoint.classify(endPlane) == -1);
+    assert(endPoint.classify(startPlane) == -1);
+#endif
+}
+
 void Polygon256::addEdgePlane(const Plane3i &edge, PolygonEdgeProvenance provenance)
 {
     edgePlanes.push_back(primitivePlane(edge));
