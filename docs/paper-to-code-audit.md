@@ -390,6 +390,16 @@
   与上一保留基线的结构计数、trace 诊断计数和 100 个 raw OBJ SHA256 完全一致。
   三轮新结果均值 `solve_ms` 从 116.541ms 降到 115.888ms；`end_to_end_ms`
   为 332.787ms，`process_elapsed_ms` 为 376.636ms。
+- streaming 叶片分类路径不再保存 `ClassifiedFragment` 中间数组：普通叶片局部 BSP
+  visitor 已经逐片分类并立刻决定是否输出，因此成功 trace 得到的 `front/back WNV`
+  直接保存在当前 `LeafClassificationContext`，并立即用布尔指示函数写入
+  `resultFragments_`；`(OUT, IN)` 直接输出时移动当前 fragment，`(IN, OUT)` 仍按原逻辑
+  生成反向片段。旧 `leafFragments_` 别名路径和 `buildLeafArrangement()` vector 返回入口
+  仍保留 `ClassifiedFragment` 行为。Debug 构建和
+  `ctest --preset default --output-on-failure --timeout 120` 通过；两轮 100 组论文样本
+  `run_20260522_062546` / `run_20260522_062700` 与上一保留基线的结构计数、trace 诊断计数
+  和 100 个 raw OBJ SHA256 完全一致。两轮新结果均值 `solve_ms` 从 115.888ms 降到
+  114.508ms；`end_to_end_ms` 为 330.745ms，`process_elapsed_ms` 为 374.304ms。
 
 ## 已测但不保留的局部实验
 

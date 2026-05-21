@@ -140,6 +140,12 @@ struct LeafClassificationContext
     BoolSolveMetrics &solveMetrics;
     std::vector<ClassifiedFragment> &classifiedFragments;
     std::size_t depth = 0;
+    bool streamResults = false;
+    BoolOp op = BoolOp::Intersection;
+    std::vector<Polygon256> *streamedResultFragments = nullptr;
+    WNV lastFrontWNV;
+    WNV lastBackWNV;
+    bool hasLastClassification = false;
 };
 
 enum class LeafClassificationTraceStage
@@ -224,6 +230,16 @@ bool isRecoverableClassificationTraceStatus(traceStatus status) noexcept
 {
     return status == PATH_INVALID;
 }
+
+BoolStatus evaluateBooleanIndicatorForOp(BoolOp op, const WNV &wnv) noexcept;
+
+void appendResultFragmentForWNV(
+    std::vector<Polygon256> &resultFragments,
+    BoolOp op,
+    Polygon256 &fragment,
+    const WNV &frontWNV,
+    const WNV &backWNV,
+    bool mayMoveFragment);
 
 void recordLeafClassificationStatus(
     BoolSolveMetrics &metrics,
@@ -709,8 +725,24 @@ traceStatus traceLeafClassificationCandidate(
     recordLeafClassificationStatus(context.solveMetrics, stage, status);
     if (status == SUCCESS)
     {
-        context.classifiedFragments.push_back(
-            ClassifiedFragment{fragment, std::move(frontWNV), std::move(backWNV)});
+        if (context.streamResults && context.streamedResultFragments != nullptr)
+        {
+            context.lastFrontWNV = std::move(frontWNV);
+            context.lastBackWNV = std::move(backWNV);
+            context.hasLastClassification = true;
+            appendResultFragmentForWNV(
+                *context.streamedResultFragments,
+                context.op,
+                fragment,
+                context.lastFrontWNV,
+                context.lastBackWNV,
+                true);
+        }
+        else
+        {
+            context.classifiedFragments.push_back(
+                ClassifiedFragment{fragment, std::move(frontWNV), std::move(backWNV)});
+        }
         attemptStats.classified = true;
     }
 
@@ -1203,6 +1235,27 @@ void appendResultFragmentForClassification(
         resultFragments.push_back(reversePolygonOrientation(classifiedFragment.polygon));
 }
 
+void appendResultFragmentForWNV(
+    std::vector<Polygon256> &resultFragments,
+    BoolOp op,
+    Polygon256 &fragment,
+    const WNV &frontWNV,
+    const WNV &backWNV,
+    bool mayMoveFragment)
+{
+    const BoolStatus frontStatus = evaluateBooleanIndicatorForOp(op, frontWNV);
+    const BoolStatus backStatus = evaluateBooleanIndicatorForOp(op, backWNV);
+    if (frontStatus == OUT && backStatus == IN)
+    {
+        if (mayMoveFragment)
+            resultFragments.push_back(std::move(fragment));
+        else
+            resultFragments.push_back(fragment);
+    }
+    else if (frontStatus == IN && backStatus == OUT)
+        resultFragments.push_back(reversePolygonOrientation(fragment));
+}
+
 struct StreamingLeafClassificationState
 {
     LeafClassificationContext &context;
@@ -1226,33 +1279,32 @@ void classifyVisitedLeafArrangementFragment(void *userData, Polygon256 &&fragmen
     {
         REEMBER_PROFILE_ZONE("LeafClassification::reuseSingleOperandClassification");
         ++state.context.solveMetrics.singleOperandClassificationReuseCount;
-        state.context.classifiedFragments.push_back(
-            ClassifiedFragment{fragment, state.reusableFrontWNV, state.reusableBackWNV});
-        appendResultFragmentForClassification(
+        appendResultFragmentForWNV(
             state.resultFragments,
             state.op,
-            state.context.classifiedFragments.back());
+            fragment,
+            state.reusableFrontWNV,
+            state.reusableBackWNV,
+            true);
         return;
     }
 
     LeafClassificationAttemptStats attemptStats;
+    state.context.hasLastClassification = false;
     const LeafClassificationResult classificationResult =
         classifyLeafFragment(state.context, fragmentIndex, fragment, attemptStats);
     if (classificationResult == LeafClassificationResult::Failure)
         throwLeafClassificationFailure(fragmentIndex, state.context.depth, fragment, attemptStats);
 
+    if (!state.context.hasLastClassification)
+        throw std::runtime_error("Leaf classification succeeded without WNV results.");
+
     if (state.mayReuseClassification && !state.hasReusableClassification)
     {
-        const ClassifiedFragment &classifiedFragment = state.context.classifiedFragments.back();
-        state.reusableFrontWNV = classifiedFragment.frontWNV;
-        state.reusableBackWNV = classifiedFragment.backWNV;
+        state.reusableFrontWNV = state.context.lastFrontWNV;
+        state.reusableBackWNV = state.context.lastBackWNV;
         state.hasReusableClassification = true;
     }
-
-    appendResultFragmentForClassification(
-        state.resultFragments,
-        state.op,
-        state.context.classifiedFragments.back());
 }
 
 }
@@ -1322,6 +1374,9 @@ void SubdivisionSolver::solveLeafArrangementAndClassifyFragments()
         solveMetrics_,
         classifiedFragments_,
         depth_};
+    context.streamResults = true;
+    context.op = op_;
+    context.streamedResultFragments = &resultFragments_;
 
     StreamingLeafClassificationState streamingState{
         context,
