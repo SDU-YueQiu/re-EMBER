@@ -171,6 +171,9 @@ void BSPTree::addSegmentRecursive(BSPNode &node, const Plane3i &v0, const Plane3
     if (!node.front || !node.back)
         throw std::runtime_error("BSPTree invariant violation: non-leaf node is missing a child.");
 
+    if (areSamePlaneEquation(node.splitPlane, insertPlane))
+        return;
+
     const int side0 = classifyPlaneTripleIntersectionAgainstPlane(basePolygon.plane, v0, insertPlane, node.splitPlane);
     const int side1 = classifyPlaneTripleIntersectionAgainstPlane(basePolygon.plane, v1, insertPlane, node.splitPlane);
 #ifndef NDEBUG
