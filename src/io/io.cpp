@@ -611,15 +611,20 @@ struct HomogeneousPointKey
     }
 };
 
+std::size_t hashHomogeneousPrimitivePoint(const HomPoint4i &point)
+{
+    std::size_t seed = hashIntegerForKey(point.x);
+    seed = mixHashValue(seed, hashIntegerForKey(point.y));
+    seed = mixHashValue(seed, hashIntegerForKey(point.z));
+    seed = mixHashValue(seed, hashIntegerForKey(point.w));
+    return seed;
+}
+
 struct HomogeneousPointKeyHash
 {
     std::size_t operator()(const HomogeneousPointKey &key) const
     {
-        std::size_t seed = hashIntegerForKey(key.point.x);
-        seed = mixHashValue(seed, hashIntegerForKey(key.point.y));
-        seed = mixHashValue(seed, hashIntegerForKey(key.point.z));
-        seed = mixHashValue(seed, hashIntegerForKey(key.point.w));
-        return seed;
+        return hashHomogeneousPrimitivePoint(key.point);
     }
 };
 
@@ -629,6 +634,57 @@ struct HomogeneousPointKeyEqual
     {
         return lhs.point.hasSameComponents(rhs.point);
     }
+};
+
+std::size_t nextPowerOfTwoAtLeast(std::size_t value) noexcept
+{
+    std::size_t result = 1u;
+    while (result < value && result <= (std::numeric_limits<std::size_t>::max() / 2u))
+        result <<= 1u;
+    return result;
+}
+
+// raw trusted OBJ 导出只需要按首次出现顺序给 primitive 齐次点编号；
+// 这里用连续数组链表替代 unordered_map 节点分配。
+class RawVertexIndexBuilder
+{
+public:
+    explicit RawVertexIndexBuilder(std::size_t expectedVertexSlots)
+    {
+        const std::size_t desiredBucketCount =
+            expectedVertexSlots > (std::numeric_limits<std::size_t>::max() / 2u)
+                ? expectedVertexSlots
+                : expectedVertexSlots * 2u;
+        const std::size_t bucketCount = nextPowerOfTwoAtLeast(std::max<std::size_t>(desiredBucketCount, 2u));
+        bucketHeads_.assign(bucketCount, kNoEntry);
+        keys_.reserve(expectedVertexSlots);
+        nextEntries_.reserve(expectedVertexSlots);
+    }
+
+    std::size_t insert(const PlanePoint3i &vertex, std::vector<PlanePoint3i> &uniqueVertices)
+    {
+        const HomPoint4i key = primitiveHomPoint(vertex.x);
+        const std::size_t bucketIndex = hashHomogeneousPrimitivePoint(key) & (bucketHeads_.size() - 1u);
+        for (std::size_t entry = bucketHeads_[bucketIndex]; entry != kNoEntry; entry = nextEntries_[entry])
+        {
+            if (keys_[entry].hasSameComponents(key))
+                return entry;
+        }
+
+        const std::size_t vertexIndex = keys_.size();
+        keys_.push_back(key);
+        nextEntries_.push_back(bucketHeads_[bucketIndex]);
+        bucketHeads_[bucketIndex] = vertexIndex;
+        uniqueVertices.push_back(vertex);
+        return vertexIndex;
+    }
+
+private:
+    static constexpr std::size_t kNoEntry = std::numeric_limits<std::size_t>::max();
+
+    std::vector<std::size_t> bucketHeads_;
+    std::vector<HomPoint4i> keys_;
+    std::vector<std::size_t> nextEntries_;
 };
 
 std::string makePlaneKey(const Plane3i &plane)
@@ -1022,29 +1078,17 @@ bool recoverRawTrustedPolygonSoupDataCompact(
     for (const Polygon256 &fragment : fragments)
         totalVertexSlotCount += fragment.edgeCount();
 
-    std::unordered_map<
-        HomogeneousPointKey,
-        std::size_t,
-        HomogeneousPointKeyHash,
-        HomogeneousPointKeyEqual> vertexIndexByKey;
-    vertexIndexByKey.reserve(totalVertexSlotCount);
     outData.uniqueVertices.reserve(totalVertexSlotCount);
     outData.faceVertexIndices.reserve(totalVertexSlotCount);
     outData.faceOffsets.reserve(fragments.size() + 1u);
     outData.faceOffsets.push_back(0u);
 
+    RawVertexIndexBuilder vertexIndexBuilder(totalVertexSlotCount);
     for (const Polygon256 &fragment : fragments)
     {
         const std::vector<PlanePoint3i> &vertices = fragment.vertices();
         for (const PlanePoint3i &vertex : vertices)
-        {
-            HomogeneousPointKey key(vertex.x);
-            const auto [entry, inserted] = vertexIndexByKey.emplace(std::move(key), outData.uniqueVertices.size());
-            if (inserted)
-                outData.uniqueVertices.push_back(vertex);
-
-            outData.faceVertexIndices.push_back(entry->second);
-        }
+            outData.faceVertexIndices.push_back(vertexIndexBuilder.insert(vertex, outData.uniqueVertices));
         outData.faceOffsets.push_back(outData.faceVertexIndices.size());
     }
 
@@ -1109,31 +1153,19 @@ bool recoverRawTrustedPolygonSoupDataCompact(
             ": Failed to recover an ordered polygon vertex with a unique finite homogeneous point.");
     }
 
-    std::unordered_map<
-        HomogeneousPointKey,
-        std::size_t,
-        HomogeneousPointKeyHash,
-        HomogeneousPointKeyEqual> vertexIndexByKey;
-    vertexIndexByKey.reserve(totalVertexSlotCount);
     outData.uniqueVertices.reserve(totalVertexSlotCount);
     outData.faceVertexIndices.reserve(totalVertexSlotCount);
     outData.faceOffsets.reserve(totalFragmentCount + 1u);
     outData.faceOffsets.push_back(0u);
 
+    RawVertexIndexBuilder vertexIndexBuilder(totalVertexSlotCount);
     for (const std::vector<Polygon256> &chunk : fragmentChunks)
     {
         for (const Polygon256 &fragment : chunk)
         {
             const std::vector<PlanePoint3i> &vertices = fragment.vertices();
             for (const PlanePoint3i &vertex : vertices)
-            {
-                HomogeneousPointKey key(vertex.x);
-                const auto [entry, inserted] = vertexIndexByKey.emplace(std::move(key), outData.uniqueVertices.size());
-                if (inserted)
-                    outData.uniqueVertices.push_back(vertex);
-
-                outData.faceVertexIndices.push_back(entry->second);
-            }
+                outData.faceVertexIndices.push_back(vertexIndexBuilder.insert(vertex, outData.uniqueVertices));
             outData.faceOffsets.push_back(outData.faceVertexIndices.size());
         }
     }

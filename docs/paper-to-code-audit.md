@@ -474,6 +474,16 @@
   leaf classification trace/candidate 计数一致，100 个 raw OBJ SHA256 完全一致；
   平均 `prepare_ms` 从 48.236ms 降到 47.382ms，`end_to_end_ms` 从 248.175ms
   降到 247.759ms。
+- raw trusted OBJ 导出的全局顶点去重从 `std::unordered_map` 节点表改为局部
+  flat hash 链表：仍对每个齐次点先做 `primitiveHomPoint()`，仍按首次出现顺序给
+  顶点编号并生成同一 face index 序列，但桶、key 和 next 链表都存放在连续数组中，
+  避免每个唯一顶点一次节点分配。`ctest --test-dir build\tests --output-on-failure
+  --timeout 120` 通过；`run_20260522_075555` 对 34 个 small 样本做
+  `-VerifyWithOracle` 全部通过。`run_20260522_075742` 的 100 组 NoTracy
+  与保留基线 `run_20260522_074030` 的 key structural counters、
+  leaf classification trace/candidate 计数一致，100 个 raw OBJ SHA256 完全一致；
+  平均 `export_ms` 从 69.227ms 降到 66.575ms，`end_to_end_ms` 从
+  247.759ms 降到 245.732ms。
 
 ## 已测但不保留的局部实验
 
