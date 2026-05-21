@@ -374,6 +374,18 @@
 
 ## 已测但不保留的局部实验
 
+- WNV 普通 trace 先做 segment/polygon 相关性筛选：尝试让
+  `tracePathWNVImpl()` 像 surface-point trace 一样，先用段 AABB 与 polygon AABB /
+  支撑平面相关性跳过无关段，再按需分类起点和终点，避免不会参与交叉的段触发
+  `poly.classify()`。该改动不改变 WNV 累加、boundary policy、leaf trace 次数或
+  子参考点 trace 次数。Debug 构建和
+  `ctest --preset default --output-on-failure --timeout 120` 通过；100 组论文样本
+  `run_20260522_052041` 与当前保留基线 `run_20260522_045123` 的结构计数、
+  trace 诊断计数和 100 个 raw OBJ SHA256 完全一致，但平均 `solve_ms`
+  从两轮保留基线 `run_20260522_045009` / `run_20260522_045123` 的
+  116.842ms 退化到 120.372ms，`end_to_end_ms` 也退到 338.464ms。
+  说明普通 trace 中提前相关性分支和重新分类起点的成本高于跳过无关端点分类的收益，
+  源码不保留。
 - WNV surface-point trace 复用末段终点面内分类：尝试在最后一段
   `classifyEndPoint` 时顺带返回 `StrictInterior/Boundary`，当已确认
   `surfaceHit == &endPoint` 时跳过后续 `classifyPolygonSurfacePointUnchecked()`
