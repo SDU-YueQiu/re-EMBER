@@ -15,10 +15,25 @@ if(WIN32 AND NOT DEFINED CMAKE_CXX_COMPILER AND NOT DEFINED ENV{CXX})
       "$ENV{USERPROFILE}/scoop/apps/llvm/current/bin"
       "$ENV{ProgramFiles}/LLVM/bin"
   )
+  find_program(REEMBER_DEFAULT_LLVM_RC
+    NAMES llvm-rc
+    HINTS
+      "$ENV{USERPROFILE}/scoop/apps/llvm/current/bin"
+      "$ENV{ProgramFiles}/LLVM/bin"
+  )
   if(REEMBER_DEFAULT_CLANG_CL)
-    set(CMAKE_CXX_COMPILER
-      "${REEMBER_DEFAULT_CLANG_CL}"
-      CACHE FILEPATH "Default C++ compiler for re-EMBER"
+    if(NOT CMAKE_GENERATOR MATCHES "^Visual Studio")
+      set(CMAKE_CXX_COMPILER
+        "${REEMBER_DEFAULT_CLANG_CL}"
+        CACHE FILEPATH "Default C++ compiler for re-EMBER"
+        FORCE
+      )
+    endif()
+  endif()
+  if(REEMBER_DEFAULT_LLVM_RC AND NOT DEFINED CMAKE_RC_COMPILER)
+    set(CMAKE_RC_COMPILER
+      "${REEMBER_DEFAULT_LLVM_RC}"
+      CACHE FILEPATH "Default Windows resource compiler for re-EMBER"
       FORCE
     )
   endif()
@@ -27,7 +42,15 @@ endif()
 project(re-EMBER LANGUAGES CXX)
 
 message(STATUS "Current Toolchain File: ${CMAKE_TOOLCHAIN_FILE}")
+message(STATUS "Current Generator Toolset: ${CMAKE_GENERATOR_TOOLSET}")
 message(STATUS "Current C++ compiler: ${CMAKE_CXX_COMPILER}")
+
+if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+  message(FATAL_ERROR
+    "re-EMBER currently requires clang-cl on Windows because math256 uses _BitInt. "
+    "Use `cmake --preset default` or re-run CMake with -G Ninja and clang-cl."
+  )
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -39,13 +62,14 @@ endif()
 
 option(REEMBER_ENABLE_EIGEN "Link Eigen3 from vcpkg" OFF)
 option(REEMBER_ENABLE_CGAL "Link CGAL from vcpkg" OFF)
-option(REEMBER_BUILD_VISUAL_TEST "Build the libigl-based visual-test target" ON)
-option(REEMBER_BUILD_VERIFY "Build the CGAL Nef oracle verifier target" ON)
+option(REEMBER_BUILD_TESTS "Build the re-EMBER test executable and CTest entries" OFF)
+option(REEMBER_BUILD_VISUAL_TEST "Build the libigl-based visual-test target" OFF)
+option(REEMBER_BUILD_VERIFY "Build the CGAL Nef oracle verifier target" OFF)
 option(REEMBER_ENABLE_TRACY "Enable optional Tracy profiler instrumentation" OFF)
 option(REEMBER_ENABLE_TRACY_MATH "Enable optional low-level math256 Tracy instrumentation" OFF)
 
 find_package(tinyobjloader CONFIG REQUIRED)
-find_package(Boost REQUIRED)
+find_package(Boost CONFIG REQUIRED)
 find_package(TBB CONFIG REQUIRED)
 
 set(REEMBER_THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
@@ -138,7 +162,6 @@ target_include_directories(reember_lib
   PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${REEMBER_THIRD_PARTY_DIR}
-    ${Boost_INCLUDE_DIRS}
 )
 
 target_compile_features(reember_lib PUBLIC cxx_std_17)
@@ -154,9 +177,11 @@ if(MSVC)
 endif()
 
 target_link_libraries(reember_lib
+  PUBLIC
+    Boost::headers
+    TBB::tbb
   PRIVATE
     tinyobjloader::tinyobjloader_double
-    TBB::tbb
 )
 
 if(REEMBER_ENABLE_EIGEN)
@@ -185,7 +210,7 @@ endif()
 
 add_executable(re-EMBER ${REEMBER_APP_SOURCE} ${REEMBER_APP_HEADERS})
 target_compile_definitions(re-EMBER PRIVATE TINYOBJLOADER_USE_DOUBLE)
-target_link_libraries(re-EMBER PRIVATE reember_lib)
+target_link_libraries(re-EMBER PRIVATE reember_lib TBB::tbb)
 
 if(MSVC)
   target_compile_options(re-EMBER PRIVATE
@@ -199,10 +224,12 @@ if(MSVC)
   )
 endif()
 
-add_executable(re-EMBER_tests ${REEMBER_TEST_SOURCES} ${REEMBER_TEST_HEADERS})
-target_compile_definitions(re-EMBER_tests PRIVATE TINYOBJLOADER_USE_DOUBLE)
-target_link_libraries(re-EMBER_tests PRIVATE reember_lib)
-add_dependencies(re-EMBER_tests re-EMBER)
+if(REEMBER_BUILD_TESTS)
+  add_executable(re-EMBER_tests ${REEMBER_TEST_SOURCES} ${REEMBER_TEST_HEADERS})
+  target_compile_definitions(re-EMBER_tests PRIVATE TINYOBJLOADER_USE_DOUBLE)
+  target_link_libraries(re-EMBER_tests PRIVATE reember_lib)
+  add_dependencies(re-EMBER_tests re-EMBER)
+endif()
 
 if(REEMBER_BUILD_VERIFY)
   find_package(CGAL CONFIG REQUIRED)
@@ -240,37 +267,39 @@ if(REEMBER_BUILD_VISUAL_TEST)
   )
 endif()
 
-enable_testing()
-add_test(NAME re-EMBER_tests COMMAND re-EMBER_tests)
+if(REEMBER_BUILD_TESTS)
+  enable_testing()
+  add_test(NAME re-EMBER_tests COMMAND re-EMBER_tests)
 
-include(ProcessorCount)
-ProcessorCount(REEMBER_HOST_PROCESSOR_COUNT)
-if(NOT REEMBER_HOST_PROCESSOR_COUNT)
-  set(REEMBER_HOST_PROCESSOR_COUNT 1)
+  include(ProcessorCount)
+  ProcessorCount(REEMBER_HOST_PROCESSOR_COUNT)
+  if(NOT REEMBER_HOST_PROCESSOR_COUNT)
+    set(REEMBER_HOST_PROCESSOR_COUNT 1)
+  endif()
+  set(REEMBER_CTEST_THREADS "${REEMBER_HOST_PROCESSOR_COUNT}" CACHE STRING "Thread count used by re-EMBER CLI CTest workloads.")
+  message(STATUS "REEMBER_CTEST_THREADS=${REEMBER_CTEST_THREADS}")
+  find_program(REEMBER_POWERSHELL_EXECUTABLE NAMES powershell REQUIRED)
+
+  set(REEMBER_PAPER_EXPERIMENT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests/paper_experiments")
+
+  # 论文 10% 实验 small oracle-success 样本，统一走批量 profiling 脚本并输出汇总报告。
+  add_test(
+    NAME re-EMBER_paper_small_batch
+    COMMAND "${REEMBER_POWERSHELL_EXECUTABLE}"
+      -ExecutionPolicy Bypass
+      -File "${CMAKE_CURRENT_SOURCE_DIR}/tools/profile-re-ember.ps1"
+      -ExecutablePath "$<TARGET_FILE:re-EMBER>"
+      -InputRoot "${REEMBER_PAPER_EXPERIMENT_DIR}/inputs/small"
+      -Configuration "$<CONFIG>"
+      -Op difference
+      -NoTracy
+      -Iterations 1
+      -LeafThreshold 25
+      -Threads "${REEMBER_CTEST_THREADS}"
+  )
+  set_tests_properties(re-EMBER_paper_small_batch PROPERTIES
+    LABELS "paper_experiment;cli"
+    TIMEOUT 120
+    RUN_SERIAL TRUE
+  )
 endif()
-set(REEMBER_CTEST_THREADS "${REEMBER_HOST_PROCESSOR_COUNT}" CACHE STRING "Thread count used by re-EMBER CLI CTest workloads.")
-message(STATUS "REEMBER_CTEST_THREADS=${REEMBER_CTEST_THREADS}")
-find_program(REEMBER_POWERSHELL_EXECUTABLE NAMES powershell REQUIRED)
-
-set(REEMBER_PAPER_EXPERIMENT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests/paper_experiments")
-
-# 论文 10% 实验 small oracle-success 样本，统一走批量 profiling 脚本并输出汇总报告。
-add_test(
-  NAME re-EMBER_paper_small_batch
-  COMMAND "${REEMBER_POWERSHELL_EXECUTABLE}"
-    -ExecutionPolicy Bypass
-    -File "${CMAKE_CURRENT_SOURCE_DIR}/tools/profile-re-ember.ps1"
-    -ExecutablePath "$<TARGET_FILE:re-EMBER>"
-    -InputRoot "${REEMBER_PAPER_EXPERIMENT_DIR}/inputs/small"
-    -Configuration "$<CONFIG>"
-    -Op difference
-    -NoTracy
-    -Iterations 1
-    -LeafThreshold 25
-    -Threads "${REEMBER_CTEST_THREADS}"
-)
-set_tests_properties(re-EMBER_paper_small_batch PROPERTIES
-  LABELS "paper_experiment;cli"
-  TIMEOUT 120
-  RUN_SERIAL TRUE
-)

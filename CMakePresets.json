@@ -1,0 +1,100 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base-release",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "default",
+      "inherits": "base-release",
+      "displayName": "Default Release",
+      "description": "Default local Release build with Ninja and clang-cl auto-detection.",
+      "binaryDir": "${sourceDir}/build/default",
+      "cacheVariables": {
+        "REEMBER_BUILD_TESTS": "OFF"
+      }
+    },
+    {
+      "name": "tests",
+      "inherits": "base-release",
+      "displayName": "Release With Tests",
+      "description": "Enable the re-EMBER test executable and CTest entries in a dedicated Release build tree.",
+      "binaryDir": "${sourceDir}/build/tests",
+      "cacheVariables": {
+        "REEMBER_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "verify",
+      "inherits": "base-release",
+      "displayName": "Release With Verifier",
+      "description": "Enable the CGAL Nef oracle verifier target in its own Release build tree.",
+      "binaryDir": "${sourceDir}/build/verify",
+      "cacheVariables": {
+        "REEMBER_BUILD_VERIFY": "ON"
+      }
+    },
+    {
+      "name": "visual-test",
+      "inherits": "base-release",
+      "displayName": "Release With Visual Test",
+      "description": "Enable the libigl-based visual-test target in its own Release build tree.",
+      "binaryDir": "${sourceDir}/build/visual-test",
+      "cacheVariables": {
+        "REEMBER_BUILD_VISUAL_TEST": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "tests",
+      "configurePreset": "tests",
+      "targets": [
+        "re-EMBER_tests"
+      ]
+    },
+    {
+      "name": "default-app",
+      "configurePreset": "default",
+      "targets": [
+        "re-EMBER"
+      ]
+    },
+    {
+      "name": "verify",
+      "configurePreset": "verify",
+      "targets": [
+        "re-EMBER_verify"
+      ]
+    },
+    {
+      "name": "visual-test",
+      "configurePreset": "visual-test",
+      "targets": [
+        "visual-test"
+      ]
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "default",
+      "configurePreset": "tests",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    }
+  ]
+}
