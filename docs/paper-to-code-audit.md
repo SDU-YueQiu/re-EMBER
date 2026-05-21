@@ -223,6 +223,11 @@
   `run_20260521_111117` 三次无 oracle 重复计时为 1724.09ms、1727.23ms、
   1735.83ms，均值 1729.05ms，略差于当前保留版本 `run_20260521_103114`
   的三次均值 1728.62ms；不保留该容器替换。
+- WNV tracing 的 path/segment AABB 预筛中，把 `doesPlaneIntersectAABB()`
+  前置到 `polygon.aabb()` 之前，尝试在不恢复 polygon 顶点/AABB 的情况下按支撑平面
+  早跳过；Debug 测试通过，`run_20260521_111554` 的 22 个 verifier 全部通过，
+  但单轮 `solve_ms` 为 1744.72ms，差于当前保留版本 `run_20260521_103114`
+  的三次均值 1728.62ms。该平面-盒测试的额外代价或命中率不足，不保留。
 - centroid axis 的 local reference 整数起点按叶片缓存：结构计数不变，22 个
   verifier 全部通过，但 `run_20260521_033829` 相比 `run_20260521_031822`
   的聚合 `solve_ms` 从 2423.462ms 退化到 2431.565ms；减少重复解析不足以抵消
