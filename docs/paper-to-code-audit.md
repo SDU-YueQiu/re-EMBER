@@ -246,6 +246,15 @@
   降低约 1.80%。结构指标同步下降：平均 `node_count` 25739 -> 24156，
   `total_polygon_count` 4137580 -> 4047214，`leaf_classification_trace_attempt_count`
   232002 -> 222678。
+- `Polygon256::aabb()` 拆分 AABB 缓存和顶点缓存：纯 broad-phase AABB 请求不再顺带
+  填充 `cachedVertices_`，而是直接用未约分 `intersect_3_planes` 齐次点扩展整数包围盒；
+  若顶点缓存已经存在，则仍从顶点缓存重建 AABB。该版本是在未约分顶点和新版 split
+  基线之后重测旧 AABB-only 方向，语义不变、结构指标与 `run_20260521_144122` 一致：
+  `node_count` 24156、`leaf_node_count` 10317、`total_polygon_count` 4047214、
+  `leaf_fragment_count` 456721、`leaf_classification_trace_attempt_count` 222678。
+  Debug 测试和 ctest 通过，`run_20260521_152314` 的 22 个 verifier 全部通过；
+  `run_20260521_152227` 三次无 oracle 重复计时为 1601.40ms、1595.39ms、
+  1593.52ms，均值 1596.77ms，略优于 `run_20260521_144122` 的 1599.87ms。
 
 ## 已测但不保留的局部实验
 
@@ -376,7 +385,8 @@
 - `Polygon256::aabb()` 改成 AABB-only 重建、不顺带填充顶点缓存：结构计数不变，
   22 个 verifier 全部通过，但 `run_20260521_034830` 相比 `run_20260521_031822`
   的聚合 `solve_ms` 从 2423.462ms 退化到 2440.191ms；后续顶点访问的重复构造
-  抵消了 AABB-only 的分配节省。
+  抵消了 AABB-only 的分配节省。该旧负实验不等同于后续保留的拆分版本：后者已在
+  未约分顶点缓存和新版 split 基线之后重测，且 AABB-only 入口直接消费未规范化齐次点。
 - `axisMinimum()` / `axisMaximum()` 改为返回 AABB 字段引用、减少 `Integer` 边界拷贝：
   结构计数不变，22 个 verifier 全部通过，但 `run_20260521_035707` 相比
   `run_20260521_031822` 的聚合 `solve_ms` 从 2423.462ms 退化到 2429.444ms；

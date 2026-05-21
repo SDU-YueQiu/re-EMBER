@@ -244,21 +244,24 @@ void Polygon256::rebuildVertexCache() const
     vertexCacheValid_ = true;
 }
 
-void Polygon256::rebuildVertexAndAABBCaches() const
+void Polygon256::rebuildAABBCache() const
 {
-    REEMBER_PROFILE_ZONE("Polygon256::rebuildVertexAndAABBCaches");
+    REEMBER_PROFILE_ZONE("Polygon256::rebuildAABBCache");
 
-    cachedVertices_.clear();
     cachedAABB_ = AABB3i();
     const std::size_t n = edgePlanes.size();
-    cachedVertices_.reserve(n);
     for (std::size_t i = 0; i < n; ++i)
     {
         const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
-        cachedVertices_.push_back(makeUnnormalizedPlanePoint(plane, edgePlanes[i], edgePlanes[prev]));
-        appendPointToAABB(cachedAABB_, cachedVertices_.back());
+        if (!appendHomPointToAABB(
+                    cachedAABB_,
+                    intersectHomogeneousUnnormalized(plane, edgePlanes[i], edgePlanes[prev])))
+        {
+            cachedAABB_ = AABB3i();
+            aabbCacheValid_ = true;
+            return;
+        }
     }
-    vertexCacheValid_ = true;
     aabbCacheValid_ = true;
 }
 
@@ -288,10 +291,13 @@ const std::vector<PlanePoint3i> &Polygon256::vertices() const
 
 const AABB3i &Polygon256::aabb() const
 {
-    if (!vertexCacheValid_)
-        rebuildVertexAndAABBCaches();
-    else if (!aabbCacheValid_)
-        rebuildAABBCacheFromVertices();
+    if (!aabbCacheValid_)
+    {
+        if (vertexCacheValid_)
+            rebuildAABBCacheFromVertices();
+        else
+            rebuildAABBCache();
+    }
     return cachedAABB_;
 }
 
