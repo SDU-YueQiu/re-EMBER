@@ -374,6 +374,17 @@
 
 ## 已测但不保留的局部实验
 
+- split route 顶点侧别扫描使用栈上小缓冲：尝试让
+  `classifySplitChildPolygonRoute()` 先把常见小边数 polygon 的 `vertexSides`
+  写入栈上数组，只有确认 route 真正需要 split 时才填充 `route.vertexSides`，
+  避免纯左/纯右扫描路径也提前 `vector::resize()`。该改动不改变 child 路由、
+  裁剪侧别或 polygon materialization 语义。Debug 构建和
+  `ctest --preset default --output-on-failure --timeout 120` 通过；100 组论文样本
+  `run_20260522_052435` 与当前保留基线 `run_20260522_045123` 的结构计数、
+  trace 诊断计数和 100 个 raw OBJ SHA256 完全一致，但平均 `solve_ms`
+  为 117.659ms，慢于两轮保留基线 `run_20260522_045009` /
+  `run_20260522_045123` 的 116.842ms。说明新增分支和 split 时的
+  `assign()` 没有换回足够的非 split route 分配节省，源码不保留。
 - WNV 普通 trace 先做 segment/polygon 相关性筛选：尝试让
   `tracePathWNVImpl()` 像 surface-point trace 一样，先用段 AABB 与 polygon AABB /
   支撑平面相关性跳过无关段，再按需分类起点和终点，避免不会参与交叉的段触发
