@@ -374,6 +374,17 @@
 
 ## 已测但不保留的局部实验
 
+- raw trusted OBJ 导出合并有限性检查：尝试删除
+  `recoverRawTrustedPolygonSoupData()` 开头的并行 fragment 顶点缓存/有限性检查，
+  改为在后续顺序全局齐次顶点去重循环里同时检查 `hasUniqueIntersection()` 和
+  `w != 0`，以减少 raw 导出前的第二遍顶点扫描。该改动不改变 canonical
+  顶点 key、face 顺序、OBJ 文本生成或拓扑语义。Debug 构建和
+  `ctest --preset default --output-on-failure --timeout 120` 通过；100 组论文样本
+  `run_20260522_052849` 与当前保留基线 `run_20260522_045123` 的结构计数、
+  exported face 数和 100 个 raw OBJ SHA256 完全一致，但平均 `export_ms`
+  从两轮保留基线约 83.8ms 退化到 92.163ms，`end_to_end_ms` 退到
+  340.561ms。说明前置并行扫描不只是检查，它还并行触发顶点缓存构建；合并到
+  顺序去重循环会把这部分成本串行化，源码不保留。
 - split route 顶点侧别扫描使用栈上小缓冲：尝试让
   `classifySplitChildPolygonRoute()` 先把常见小边数 polygon 的 `vertexSides`
   写入栈上数组，只有确认 route 真正需要 split 时才填充 `route.vertexSides`，
