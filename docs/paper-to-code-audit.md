@@ -322,6 +322,17 @@
 
 ## 已测但不保留的局部实验
 
+- 局部 BSP 递归插入端点齐次点缓存：尝试把
+  `intersectHomogeneousUnnormalized(basePlane, endpointPlane, insertPlane)`
+  的结果沿 `BSPTree::addSegmentRecursive()` 递归传递，减少内部节点重复构造端点
+  齐次交点。直接 eager 版本 `run_20260522_025715` 相对 raw 导出 fast path
+  保留基线 `run_20260522_023707` / `run_20260522_023820`，`solve_ms` 从
+  118.826ms 退化到 118.998ms；改成只在遇到内部 BSP 节点时懒构造缺失端点后，
+  `run_20260522_025937` / `run_20260522_030050` 的结构计数与
+  `run_20260522_023820` 完全一致，100 个 raw OBJ 与基线逐文件 SHA256 完全一致，
+  两轮 `solve_ms` 均值为 118.724ms，仅比基线低 0.103ms，但 workload paired
+  统计为 54 个变快、46 个变慢，端到端均值从 332.007ms 退化到 332.782ms。
+  收益落在噪声内且增加递归接口状态复杂度；不保留。
 - raw OBJ 导出 exact raw 齐次点缓存：在 raw trusted 导出路径里增加
   raw `HomPoint4i` 完全相等到 OBJ 顶点下标的旁路缓存，raw miss 时仍走 primitive
   canonical map，尝试减少重复 `primitiveHomPoint()`。Debug 构建和 ctest 通过，
