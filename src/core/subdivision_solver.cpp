@@ -559,31 +559,6 @@ struct SplitCostEstimate
     std::size_t imbalance = 0;
 };
 
-SplitCostEstimate estimateSplitCostFromGroups(
-    const WntvSubdivisionGroups &groups,
-    const AABBSplit3i &split) noexcept
-{
-    SplitCostEstimate cost;
-    for (std::size_t groupIndex = 0; groupIndex < groups.size(); ++groupIndex)
-    {
-        const WntvSubdivisionGroup &group = groups[groupIndex];
-        if (axisMaximum(group.box, split.axis) <= split.coordinate)
-            cost.leftCount += group.polygonCount;
-        else if (axisMinimum(group.box, split.axis) >= split.coordinate)
-            cost.rightCount += group.polygonCount;
-        else
-        {
-            cost.leftCount += group.polygonCount;
-            cost.rightCount += group.polygonCount;
-            cost.splitCount += group.polygonCount;
-        }
-    }
-
-    cost.maxChildCount = std::max(cost.leftCount, cost.rightCount);
-    cost.imbalance = cost.maxChildCount - std::min(cost.leftCount, cost.rightCount);
-    return cost;
-}
-
 SplitCostEstimate estimateSplitCostFromPolygons(
     const std::vector<Polygon256> &polygons,
     const AABBSplit3i &split)
@@ -640,7 +615,6 @@ bool chooseWntvAwareSplit(
     bool hasCandidate = false;
     Integer bestDistance = 0;
     AABBSplit3i bestSplit;
-    SplitCostEstimate bestCost;
     for (std::size_t centerGroupIndex = 0; centerGroupIndex < groups.size(); ++centerGroupIndex)
     {
         const WntvSubdivisionGroup &centerGroup = groups[centerGroupIndex];
@@ -665,13 +639,10 @@ bool chooseWntvAwareSplit(
                             distance))
                     continue;
 
-                const SplitCostEstimate candidateCost = estimateSplitCostFromGroups(groups, candidate);
-                if (!hasCandidate ||
-                        isBetterSplitCost(candidateCost, distance, bestCost, bestDistance))
+                if (!hasCandidate || distance > bestDistance)
                 {
                     hasCandidate = true;
                     bestDistance = distance;
-                    bestCost = candidateCost;
                     bestSplit = candidate;
                 }
             }
