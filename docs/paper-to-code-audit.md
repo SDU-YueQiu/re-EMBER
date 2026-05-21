@@ -365,6 +365,16 @@
 
 ## 已测但不保留的局部实验
 
+- 单向 `computePolygonIntersectionCarrierTrusted()` 去重 AABB：尝试把该 trusted
+  入口的 `target.aabb()` / `incoming.aabb()` 重叠检查前移到公开 wrapper，并依赖
+  `BSPTree::insertTrusted()` 入口已有的 base/insert polygon AABB 重叠判断，减少叶片
+  局部 BSP 插入路径上的重复 broad-phase。Debug 构建和 ctest 已在实验分支通过；
+  `run_20260522_042925` 与当前保留基线 `run_20260522_042538` 的结构计数和 trace
+  次数完全一致，100 个 raw OBJ 与基线逐文件 SHA256 完全一致；但单轮
+  `solve_ms` 为 117.164ms，差于双向交线去重后的保留基线
+  `run_20260522_042422` / `run_20260522_042538` 的 117.035ms 均值。
+  说明这个单向入口的 AABB 检查不是当前主导成本，前移检查还会让公开 wrapper 多承担
+  一次 broad-phase；源码不保留。
 - WNV trace 单段路径 AABB 预筛内联缓存：尝试在 `PathAABBPrecheck` 中为
   `path.size()==1` 的候选路径单独保存 `singleSegmentBox`，避免初始化和填充
   `small_vector<AABB3i, 4>`；多段路径仍走原小缓冲。该改动不改变 path AABB、
