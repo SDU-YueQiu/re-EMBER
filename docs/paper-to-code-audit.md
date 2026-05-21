@@ -374,6 +374,18 @@
 
 ## 已测但不保留的局部实验
 
+- WNTV-aware split 候选按 polygon 放大成本择优：尝试在仍只选择可分离 WNTV 类的
+  候选切面前提下，复用 `SplitCostEstimate` 先最小化 `splitCount`、child 最大
+  polygon 数和不平衡度，再用原先的分离距离打平。该方向希望减少后续 leaf BSP
+  和 trace 工作量，但会给每次 WNTV-aware split 增加候选成本估计扫描。Debug 构建和
+  `ctest --preset default --output-on-failure --timeout 120` 通过；100 组论文样本
+  `run_20260522_050620` 相对当前保留基线 `run_20260522_045123` 改变全部
+  workload 的递归结构，`leaf_fragment_count` 从 3600346 降到 3583793，
+  `leaf_classification_trace_attempt_count` 从 1328146 降到 1322574，但
+  `node_count` 从 148536 增到 150160，`total_polygon_count` 从 32701981
+  增到 33056340；平均 `solve_ms` 为 117.566ms，慢于末段曲面命中终点复用后
+  两轮保留基线 `run_20260522_045009` / `run_20260522_045123` 的 116.842ms。
+  说明候选估计扫描和 polygon 放大超过了 trace/fragment 下降收益，源码不保留。
 - WNV surface-point trace 的末段端点边界命中类型复用：尝试在
   `surfaceHit == &endPoint` 时跳过
   `classifyKnownSegmentPolygonBoundaryPointHitUnchecked()` 内部的起终点平面点相等检查，
