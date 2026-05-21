@@ -1483,10 +1483,36 @@ inline bool clipSegmentAgainstAABBPlane(
     if (!hitPoint.hasUniqueIntersection() || !isPointOnSegment(hitPoint, segment))
         return false;
 
-    segment = (startSide > 0)
-              ? Segment256(clipPlane, segment.end, segment.direction)
-              : Segment256(segment.start, clipPlane, segment.direction);
-    return segment.isValid();
+    if (startSide > 0)
+    {
+        if (endSide == 0 ||
+                hitPoint.classify(segment.end) != -1 ||
+                endPoint.classify(clipPlane) != -1)
+            return false;
+
+        segment = Segment256(
+                      AssumeOrientedSegmentBounds,
+                      clipPlane,
+                      segment.end,
+                      segment.direction,
+                      hitPoint,
+                      endPoint);
+        return true;
+    }
+
+    if (startSide == 0 ||
+            startPoint.classify(clipPlane) != -1 ||
+            hitPoint.classify(segment.start) != -1)
+        return false;
+
+    segment = Segment256(
+                  AssumeOrientedSegmentBounds,
+                  segment.start,
+                  clipPlane,
+                  segment.direction,
+                  startPoint,
+                  hitPoint);
+    return true;
 }
 
 inline bool isSegmentInsideOrOnAABB(const Segment256 &segment, const AABB3i &box)
