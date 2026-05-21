@@ -174,7 +174,16 @@ public:
      *       `lhs -> (1, 0)`，`rhs -> (0, 1)`。
      * @note 一旦调用过 `solve()`，同一个 `BoolProblem` 就不能再修改输入。
      */
-    void setOperands(const std::vector<Polygon256> &lhs, const std::vector<Polygon256> &rhs);
+    void setOperands(const std::vector<Polygon256> &lhs, const std::vector<Polygon256> &rhs);
+
+    /**
+     * @brief 移交二元布尔的左右输入，并自动写入基础 WNTV。
+     *
+     * @param[in,out] lhs 左操作数多边形集合；调用后内容被移走。
+     * @param[in,out] rhs 右操作数多边形集合；调用后内容被移走。
+     * @note 语义与 const 引用重载一致，但调用方不再需要保留输入集合时可避免整表复制。
+     */
+    void setOperands(std::vector<Polygon256> &&lhs, std::vector<Polygon256> &&rhs);
 
     /**
      * @brief 使用调用方提供的场景 AABB 执行当前布尔问题。
@@ -221,7 +230,12 @@ private:
      * @param[in,out] polygons 待标注的多边形集合。
      * @param[in] hotIndex 当前集合对应的非零 WNTV 分量。
      */
-    static void assignOperandWNTV(std::vector<Polygon256> &polygons, std::size_t hotIndex);
+    static void assignOperandWNTV(std::vector<Polygon256> &polygons, std::size_t hotIndex);
+
+    /**
+     * @brief 接收已经独占的左右输入并合并进内部 polygon soup。
+     */
+    void setOperandsOwned(std::vector<Polygon256> &&lhs, std::vector<Polygon256> &&rhs);
 
     /// 当前布尔运算类型。
     BoolOp op_ = BoolOp::Intersection;

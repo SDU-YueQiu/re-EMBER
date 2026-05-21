@@ -409,6 +409,15 @@
   counters、leaf classification trace/candidate 计数完全一致，`solve_ms` 从 114.895ms
   到 113.992ms，`end_to_end_ms` 从 330.789ms 到 330.468ms。该收益很小，主要价值是
   去掉局部 BSP 编排热路径中的排序和 offsets 构造。
+- `BoolProblem::setOperands()` 增加 rvalue 输入入口，并让 CLI 在 polygon soup 构建后
+  直接把左右输入移交给 `BoolProblem`。公开 const 引用入口仍保留并继续复制调用方输入，
+  但内部合并改为 move，避免 prepare 阶段把左右 `Polygon256` 集合再整表复制一遍。
+  `ctest --test-dir build\tests --output-on-failure --timeout 120` 通过；
+  `run_20260522_064450` 对 34 个 small 样本做 `-VerifyWithOracle` 全部通过。
+  `run_20260522_064654` 的 100 组 NoTracy 与 `run_20260522_063924` 的 key structural
+  counters、leaf classification trace/candidate 计数完全一致，`prepare_ms` 从
+  117.092ms 降到 51.839ms，`end_to_end_ms` 从 330.468ms 降到 265.735ms；
+  `solve_ms` / `export_ms` 基本只剩计时噪声。
 
 ## 已测但不保留的局部实验
 

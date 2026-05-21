@@ -613,7 +613,7 @@ int main(int argc, char **argv)
             problem.setOperation(options.operation);
             problem.setOperandAssumptions(options.lhsAssumptions, options.rhsAssumptions);
             problem.setThreadCount(options.threadCount);
-            problem.setOperands(lhsPolygons, rhsPolygons);
+            problem.setOperands(std::move(lhsPolygons), std::move(rhsPolygons));
         }
 
         const Clock::time_point prepareEnd = Clock::now();
@@ -670,8 +670,8 @@ int main(int argc, char **argv)
                 << " lhs_input_faces=" << lhsMesh.faces.size()
                 << " rhs_input_faces=" << rhsMesh.faces.size()
                 << " scale=" << sharedScale
-                << " lhs_polygons=" << lhsPolygons.size()
-                << " rhs_polygons=" << rhsPolygons.size()
+                << " lhs_polygons=" << timings.lhsPolygonCount
+                << " rhs_polygons=" << timings.rhsPolygonCount
                 << " end_to_end_ms=" << timings.endToEndMs
                 << " threads=" << timings.solveMetrics.effectiveThreadCount
                 << " node_count=" << timings.solveMetrics.nodeCount
