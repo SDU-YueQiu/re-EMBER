@@ -533,9 +533,6 @@ bool detail::computeBidirectionalPolygonIntersectionCarriersTrusted(
 {
     REEMBER_PROFILE_ZONE("computeBidirectionalPolygonIntersectionCarriersTrusted");
 
-    if (!doAABBsOverlap(lhs.aabb(), rhs.aabb()))
-        return false;
-
     if (arePlaneNormalsParallel(lhs.plane, rhs.plane))
         return false;
 

@@ -353,6 +353,15 @@
   SHA256 完全一致。两轮新结果均值 `solve_ms` 从 117.948ms 降到 117.172ms，
   `end_to_end_ms` 从 331.085ms 降到 330.307ms，`process_elapsed_ms`
   从 376.034ms 降到 375.520ms。
+- 叶片局部 BSP pair relation 已在 `buildLeafPairRelation()` 入口确认两个 polygon
+  AABB 重叠，`computeBidirectionalPolygonIntersectionCarriersTrusted()` 不再重复做同一
+  AABB 检查，只保留平面平行和双向交线 carrier 构造。当前该 trusted 入口只有这一处
+  调用，因此前置条件闭合在 leaf arrangement 内部，不改变 pair 枚举、carrier 语义或
+  WNV 分类。Debug 构建和 `ctest --preset default --output-on-failure --timeout 120`
+  通过；两轮 100 组论文样本 `run_20260522_042422` / `run_20260522_042538`
+  与当前保留基线 `run_20260522_040952` 的结构计数和 trace 次数完全一致，100 个
+  raw OBJ 与基线逐文件 SHA256 完全一致。两轮新结果均值 `solve_ms`
+  从 117.172ms 降到 117.035ms。
 
 ## 已测但不保留的局部实验
 
