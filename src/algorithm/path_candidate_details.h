@@ -1917,6 +1917,7 @@ inline bool buildPlaneReplacementPath(
     std::vector<Segment256> rawPath;
 
     rawPath.clear();
+    rawPath.reserve(planeReplacementCount);
     for (std::size_t orderIndex = 0; orderIndex < planeReplacementCount; ++orderIndex)
     {
         const int replacedIndex = planeReplacementOrder[orderIndex];
@@ -1955,6 +1956,7 @@ inline bool buildRawPlaneReplacementPath(
     const Plane3i targetPlanes[3] = {targetPoint.p, targetPoint.q, targetPoint.r};
     PlanePoint3i currentPoint = refPoint;
     outPath.clear();
+    outPath.reserve(planeReplacementCount);
 
     for (std::size_t orderIndex = 0; orderIndex < planeReplacementCount; ++orderIndex)
     {
