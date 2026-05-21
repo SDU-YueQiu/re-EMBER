@@ -233,6 +233,11 @@
   `run_20260521_112355` 的 22 个 verifier 全部通过，但单轮 `solve_ms`
   为 1733.38ms，差于当前保留版本 `run_20260521_103114` 的三次均值
   1728.62ms；不保留该重心构造改写。
+- 删除 `hasIntermediateEndpointOnInputSurface()` 预筛，让 WNV trace 统一处理
+  非最后段端点落面并返回 `PATH_INVALID`；Debug 测试通过，
+  `run_20260521_113104` 的 22 个 verifier 全部通过，但 trace 尝试数从
+  当前保留版本的 232002 增至 245780，单轮 `solve_ms` 为 1734.45ms，
+  差于 `run_20260521_103114` 的三次均值 1728.62ms；预筛仍然比多跑无效 trace 便宜。
 - centroid axis 的 local reference 整数起点按叶片缓存：结构计数不变，22 个
   verifier 全部通过，但 `run_20260521_033829` 相比 `run_20260521_031822`
   的聚合 `solve_ms` 从 2423.462ms 退化到 2431.565ms；减少重复解析不足以抵消
