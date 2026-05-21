@@ -374,6 +374,16 @@
 
 ## 已测但不保留的局部实验
 
+- WNV surface hit 面内分类与边界来源合并扫描：尝试把
+  `classifyPolygonSurfacePointUnchecked()` 和随后边界命中时的
+  `classifyKnownSegmentPolygonBoundaryPointHitUnchecked()` 合并成一次边半空间扫描，
+  在确认 Boundary 的同时收集 `side==0` 的边来源，减少边界命中路径的重复边分类。
+  Debug 构建和 `ctest --preset default --output-on-failure --timeout 120` 通过；
+  `run_20260522_045540` 与当前保留基线 `run_20260522_045123` 的结构计数、trace
+  诊断计数和 100 个 raw OBJ SHA256 完全一致；但单轮 `solve_ms` 为 117.519ms，
+  明显差于末段曲面命中终点复用后两轮保留基线
+  `run_20260522_045009` / `run_20260522_045123` 的 116.842ms 均值。
+  说明额外返回对象和边界 contact 状态维护超过了少扫一次边的收益，源码不保留。
 - 叶片 centroid axis-probe 起点缓存：尝试在 `LeafClassificationContext` 中缓存
   local reference 的整数坐标、整数坐标平面和对应 `PlanePoint3i`，让已知
   axis-probe 目标枚举跳过每个 fragment 重复 `tryExtractExactIntegerPoint()` 和
