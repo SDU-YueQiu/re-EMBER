@@ -145,6 +145,25 @@ inline void collectBoundaryEdgesAtPointUnchecked(
     }
 }
 
+// 调用方已知 surfaceHit 是 segment 与 polygon 支撑面的边界命中点时，避免重复求交。
+inline PolygonBoundaryContact classifyKnownSegmentPolygonBoundaryPointHitUnchecked(
+    const Segment256 &seg,
+    const Polygon256 &poly,
+    const PlanePoint3i &surfaceHit)
+{
+    PolygonBoundaryContact contact;
+    collectBoundaryEdgesAtPointUnchecked(surfaceHit, poly, contact);
+    if (contact.edgeIndices.empty())
+        return contact;
+
+    contact.type =
+        (areSamePlanePoint(surfaceHit, seg.getStartPointRef()) ||
+         areSamePlanePoint(surfaceHit, seg.getEndPointRef()))
+        ? PolygonBoundaryContactType::EndpointOnBoundary
+        : PolygonBoundaryContactType::BoundaryPointHit;
+    return contact;
+}
+
 inline void appendUniqueBoundaryEdgeIndex(
     std::vector<std::size_t> &edgeIndices,
     std::size_t edgeIndex)
