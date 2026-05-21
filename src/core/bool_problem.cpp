@@ -10,6 +10,7 @@
 #include "core/subdivision_solver.h"
 
 #include <algorithm>
+#include <iterator>
 #include <limits>
 #include <oneapi/tbb/info.h>
 #include <oneapi/tbb/task_arena.h>
@@ -117,15 +118,29 @@ void BoolProblem::setOperands(const std::vector<Polygon256> &lhs, const std::vec
 
     std::vector<Polygon256> lhsCopy = lhs;
     std::vector<Polygon256> rhsCopy = rhs;
+    setOperandsOwned(std::move(lhsCopy), std::move(rhsCopy));
+}
 
-    assignOperandWNTV(lhsCopy, detail::kLhsOperandIndex);
+void BoolProblem::setOperands(std::vector<Polygon256> &&lhs, std::vector<Polygon256> &&rhs)
+{
+    throwIfSolveAttempted(solveAttempted_, "setOperands");
+    setOperandsOwned(std::move(lhs), std::move(rhs));
+}
 
-    assignOperandWNTV(rhsCopy, detail::kRhsOperandIndex);
-
+void BoolProblem::setOperandsOwned(std::vector<Polygon256> &&lhs, std::vector<Polygon256> &&rhs)
+{
+    assignOperandWNTV(lhs, detail::kLhsOperandIndex);
+    assignOperandWNTV(rhs, detail::kRhsOperandIndex);
     polygons_.clear();
-    polygons_.reserve(lhsCopy.size() + rhsCopy.size());
-    polygons_.insert(polygons_.end(), lhsCopy.begin(), lhsCopy.end());
-    polygons_.insert(polygons_.end(), rhsCopy.begin(), rhsCopy.end());
+    polygons_.reserve(lhs.size() + rhs.size());
+    polygons_.insert(
+        polygons_.end(),
+        std::make_move_iterator(lhs.begin()),
+        std::make_move_iterator(lhs.end()));
+    polygons_.insert(
+        polygons_.end(),
+        std::make_move_iterator(rhs.begin()),
+        std::make_move_iterator(rhs.end()));
 }
 
 void BoolProblem::solve(const AABB3i &sceneAABB)
