@@ -397,6 +397,14 @@
   `run_20260522_000710` 完全一致；但 `run_20260522_002535` 平均 `solve_ms`
   从 120.266ms 退化到 121.071ms，`end_to_end_ms` 从 340.942ms 到 342.737ms。
   缓存线性查找、写入和额外状态维护成本超过重复 surface 预检节省；不保留。
+- 叶片分类 inset 候选点 vector 搬运优化：尝试把
+  `visitLeafClassificationInsetPointCandidates()` 返回的候选点移动给 plane replacement，
+  并把 bridge rescue 目标延后到 plane replacement 失败后再保存，减少 `PlanePoint3i`
+  大对象复制。Debug 构建和 ctest 通过，100 组论文样本 `run_20260522_010137`
+  的结构、candidate 和 trace 计数与 `run_20260522_005732` 完全一致；但相对
+  `run_20260522_005611` / `run_20260522_005732` 两轮保留基线均值，`solve_ms`
+  基本持平略退，`end_to_end_ms` 略退。候选点数量较小，额外分支和 move 路径没有
+  换回稳定收益；不保留。
 - trusted clipped polygon eager 顶点/AABB 缓存：结构计数不变，solve 信号为负。
 - BSP 插入端点齐次交点沿递归缓存：结构计数不变，22 个 verifier 全部通过，
   但 `run_20260521_032931` 相比 `run_20260521_031822` 的聚合 `solve_ms`
