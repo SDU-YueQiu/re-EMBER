@@ -357,7 +357,13 @@
   pair-relation adjacency：结构计数不变，但 NoTracy solve 信号为负；进一步改成
   per-base 分桶、去掉 sort/offset 后仍为负。当前小叶片 `insertTrusted()` 路径虽然
   代码重复，但在现有 workload 上有性能意义，后续不应只为了统一控制流删除它。
-- 中间端点预筛缓存：结构计数不变，但缓存维护成本超过收益。
+- 中间端点预筛缓存：尝试在单片 leaf fragment 分类过程中按 `HomPoint4i` 缓存
+  `hasIntermediateEndpointOnInputSurface()` 的 surface-membership 结果，避免多个候选路径
+  共享中间端点时重复扫描所有输入 polygon。Debug 构建和 ctest 通过，100 组论文样本
+  结构计数、candidate 计数和 `leaf_classification_trace_attempt_count` 均与
+  `run_20260522_000710` 完全一致；但 `run_20260522_002535` 平均 `solve_ms`
+  从 120.266ms 退化到 121.071ms，`end_to_end_ms` 从 340.942ms 到 342.737ms。
+  缓存线性查找、写入和额外状态维护成本超过重复 surface 预检节省；不保留。
 - trusted clipped polygon eager 顶点/AABB 缓存：结构计数不变，solve 信号为负。
 - BSP 插入端点齐次交点沿递归缓存：结构计数不变，22 个 verifier 全部通过，
   但 `run_20260521_032931` 相比 `run_20260521_031822` 的聚合 `solve_ms`
