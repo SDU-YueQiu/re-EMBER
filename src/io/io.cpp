@@ -450,7 +450,9 @@ bool appendTriangulatedNonCoplanarFace(
 
 struct FacePolygonBuildResult
 {
-    std::vector<Polygon256> polygons;
+    Polygon256 polygon;
+    std::vector<Polygon256> extraPolygons;
+    std::size_t polygonCount = 0;
     std::string error;
 };
 
@@ -483,7 +485,8 @@ void buildPolygonsFromQuantizedFace(
     std::string faceError;
     if (buildPolygonFromQuantizedFace(faceVertices, faceIndex, polygon, failure, faceError))
     {
-        outResult.polygons.push_back(std::move(polygon));
+        outResult.polygon = std::move(polygon);
+        outResult.polygonCount = 1u;
         return;
     }
 
@@ -491,8 +494,10 @@ void buildPolygonsFromQuantizedFace(
             failure == PolygonFaceBuildFailure::NonCoplanarAfterQuantization &&
             faceVertices.size() > 3u)
     {
-        if (!appendTriangulatedNonCoplanarFace(faceVertices, faceIndex, outResult.polygons, faceError))
+        if (!appendTriangulatedNonCoplanarFace(faceVertices, faceIndex, outResult.extraPolygons, faceError))
             outResult.error = faceError;
+        else
+            outResult.polygonCount = outResult.extraPolygons.size();
         return;
     }
 
@@ -1997,16 +2002,22 @@ bool buildPolygonSoup(
         if (!result.error.empty())
             return failIo(outError, result.error);
 
-        polygonCount += result.polygons.size();
+        polygonCount += result.polygonCount;
     }
 
     outPolygons.reserve(polygonCount);
     for (FacePolygonBuildResult &result : faceResults)
     {
+        if (result.polygonCount == 1u && result.extraPolygons.empty())
+        {
+            outPolygons.push_back(std::move(result.polygon));
+            continue;
+        }
+
         outPolygons.insert(
             outPolygons.end(),
-            std::make_move_iterator(result.polygons.begin()),
-            std::make_move_iterator(result.polygons.end()));
+            std::make_move_iterator(result.extraPolygons.begin()),
+            std::make_move_iterator(result.extraPolygons.end()));
     }
 
     return true;
