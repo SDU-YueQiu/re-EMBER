@@ -211,6 +211,12 @@
   全部通过，但 `run_20260521_104801` 单轮 `solve_ms` 为 1748.16ms，差于当前
   保留版本 `run_20260521_103114` 的三次均值 1728.62ms；少算的
   `floorCeilDiv()` 不足以抵消额外 point-box 状态、组件比较和 merge 成本。
+- `appendPointToAABB()` 在 `w > 0` 时改走正分母专用
+  `floorCeilDivPositiveDen()`，尝试避开通用 `floorCeilDiv()` 的分母符号处理；
+  Debug 测试通过，`run_20260521_105729` 的 22 个 verifier 全部通过，但单轮
+  `solve_ms` 为 1753.76ms，差于当前保留版本 `run_20260521_103114` 的三次均值
+  1728.62ms。说明当前 AABB 热点瓶颈不只是分母符号分支，继续在单次除法入口做
+  小特化不是有效方向。
 - centroid axis 的 local reference 整数起点按叶片缓存：结构计数不变，22 个
   verifier 全部通过，但 `run_20260521_033829` 相比 `run_20260521_031822`
   的聚合 `solve_ms` 从 2423.462ms 退化到 2431.565ms；减少重复解析不足以抵消
