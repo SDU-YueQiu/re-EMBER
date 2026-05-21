@@ -333,6 +333,16 @@
 
 ## 已测但不保留的局部实验
 
+- 叶片分类候选路径签名内联缓冲：在保留候选 path signature 去重语义的前提下，
+  把 `uniquePathSignatures` 的单条签名从 `std::vector<HomPoint4i>` 改成
+  `boost::container::small_vector<HomPoint4i, 4>`，让常见的 1-3 段候选路径签名
+  不单独申请堆缓冲。Debug 构建和 ctest 通过；
+  `run_20260522_032957` / `run_20260522_033113` 与当前保留基线
+  `run_20260522_030809` 的结构计数、trace 尝试数和 duplicate skip 数完全一致，
+  100 个 raw OBJ 与基线逐文件 SHA256 完全一致；但两轮均值 `solve_ms`
+  为 118.319ms，略差于 WNV polygon AABB 复用基线
+  `run_20260522_030701` / `run_20260522_030809` 的 118.311ms。端到端均值下降
+  更像导出和调度噪声，solver 热路径没有稳定收益；不保留。
 - 叶片分类候选路径去重旁路：当前 100 组论文样本中
   `leaf_classification_candidate_generated_count` 为 1411882，而
   `leaf_classification_candidate_duplicate_skip_count` 只有 923。尝试让
