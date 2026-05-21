@@ -362,6 +362,14 @@
   三次均值 1599.87ms 退化到 2343.96ms。加上 `polygonCount >= 96`
   的大节点门槛后，`run_20260521_145709` 仍退化到 2325.65ms。结构指标虽有下降，
   但候选扫描成本远大于省下的 leaf BSP/trace 工作量；不保留。
+- center-range fallback 只有一个可用轴候选时跳过 `estimateSplitCostsFromPolygons()`：
+  该分支不改变切分面，尝试避免无竞争候选时重复扫描 polygon AABB。Debug 构建和
+  ctest 通过，三轮 100 组论文样本 `run_20260522_024243` /
+  `run_20260522_024357` / `run_20260522_024516` 与 `run_20260522_023820`
+  的结构计数、center-range split 次数、result 计数和 trace 次数完全一致；但相对
+  raw 导出 fast path 保留基线 `run_20260522_023707` / `run_20260522_023820`，
+  三轮均值 `solve_ms` 基本持平略退 0.03%，`end_to_end_ms` 退 0.19%。
+  单候选场景不够主导，新增分支没有稳定收益；不保留。
 - `appendPointToAABB()` 尝试从 `PlanePoint3i` 的三张定义平面里识别单位坐标平面，
   对已知整数坐标跳过对应轴的 `floorCeilDiv()`。该改动不改变 AABB 语义，Debug/CTest
   通过，但 `run_20260521_150724` 三次无 oracle 重复计时为 1610.62ms、
