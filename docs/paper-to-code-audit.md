@@ -345,6 +345,16 @@
 
 ## 已测但不保留的局部实验
 
+- `computePolygonPlaneIntersection()` 顶点侧别直接分类：尝试给 `Polygon256`
+  增加按顶点下标分类到目标平面的入口；已有 vertex cache 时复用缓存，否则直接用
+  未约分三平面交点做 4D dot，避免 `computePolygonPlaneIntersection()` 为
+  classify-only 扫描强制构造整条 `source.vertices()` 缓存。Debug 构建和 ctest
+  通过；`run_20260522_040102` 与当前保留基线 `run_20260522_033921` 的结构计数、
+  child-reference/leaf trace 计数完全一致，100 个 raw OBJ 与基线逐文件 SHA256
+  完全一致；但单轮 `solve_ms` 为 119.321ms，明显差于当前保留基线
+  `run_20260522_033808` / `run_20260522_033921` 的 117.948ms 均值。
+  该改动可能破坏了后续 vertex cache 复用，或把同一顶点交点计算从一次缓存构造
+  变成更多局部重复计算；不保留。
 - 子参考点 fast AABB 候选短容器内联缓冲：在
   `visitFastAABBPathCandidateSeeds()` 中把候选坐标去重表和三轴 inset 选择表从
   短 `std::vector` 改为 `boost::container::small_vector`，尝试减少每个需要传播
