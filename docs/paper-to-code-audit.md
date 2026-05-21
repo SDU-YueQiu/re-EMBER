@@ -490,6 +490,13 @@
   为 `115.327ms / 69.227ms / 247.759ms`；90 的 `run_20260522_074750`
   为 `118.033ms / 66.976ms / 247.945ms`；100 的 `run_20260522_074832`
   为 `119.843ms / 65.758ms / 248.326ms`。当前默认阈值仍保持 75。
+- sibling task 提交门槛从半个 leaf threshold 降到四分之一个 leaf threshold：
+  目标是给 oneTBB 暴露更多中等规模子树任务。`ctest --test-dir build\tests
+  --output-on-failure --timeout 120` 通过；100 组 NoTracy `run_20260522_075032`
+  相比保留基线 `run_20260522_074030` 平均 `parallel_sibling_spawn_count`
+  从 159.69 增至 168.35，`solve_ms` 仅从 115.327ms 到 115.139ms，
+  但 `end_to_end_ms` 从 247.759ms 退化到 247.851ms，属于噪声级且进程耗时
+  也退化。当前仍保留半阈值门槛。
 - CLI 默认路径关闭 `BoolProblem::leafSummaries()` 收集：为 `BoolProblem` 增加
   `setCollectLeafSummaries(false)` 并把该开关传入 `SubdivisionSolver`，尝试避免每个
   叶子摘要在子树合并时向上搬运；公开默认仍收集 leaf summaries。`ctest --test-dir build\tests --output-on-failure --timeout 120`
