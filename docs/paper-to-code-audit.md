@@ -239,6 +239,12 @@
   1667.70ms，均值 1655.14ms，差于半阈值保留基线 `run_20260521_134044`
   的 1647.70ms。额外分支和 split 时的 `assign()` 没有换回足够的分配成本，
   不保留该改动。
+- 叶片分类前按 `sourceFragmentCount` 对 `classifiedFragments_` 和
+  `resultFragments_` 预留容量，尝试减少每片 leaf 内结果收集的 vector 增长；Debug
+  测试通过，但 `run_20260521_140932` 三次无 oracle 重复计时为 1661.97ms、
+  1660.56ms、1657.33ms，均值 1659.95ms，差于当前保留版本
+  `run_20260521_140622` 的 1640.82ms。该上界预留会放大内存占用和缓存压力，
+  不保留。
 - 叶片分类候选路径 view：结构和 trace 计数不变，但 NoTracy solve 变慢。
 - `buildLeafArrangement()` 结果 vector 预留容量：结构计数不变，solve 信号为负。
 - `buildLeafArrangement()` 删除 `polygonCount < 8` 小叶片旧路径，并改用统一
