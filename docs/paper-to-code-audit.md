@@ -365,6 +365,16 @@
 
 ## 已测但不保留的局部实验
 
+- 叶片 centroid axis-probe 起点缓存：尝试在 `LeafClassificationContext` 中缓存
+  local reference 的整数坐标、整数坐标平面和对应 `PlanePoint3i`，让已知
+  axis-probe 目标枚举跳过每个 fragment 重复 `tryExtractExactIntegerPoint()` 和
+  `makeIntegerCoordinatePlanes()`。该改动不改变候选目标、路径线段、trace 次数或
+  WNV 传播数学。Debug 构建、`ctest --preset default --output-on-failure --timeout 120`
+  通过；`run_20260522_044011` 与当前保留基线 `run_20260522_042538` 的结构计数和
+  trace 次数完全一致，100 个 raw OBJ 与基线逐文件 SHA256 完全一致；但单轮
+  `solve_ms` 为 117.102ms，略差于当前保留基线
+  `run_20260522_042422` / `run_20260522_042538` 的 117.035ms 均值。
+  说明这部分重复起点解析不是当前主导成本，源码不保留。
 - 单向 `computePolygonIntersectionCarrierTrusted()` 去重 AABB：尝试把该 trusted
   入口的 `target.aabb()` / `incoming.aabb()` 重叠检查前移到公开 wrapper，并依赖
   `BSPTree::insertTrusted()` 入口已有的 base/insert polygon AABB 重叠判断，减少叶片
