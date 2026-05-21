@@ -263,6 +263,15 @@
   平均 `export_ms` 从 `run_20260521_231745` 的 140.127ms 降到 91.831ms，
   `end_to_end_ms` 从 394.360ms 降到 344.953ms；slowest `large_021_1396886_minus_551020`
   的 `export_ms` 从 710.786ms 降到 479.708ms，`result_fragment_count` 仍为 116537。
+- `buildPolygonSoup()` 的 face 级构建结果从“每个 face 一个 `std::vector<Polygon256>`”
+  改为单 polygon 内联保存，只有非共面三角化 fallback 才使用 overflow vector。
+  常规 OBJ 面仍按原有顺序生成同一个 `Polygon256`，三角化 fallback 语义不变。
+  Debug 构建和 `ctest --preset default --output-on-failure --timeout 120` 通过；两轮
+  100 组论文样本 `-NoTracy`、不跑 verifier 的 polygon/solver 结构计数均与
+  `run_20260521_233848` 一致。`run_20260522_000556` 平均 `prepare_ms`
+  从 116.628ms 降到 112.873ms，`end_to_end_ms` 从 344.953ms 降到 341.895ms；
+  `run_20260522_000710` 平均 `prepare_ms` 为 112.997ms，`end_to_end_ms`
+  为 340.942ms，确认 prepare 阶段收益稳定。
 
 ## 已测但不保留的局部实验
 
