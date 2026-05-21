@@ -39,3 +39,4 @@ large_007_1396897_minus_488050,large,difference,inputs/large/large_007_1396897_m
 large_008_95800_minus_1147240,large,difference,inputs/large/large_008_95800_minus_1147240/lhs.obj,inputs/large/large_008_95800_minus_1147240/rhs.obj,15346,30688,45720,91440,not_run,,not_run,not_run
 large_009_313884_minus_72665,large,difference,inputs/large/large_009_313884_minus_72665/lhs.obj,inputs/large/large_009_313884_minus_72665/rhs.obj,12374,24744,10112,20220,not_run,,not_run,not_run
 large_010_51700_minus_248193,large,difference,inputs/large/large_010_51700_minus_248193/lhs.obj,inputs/large/large_010_51700_minus_248193/rhs.obj,14738,29472,16004,32008,not_run,,not_run,not_run
+large_014_247069_minus_472203,large,difference,inputs/large/large_014_247069_minus_472203/lhs.obj,inputs/large/large_014_247069_minus_472203/rhs.obj,43831,87658,29922,59852,success,140428,success,success

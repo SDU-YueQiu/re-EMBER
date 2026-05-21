@@ -30,7 +30,8 @@ namespace
 {
 constexpr bool kLeafClassificationDebug = false;
 constexpr std::size_t kMaxDirectInsetTargets = 3u;
-constexpr std::size_t kMaxBridgeRescuePoints = 2u;
+// 只在直连候选失败后进入 bridge rescue；提高上限不影响常规分类热路径。
+constexpr std::size_t kMaxBridgeRescuePoints = 10u;
 
 struct LeafClassificationNullDebugLog
 {
@@ -627,20 +628,21 @@ void appendPlaneReplacementFailureDebug(
             continue;
         }
 
-        std::vector<int> changedPlaneIndices;
+        std::array<int, 3> changedPlaneIndices = {};
+        std::size_t changedPlaneCount = 0;
         if (!areSamePlaneEquation(referencePoint.p, permutedTargetPoint.p))
-            changedPlaneIndices.push_back(0);
+            changedPlaneIndices[changedPlaneCount++] = 0;
         if (!areSamePlaneEquation(referencePoint.q, permutedTargetPoint.q))
-            changedPlaneIndices.push_back(1);
+            changedPlaneIndices[changedPlaneCount++] = 1;
         if (!areSamePlaneEquation(referencePoint.r, permutedTargetPoint.r))
-            changedPlaneIndices.push_back(2);
-        if (changedPlaneIndices.empty())
+            changedPlaneIndices[changedPlaneCount++] = 2;
+        if (changedPlaneCount == 0)
         {
             debugLog << " no_changed_planes\n";
             continue;
         }
 
-        std::sort(changedPlaneIndices.begin(), changedPlaneIndices.end());
+        std::sort(changedPlaneIndices.begin(), changedPlaneIndices.begin() + static_cast<std::ptrdiff_t>(changedPlaneCount));
         do
         {
             std::vector<Segment256> path;
@@ -649,9 +651,10 @@ void appendPlaneReplacementFailureDebug(
                 permutedTargetPoint,
                 box,
                 changedPlaneIndices,
+                changedPlaneCount,
                 path);
             debugLog << " changed_planes=(";
-            for (std::size_t i = 0; i < changedPlaneIndices.size(); ++i)
+            for (std::size_t i = 0; i < changedPlaneCount; ++i)
             {
                 if (i != 0)
                     debugLog << ",";
@@ -661,7 +664,9 @@ void appendPlaneReplacementFailureDebug(
             if (ok)
                 debugLog << " " << formatPathForDebug(path);
             debugLog << "\n";
-        } while (std::next_permutation(changedPlaneIndices.begin(), changedPlaneIndices.end()));
+        } while (std::next_permutation(
+                     changedPlaneIndices.begin(),
+                     changedPlaneIndices.begin() + static_cast<std::ptrdiff_t>(changedPlaneCount)));
     } while (std::next_permutation(targetPlaneOrder.begin(), targetPlaneOrder.end()));
 }
 
