@@ -1464,6 +1464,7 @@ void SubdivisionSolver::solveRecursive()
     }
 
     isLeaf_ = false;
+    polygons_.clear();
     solveChildSubtrees();
 
     mergeSolvedChildren();
