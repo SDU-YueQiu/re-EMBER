@@ -27,7 +27,7 @@
 | 分类路径最多三段，由点的定义平面替换构造 | EMBER 3.2、4.4、Fig. 9 | `path_candidates.h` / `path_candidate_details.h` 提供 axis path、plane replacement、bridge rescue；centroid axis 目标会在四舍五入中心附近试少量整数轴探测线 | exhaustive plane replacement 是高 self time；邻近 centroid probe 已减少 inset/trace 放大量，但仍未解决所有 fallback | 下一步审计目标三平面排列和替换顺序是否存在语义重复，而不是只做局部分配优化 |
 | operator indicator early-out | EMBER 4.5.2 | `constant_discard_count`、single-operand assumption、leaf BSP/classification reuse 已接入 | 早停仍依赖当前 reference WNV 和局部保守判定；错误早停会直接破坏结果 | 只在能证明 entire child indicator 常量时扩展；用 oracle 或 metrics 对照验证 |
 | split strategy 减少热点工作量 | EMBER 4.5.3 | WNTV-aware split、center range split、midpoint fallback 已有 metrics | 当前 split 仍可能造成 polygon 放大，且未直接把 leaf trace/BSP 成本纳入策略 | 先用 profile 找“polygon 放大 -> leaf trace 放大”的 workload，再动 split 逻辑 |
-| work-stealing parallel | EMBER 4.5.4、5.3 | 当前 child 子树级 oneTBB 任务，merge 固定 left -> right | 并行边界较粗；叶内 BSP 和分类串行。并行扩展前必须证明无共享状态和稳定聚合 | 不先动并行；先压低单任务工作量和共享状态复杂度 |
+| work-stealing parallel | EMBER 4.5.4、5.3 | 当前 child 子树级 oneTBB 任务，merge 固定 left -> right；sibling task 提交门槛已降到 leaf threshold | 并行边界仍较粗；叶内 BSP 和分类串行。继续扩展前必须证明无共享状态和稳定聚合 | 下一步看更细粒度并行是否会被 task 开销抵消，不能改动结果聚合顺序 |
 | 固定宽度齐次整数图元 | EMBER 3.2；BSP paper Table 1、4.1 | `PlanePoint3i` 已改为默认保留未约分三平面齐次交点；`classify_vertex` 暂用 512 位点积防止现有 `int256_t` 符号溢出 | 这是过渡层，不是最终 fixed 256 backend；导出阶段也因未约分点变重 | 下一步闭合平面系数预算或把 `classify_vertex` 接到自定义 fixed backend，并把 I/O canonical 化留在边界 |
 
 ## 当前 profile 结论
@@ -194,9 +194,24 @@
   `run_20260521_124929` 的 22 个 verifier 全部通过且单轮 `solve_ms`
   为 1694.39ms；`run_20260521_125353` 三次无 oracle 重复计时为
   1688.01ms、1649.74ms、1692.92ms，均值 1676.89ms。
+- sibling 子树并行提交门槛从 `2 * leafPolygonThreshold` 降到
+  `leafPolygonThreshold`，让 25 到 50 个 polygon 的中等子树也进入 oneTBB
+  work-stealing；该改动只改变调度，不改变几何决策和 merge 顺序。Debug 测试通过，
+  `run_20260521_132017` 的 22 个 verifier 全部通过且单轮 `solve_ms`
+  为 1650.381ms；`run_20260521_131933` 三次无 oracle 重复计时为
+  1644.79ms、1658.35ms、1669.02ms，均值 1657.38ms，较
+  `run_20260521_125353` 的 1676.89ms 继续降低约 1.16%。
 
 ## 已测但不保留的局部实验
 
+- 路径候选中的 `makePointFromPlanes()` 和 axis segment 临时端点改用
+  `intersectHomogeneousUnnormalized()`，尝试把 plane replacement / axis path
+  的中间点也推到 BSP 论文的未约分 `intersect_3_planes` 边界；Debug 测试和
+  `run_20260521_131131` 的 22 个 verifier 均通过，但
+  `run_20260521_131614` 三次无 oracle 重复计时为 1678.75ms、1681.76ms、
+  1704.47ms，均值 1688.33ms，差于 `run_20260521_125353` 的 1676.89ms。
+  该路径上的中间点会反复参与 AABB 和半空间分类，未约分齐次代表元放大了后续
+  256 位乘法成本；暂时保留 normalized 路径点。
 - 叶片分类候选路径 view：结构和 trace 计数不变，但 NoTracy solve 变慢。
 - `buildLeafArrangement()` 结果 vector 预留容量：结构计数不变，solve 信号为负。
 - `buildLeafArrangement()` 删除 `polygonCount < 8` 小叶片旧路径，并改用统一
