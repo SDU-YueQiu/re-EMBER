@@ -493,7 +493,7 @@ bool prepareEmberInput(SceneData &scene, const UiState &ui, std::string &outErro
         options.explicitScale = ui.emberManualScale;
 
     std::uint64_t sharedScale = 0;
-    if (!ember::chooseSharedScale({scene.workpieceMesh, scene.toolCurrentMesh}, options, sharedScale, outError))
+    if (!ember::chooseSharedScale(scene.workpieceMesh, scene.toolCurrentMesh, options, sharedScale, outError))
     {
         return false;
     }

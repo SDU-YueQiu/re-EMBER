@@ -185,6 +185,25 @@ bool chooseSharedScale(
     std::string &outError);
 
 /**
+ * @brief 为两个输入网格选择统一的量化尺度。
+ *
+ * @param[in] lhs 第一个输入网格。
+ * @param[in] rhs 第二个输入网格。
+ * @param[in] options 显式或自动量化配置。
+ * @param[out] outScale 成功时写入共享缩放因子。
+ * @param[out] outError 失败时写入可读错误信息。
+ * @retval true 成功选出共享缩放因子。
+ * @retval false 显式缩放非法，或自动缩放下输入坐标超出当前 26-bit 约束。
+ * @note 该入口避免应用层为了二元布尔临时复制完整 `ObjMeshData`。
+ */
+bool chooseSharedScale(
+    const ObjMeshData &lhs,
+    const ObjMeshData &rhs,
+    const QuantizeOptions &options,
+    std::uint64_t &outScale,
+    std::string &outError);
+
+/**
  * @brief 按共享 scale 把输入顶点范围转换为覆盖输入的整数 AABB。
  *
  * @param[in] mesh 输入网格数据。
