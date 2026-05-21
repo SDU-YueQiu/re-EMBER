@@ -249,6 +249,24 @@
 
 ## 已测但不保留的局部实验
 
+- center-range fallback 全量扫描每轴 polygon AABB 端点作为候选切面：该方向试图把
+  固定平均中心切面改成更接近“最小局部复制代价”的轴平面选择。第一版按
+  `splitCount` 优先会选择几乎不推进递归的一侧空切，`re-EMBER_paper_small_batch`
+  栈溢出；改为优先降低最大 child polygon 数并过滤无进展切面后，Debug/CTest 通过，
+  但 `run_20260521_145526` 单轮聚合 `solve_ms` 从 `run_20260521_144122`
+  三次均值 1599.87ms 退化到 2343.96ms。加上 `polygonCount >= 96`
+  的大节点门槛后，`run_20260521_145709` 仍退化到 2325.65ms。结构指标虽有下降，
+  但候选扫描成本远大于省下的 leaf BSP/trace 工作量；不保留。
+- `appendPointToAABB()` 尝试从 `PlanePoint3i` 的三张定义平面里识别单位坐标平面，
+  对已知整数坐标跳过对应轴的 `floorCeilDiv()`。该改动不改变 AABB 语义，Debug/CTest
+  通过，但 `run_20260521_150724` 三次无 oracle 重复计时为 1610.62ms、
+  1616.98ms、1604.68ms，均值 1610.76ms，差于 `run_20260521_144122`
+  的 1599.87ms。额外平面识别分支没有换回足够的 256 位除法节省；不保留。
+- leaf 停止条件尝试从固定 `polygonCount <= 25` 扩展为“低于阈值但 AABB 重叠对很密时
+  继续细分”，以减少局部 BSP pair 和分类 trace。Debug 构建通过，paper small batch
+  通过，但 `re-EMBER_tests` 的 IO 断言 `problem.resultFragments().size() == 12u`
+  失败；该策略会改变当前 API/测试可见的结果片段分块数量。即使几何可能等价，也不能
+  在当前输出契约下直接保留，后续若要做自适应停止，必须先定义并验证片段稳定性边界。
 - 路径候选中的 `makePointFromPlanes()` 和 axis segment 临时端点改用
   `intersectHomogeneousUnnormalized()`，尝试把 plane replacement / axis path
   的中间点也推到 BSP 论文的未约分 `intersect_3_planes` 边界；Debug 测试和
