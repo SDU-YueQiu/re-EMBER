@@ -266,6 +266,13 @@
 
 ## 已测但不保留的局部实验
 
+- 删除 `ClassifiedFragment` 中间数组，改为在单片叶片分类成功后直接用当前
+  front/back WNV 追加 `resultFragments_`，尝试避免每个成功分类片段额外复制一次
+  `Polygon256`。结构计数与 `run_20260521_233848` 完全一致，但
+  `run_20260521_234558` 的 100 组论文样本单轮 NoTracy 计时整体变慢：
+  平均 `solve_ms` 从 120.335ms 到 120.715ms，`end_to_end_ms` 从 344.953ms
+  到 346.368ms。small/medium 分别有小幅收益，但 large 33 组中 21 组 solve
+  退化，large 平均 `solve_ms` 从 246.313ms 到 249.679ms；不保留。
 - center-range fallback 全量扫描每轴 polygon AABB 端点作为候选切面：该方向试图把
   固定平均中心切面改成更接近“最小局部复制代价”的轴平面选择。第一版按
   `splitCount` 优先会选择几乎不推进递归的一侧空切，`re-EMBER_paper_small_batch`
