@@ -362,6 +362,15 @@
   与当前保留基线 `run_20260522_040952` 的结构计数和 trace 次数完全一致，100 个
   raw OBJ 与基线逐文件 SHA256 完全一致。两轮新结果均值 `solve_ms`
   从 117.172ms 降到 117.035ms。
+- WNV surface-point trace 的末段如果已经通过 `poly.classify(endPoint)` 确认终点在
+  当前 polygon 内/边界，且起点侧别是严格 front/back（`pcs == ±1`），则支撑面交点
+  必定就是该终点；此时直接复用 `endPoint` 做面内位置分类，跳过
+  `intersectLinePlaneUnnormalized()`。共面外侧贴边路径仍走原非唯一交点和边界接触
+  逻辑，避免把 `Polygon256::classify()` 的外部同面返回值误当成穿越方向。Debug 构建和
+  `ctest --preset default --output-on-failure --timeout 120` 通过；两轮 100 组论文样本
+  `run_20260522_045009` / `run_20260522_045123` 与当前保留基线
+  `run_20260522_042538` 的结构计数、trace 诊断计数和 100 个 raw OBJ SHA256
+  完全一致。两轮新结果均值 `solve_ms` 从 117.035ms 降到 116.842ms。
 
 ## 已测但不保留的局部实验
 
