@@ -333,6 +333,17 @@
 
 ## 已测但不保留的局部实验
 
+- 交线载体构造复用已读 polygon AABB：尝试把
+  `computePolygonPlaneIntersection()` 拆出接收 `AABB3i` 的内部入口，让
+  `computePolygonIntersectionCarrierTrusted()` 和
+  `computeBidirectionalPolygonIntersectionCarriersTrusted()` 在 pair AABB 预筛后复用
+  `targetBox/incomingBox` 或 `lhsBox/rhsBox`，避免交线端点载体构造内重复读取
+  `poly.aabb()`。Debug 构建和 ctest 通过；`run_20260522_031533` 与当前保留基线
+  `run_20260522_030809` 的结构计数完全一致，100 个 raw OBJ 与基线逐文件
+  SHA256 完全一致；但相对 WNV polygon AABB 复用后的两轮保留基线
+  `run_20260522_030701` / `run_20260522_030809` 均值，`solve_ms` 从
+  118.311ms 退化到 118.704ms，`export_ms` 从 83.857ms 退化到 84.124ms。
+  额外入口和引用传递没有换回足够的 AABB 访问节省；不保留。
 - 局部 BSP 递归插入端点齐次点缓存：尝试把
   `intersectHomogeneousUnnormalized(basePlane, endpointPlane, insertPlane)`
   的结果沿 `BSPTree::addSegmentRecursive()` 递归传递，减少内部节点重复构造端点
