@@ -294,6 +294,19 @@
   `run_20260521_233848` 一致；但 `run_20260522_000027` 平均 `solve_ms`
   从 120.335ms 退化到 120.837ms，large 平均从 246.313ms 到 247.601ms；
   不保留。
+- OBJ polygon soup 构建尝试让正常共面 face 直接按索引访问 `quantizedVertices`，
+  避免每个 face 先拷贝到临时 `faceVertices` vector；三角化 fallback 改用 3
+  个索引的小数组。Debug 构建和 ctest 通过，100 组论文样本结构计数与
+  `run_20260522_000710` 完全一致；但 `run_20260522_001255` 平均
+  `prepare_ms` 基本持平（112.997ms 到 113.084ms），`end_to_end_ms`
+  从 340.942ms 到 342.630ms。导入阶段主要瓶颈不在该 face 顶点拷贝上，不保留。
+- `orientPolygonEdgesOutward()` 尝试把临时顶点数组从每次 `std::vector`
+  分配改成栈上小缓冲，以减少高频 `Polygon256` 构造的局部分配。直接
+  `std::array<PlanePoint3i, 16>` 会默认构造大量大整数对象，`run_20260522_001621`
+  和 `run_20260522_001723` 没有稳定收益；改成 `std::optional<PlanePoint3i>`
+  延迟构造后，`run_20260522_001907` 一轮显示 `prepare_ms` 下降 1.06%，
+  但 `run_20260522_002014` 又回归到 `prepare_ms` 上升 0.43%、端到端上升
+  0.48%。结构计数均与 `run_20260522_000710` 一致，收益落在噪声内；不保留。
 - center-range fallback 全量扫描每轴 polygon AABB 端点作为候选切面：该方向试图把
   固定平均中心切面改成更接近“最小局部复制代价”的轴平面选择。第一版按
   `splitCount` 优先会选择几乎不推进递归的一侧空切，`re-EMBER_paper_small_batch`
