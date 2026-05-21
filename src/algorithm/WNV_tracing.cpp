@@ -471,28 +471,8 @@ traceStatus tracePathWNVToSurfacePointImpl(
         if (hasPathBox && canSkipPolygonForPathAABB(poly, pathAABB.pathBox))
             continue;
 
-        int pcs = 0;
-        if (polygonStartSideCache != nullptr)
-        {
-            int &cachedSide = (*polygonStartSideCache)[polygonIndex];
-            if (cachedSide == kUnknownPolygonStartSide)
-            {
-                REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::classifyStartPoint");
-                cachedSide = poly.classify(pathStartPoint);
-            }
-            pcs = cachedSide;
-        }
-        else
-        {
-            REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::classifyStartPoint");
-            pcs = poly.classify(pathStartPoint);
-        }
-        if (pcs == 0)
-        {
-            recordTracePathInvalid(solveMetrics, TracePathInvalidReason::StartPointOnBoundary);
-            return PATH_INVALID;
-        }
-
+        int previousEndSide = 0;
+        bool hasPreviousEndSide = false;
         for (std::size_t segmentIndex = 0; segmentIndex < path.size(); ++segmentIndex)
         {
             const Segment256 &seg = path[segmentIndex];
@@ -500,14 +480,35 @@ traceStatus tracePathWNVToSurfacePointImpl(
                 hasPathBox ? &pathAABB.segmentBox(segmentIndex) : nullptr;
             const PlanePoint3i &endPoint = seg.getEndPointRef();
             const bool isLastSegment = (segmentIndex + 1 == path.size());
-            bool segmentRelevant = false;
-            bool segmentRelevanceKnown = false;
-            if (isLastSegment)
+            const bool segmentRelevant = isSegmentRelevantToPolygon(seg, poly, segmentBox);
+            if (!segmentRelevant)
             {
-                segmentRelevant = isSegmentRelevantToPolygon(seg, poly, segmentBox);
-                segmentRelevanceKnown = true;
-                if (!segmentRelevant)
-                    break;
+                hasPreviousEndSide = false;
+                continue;
+            }
+
+            int pcs = 0;
+            if (hasPreviousEndSide)
+                pcs = previousEndSide;
+            else if (segmentIndex == 0 && polygonStartSideCache != nullptr)
+            {
+                int &cachedSide = (*polygonStartSideCache)[polygonIndex];
+                if (cachedSide == kUnknownPolygonStartSide)
+                {
+                    REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::classifyStartPoint");
+                    cachedSide = poly.classify(pathStartPoint);
+                }
+                pcs = cachedSide;
+            }
+            else
+            {
+                REEMBER_PROFILE_ZONE("tracePathWNVToSurfacePointImpl::classifyStartPoint");
+                pcs = poly.classify(seg.getStartPointRef());
+            }
+            if (pcs == 0)
+            {
+                recordTracePathInvalid(solveMetrics, TracePathInvalidReason::StartPointOnBoundary);
+                return PATH_INVALID;
             }
 
             int pce = 0;
@@ -523,15 +524,8 @@ traceStatus tracePathWNVToSurfacePointImpl(
             }
             if (isSameStrictSide(pcs, pce))
             {
-                pcs = pce;
-                continue;
-            }
-
-            if (!segmentRelevanceKnown)
-                segmentRelevant = isSegmentRelevantToPolygon(seg, poly, segmentBox);
-            if (!segmentRelevant)
-            {
-                pcs = pce;
+                previousEndSide = pce;
+                hasPreviousEndSide = true;
                 continue;
             }
 
@@ -571,7 +565,8 @@ traceStatus tracePathWNVToSurfacePointImpl(
                         const int sigma = (pcs - pce) / 2;
                         addScaledWNTV(surfaceWNV, poly.WNTV, sigma);
                     }
-                    pcs = pce;
+                    previousEndSide = pce;
+                    hasPreviousEndSide = true;
                     continue;
                 }
                 if (hitLocation == detail::PolygonSurfaceLocation::StrictInterior)
@@ -584,7 +579,8 @@ traceStatus tracePathWNVToSurfacePointImpl(
                         addScaledWNTV(surfaceWNV, poly.WNTV, sigma);
                     }
                 }
-                pcs = pce;
+                previousEndSide = pce;
+                hasPreviousEndSide = true;
                 continue;
             }
 
@@ -599,7 +595,8 @@ traceStatus tracePathWNVToSurfacePointImpl(
                 return PATH_INVALID;
             }
 
-            pcs = pce;
+            previousEndSide = pce;
+            hasPreviousEndSide = true;
         }
     }
 
