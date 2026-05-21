@@ -418,6 +418,16 @@
   counters、leaf classification trace/candidate 计数完全一致，`prepare_ms` 从
   117.092ms 降到 51.839ms，`end_to_end_ms` 从 330.468ms 降到 265.735ms；
   `solve_ms` / `export_ms` 基本只剩计时噪声。
+- raw trusted OBJ 导出增加紧凑 face index 恢复路径：当 CLI 使用
+  `topologyMode=Raw` 且 `validateFragments=false` 时，导出阶段仍按原顺序做齐次顶点
+  primitive 去重，但 face 不再表示为每面一个小 `std::vector<std::size_t>`，而是用
+  扁平 vertex-index 数组加 offsets 写出 OBJ。公开验证路径、conforming 拓扑恢复和 STL
+  导出仍走原 `RecoveredPolygonSoupData`。`ctest --test-dir build\tests --output-on-failure --timeout 120`
+  通过；`run_20260522_065244` 对 34 个 small 样本做 `-VerifyWithOracle` 全部通过。
+  `run_20260522_065445` 的 100 组 NoTracy 与 `run_20260522_064654` 的 key structural
+  counters、leaf classification trace/candidate 计数完全一致，100 个 raw OBJ SHA256
+  完全一致；平均 `export_ms` 从 83.672ms 降到 81.736ms，`end_to_end_ms`
+  从 265.735ms 到 264.485ms。
 
 ## 已测但不保留的局部实验
 
