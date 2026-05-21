@@ -383,6 +383,16 @@
 
 ## 已测但不保留的局部实验
 
+- 局部 BSP 递归插入端点约束平面零侧短路：尝试在
+  `BSPTree::addSegmentRecursive()` 计算端点相对当前 `node.splitPlane` 的侧别前，
+  若 carrier 端点约束平面 `v0` / `v1` 与 `node.splitPlane` 完全相同则直接返回
+  0，避免一次三平面交点和 4D dot 分类。该改动是代数恒等短路，不改变递归走向；
+  Debug 构建和 `ctest --preset default --output-on-failure --timeout 120` 通过；
+  100 组论文样本 `run_20260522_054428` 与当前保留基线 `run_20260522_045123`
+  的结构计数、trace 诊断计数和 100 个 raw OBJ SHA256 完全一致，但平均
+  `solve_ms` 退化到 122.712ms，明显差于当前保留优化
+  `run_20260522_053232` / `run_20260522_053346` 的两轮均值 116.541ms。
+  说明端点平面等价命中率不足以覆盖每次递归多出的两次平面等价比较，源码不保留。
 - 叶片编排 adjacency 计数前移和 fragments 预留：尝试在
   `buildLeafArrangement()` 枚举 pair relation 并写入 adjacency 时同步累计
   `adjacencyOffsets`，删除排序后的第二次 adjacency 扫描；同时对输出
