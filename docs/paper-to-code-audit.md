@@ -298,6 +298,16 @@
   的结构计数和 trace 状态计数完全一致。`run_20260522_005611` 平均 `solve_ms`
   为 118.241ms、`end_to_end_ms` 为 337.422ms；`run_20260522_005732`
   平均 `solve_ms` 为 119.231ms、`end_to_end_ms` 为 338.561ms。
+- plane replacement fallback 路径为最多三段的 `rawPath` / `outPath` 预留容量，
+  避免 AABB 内替换路径失败后进入 raw path + clip/bridge 时发生短 vector 扩容。
+  该改动不改变候选点、替换顺序、trace 次数或 WNV 传播数学。Debug 构建和
+  `ctest --preset default --output-on-failure --timeout 120` 通过；两轮 100 组论文样本
+  `run_20260522_021842` / `run_20260522_021956` 与 `run_20260522_005732`
+  的结构计数、result 计数、`leaf_classification_trace_attempt_count` 和
+  `leaf_classification_plane_replacement_path_attempt_count` 完全一致。两轮新结果均值
+  `solve_ms` 约 118.253ms、`end_to_end_ms` 约 337.346ms，优于
+  `run_20260522_005611` / `run_20260522_005732` 两轮保留基线均值
+  118.736ms / 337.992ms。
 
 ## 已测但不保留的局部实验
 
