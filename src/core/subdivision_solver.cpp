@@ -520,9 +520,8 @@ bool considerWntvSeparationCandidate(
     SplitAxis3i axis,
     const Integer &centerCoordinate,
     const AABB3i &otherBox,
-    bool &hasBestCandidate,
-    Integer &bestDistance,
-    AABBSplit3i &bestSplit)
+    AABBSplit3i &outCandidate,
+    Integer &outDistance)
 {
     Integer coordinate = 0;
     Integer distance = 0;
@@ -546,14 +545,85 @@ bool considerWntvSeparationCandidate(
     if (!splitAABBAtCoordinate(box, axis, coordinate, candidate))
         return false;
 
-    if (!hasBestCandidate || distance > bestDistance)
+    outCandidate = candidate;
+    outDistance = distance;
+    return true;
+}
+
+struct SplitCostEstimate
+{
+    std::size_t leftCount = 0;
+    std::size_t rightCount = 0;
+    std::size_t splitCount = 0;
+    std::size_t maxChildCount = 0;
+    std::size_t imbalance = 0;
+};
+
+SplitCostEstimate estimateSplitCostFromGroups(
+    const WntvSubdivisionGroups &groups,
+    const AABBSplit3i &split) noexcept
+{
+    SplitCostEstimate cost;
+    for (std::size_t groupIndex = 0; groupIndex < groups.size(); ++groupIndex)
     {
-        hasBestCandidate = true;
-        bestDistance = distance;
-        bestSplit = candidate;
+        const WntvSubdivisionGroup &group = groups[groupIndex];
+        if (axisMaximum(group.box, split.axis) <= split.coordinate)
+            cost.leftCount += group.polygonCount;
+        else if (axisMinimum(group.box, split.axis) >= split.coordinate)
+            cost.rightCount += group.polygonCount;
+        else
+        {
+            cost.leftCount += group.polygonCount;
+            cost.rightCount += group.polygonCount;
+            cost.splitCount += group.polygonCount;
+        }
     }
 
-    return true;
+    cost.maxChildCount = std::max(cost.leftCount, cost.rightCount);
+    cost.imbalance = cost.maxChildCount - std::min(cost.leftCount, cost.rightCount);
+    return cost;
+}
+
+SplitCostEstimate estimateSplitCostFromPolygons(
+    const std::vector<Polygon256> &polygons,
+    const AABBSplit3i &split)
+{
+    REEMBER_PROFILE_ZONE("estimateSplitCostFromPolygons");
+
+    SplitCostEstimate cost;
+    for (const Polygon256 &polygon : polygons)
+    {
+        const AABB3i &polygonBox = polygon.aabb();
+        if (isValidAABB(polygonBox) && axisMaximum(polygonBox, split.axis) <= split.coordinate)
+            ++cost.leftCount;
+        else if (isValidAABB(polygonBox) && axisMinimum(polygonBox, split.axis) >= split.coordinate)
+            ++cost.rightCount;
+        else
+        {
+            ++cost.leftCount;
+            ++cost.rightCount;
+            ++cost.splitCount;
+        }
+    }
+
+    cost.maxChildCount = std::max(cost.leftCount, cost.rightCount);
+    cost.imbalance = cost.maxChildCount - std::min(cost.leftCount, cost.rightCount);
+    return cost;
+}
+
+bool isBetterSplitCost(
+    const SplitCostEstimate &candidateCost,
+    const Integer &candidateTieBreaker,
+    const SplitCostEstimate &bestCost,
+    const Integer &bestTieBreaker) noexcept
+{
+    if (candidateCost.splitCount != bestCost.splitCount)
+        return candidateCost.splitCount < bestCost.splitCount;
+    if (candidateCost.maxChildCount != bestCost.maxChildCount)
+        return candidateCost.maxChildCount < bestCost.maxChildCount;
+    if (candidateCost.imbalance != bestCost.imbalance)
+        return candidateCost.imbalance < bestCost.imbalance;
+    return candidateTieBreaker > bestTieBreaker;
 }
 
 // 论文 4.5.3 策略：优先选能把某个 WNTV 类整体隔到单侧的轴向切分面。
@@ -570,6 +640,7 @@ bool chooseWntvAwareSplit(
     bool hasCandidate = false;
     Integer bestDistance = 0;
     AABBSplit3i bestSplit;
+    SplitCostEstimate bestCost;
     for (std::size_t centerGroupIndex = 0; centerGroupIndex < groups.size(); ++centerGroupIndex)
     {
         const WntvSubdivisionGroup &centerGroup = groups[centerGroupIndex];
@@ -583,14 +654,26 @@ bool chooseWntvAwareSplit(
                         SplitAxis3i::X, SplitAxis3i::Y, SplitAxis3i::Z
                     })
             {
-                considerWntvSeparationCandidate(
-                    box,
-                    axis,
-                    groupCenterCoordinate(centerGroup, axis),
-                    otherGroup.box,
-                    hasCandidate,
-                    bestDistance,
-                    bestSplit);
+                AABBSplit3i candidate;
+                Integer distance = 0;
+                if (!considerWntvSeparationCandidate(
+                            box,
+                            axis,
+                            groupCenterCoordinate(centerGroup, axis),
+                            otherGroup.box,
+                            candidate,
+                            distance))
+                    continue;
+
+                const SplitCostEstimate candidateCost = estimateSplitCostFromGroups(groups, candidate);
+                if (!hasCandidate ||
+                        isBetterSplitCost(candidateCost, distance, bestCost, bestDistance))
+                {
+                    hasCandidate = true;
+                    bestDistance = distance;
+                    bestCost = candidateCost;
+                    bestSplit = candidate;
+                }
             }
         }
     }
@@ -668,6 +751,7 @@ void recordSplitStrategyMetrics(
 
 // 无 WNTV 分离候选时，用多边形中心范围近似最大方差轴，再按平均中心切分。
 bool chooseCenterRangeSplit(
+    const std::vector<Polygon256> &polygons,
     const PolygonCenterSplitStats &stats,
     const AABB3i &box,
     AABBSplit3i &outSplit)
@@ -680,6 +764,7 @@ bool chooseCenterRangeSplit(
     bool hasCandidate = false;
     Integer bestRange = 0;
     AABBSplit3i bestSplit;
+    SplitCostEstimate bestCost;
     for (const SplitAxis3i axis : {
                 SplitAxis3i::X, SplitAxis3i::Y, SplitAxis3i::Z
             })
@@ -692,10 +777,13 @@ bool chooseCenterRangeSplit(
         if (!splitAABBAtCoordinate(box, axis, averageCenterCoordinate(stats, axis), candidate))
             continue;
 
-        if (!hasCandidate || range > bestRange)
+        const SplitCostEstimate candidateCost = estimateSplitCostFromPolygons(polygons, candidate);
+        if (!hasCandidate ||
+                isBetterSplitCost(candidateCost, range, bestCost, bestRange))
         {
             hasCandidate = true;
             bestRange = range;
+            bestCost = candidateCost;
             bestSplit = candidate;
         }
     }
@@ -725,7 +813,7 @@ bool chooseSubdivisionSplit(
         outStrategy = SubdivisionSplitStrategy::WntvAware;
         return true;
     }
-    if (hasSplitStats && chooseCenterRangeSplit(splitStats.centerStats, box, outSplit))
+    if (hasSplitStats && chooseCenterRangeSplit(polygons, splitStats.centerStats, box, outSplit))
     {
         outStrategy = SubdivisionSplitStrategy::CenterRange;
         return true;

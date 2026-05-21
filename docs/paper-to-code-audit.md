@@ -233,6 +233,17 @@
   1630.88ms、1625.60ms、1631.27ms，均值 1629.25ms，较
   `run_20260521_141226` 的 1633.99ms 继续降低约 0.29%。该类容器级优化收益已很小，
   后续应转向候选数量、leaf-local BSP 和 trace 扫描面的结构性重构。
+- subdivision 切分选择从单纯的 WNTV 分离距离 / center range 最大，改为对候选切分面
+  估计局部代价：优先减少会被复制到左右 child 的 polygon 数，其次压低最大 child
+  polygon 数和不平衡度，最后才用原距离或范围作为 tie-breaker。WNTV-aware 仍优先于
+  center-range，只是在候选内部避免选择会制造更多后续 leaf BSP / trace 工作的切分面；
+  该改动对齐 BSP 论文 4.5 中按局部 BSP 复杂度控制 cell 的方向，而不是只盯当前节点
+  polygon 计数。Debug 测试和 ctest 通过，`run_20260521_143515` 的 22 个 verifier
+  全部通过；`run_20260521_143429` 三次无 oracle 重复计时为 1615.61ms、
+  1610.88ms、1618.17ms，均值 1614.88ms，较 `run_20260521_142321`
+  的 1629.25ms 降低约 0.88%。结构指标也同步下降：平均 `node_count`
+  25739 -> 24588，`leaf_fragment_count` 478012 -> 455847，
+  `leaf_classification_trace_attempt_count` 232002 -> 221537。
 
 ## 已测但不保留的局部实验
 
