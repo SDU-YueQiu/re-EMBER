@@ -383,6 +383,15 @@
 
 ## 已测但不保留的局部实验
 
+- 叶片分类候选路径签名省略起点：尝试让 `makePathSignature()` 只记录每段终点，
+  不再记录首段起点。进入 trace 前候选路径已经由 debug 前置条件约束为从当前
+  local reference 出发，同一 fragment 内起点为常量，因此该改动不改变 path
+  duplicate 判定。Debug 构建和 `ctest --preset default --output-on-failure --timeout 120`
+  通过；100 组论文样本 `run_20260522_055309` 与当前保留基线
+  `run_20260522_045123` 的结构计数、candidate/trace 诊断计数和 100 个 raw OBJ
+  SHA256 完全一致，但平均 `solve_ms` 为 117.238ms，差于当前保留优化
+  `run_20260522_053232` / `run_20260522_053346` 的两轮均值 116.541ms。
+  说明少复制一个齐次端点没有换回稳定收益，源码不保留。
 - 叶片分类中间端点预检循环反转：尝试把
   `hasIntermediateEndpointOnInputSurface()` 从 polygon 外层 / path 中间端点内层改成
   中间端点外层 / polygon 内层，希望减少每个 polygon 上重复读取 path 端点和分支。
