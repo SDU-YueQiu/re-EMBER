@@ -153,6 +153,15 @@
   1786.30ms 降到 1761.29ms，`end_to_end_ms` 从 5196.28ms 降到 5147.10ms。
   `run_20260521_085919` 额外做 3 次无 oracle 重复计时，按每轮 22 个 workload
   聚合 `solve_ms` 为 1745.69ms、1754.54ms、1762.66ms，收益稳定。
+- plane replacement segment 增加“已定向端点缓存”内部构造入口：该入口允许端点
+  边界平面保留非 primitive 比例，只要求方向线、两端齐次点缓存和外侧半空间约定
+  已经由调用方验证。`buildPlaneReplacementSegment()` 因此不再把核心路径里的端点
+  平面重新 `primitivePlane()`，更贴近 BSP 论文中 core solve 不依赖 gcd 的边界。
+  `run_20260521_101713` 对同一 10 small / 10 medium / 2 large workload 做了
+  `-NoTracy -VerifyWithOracle`，22 个 verifier 全部通过，单轮聚合 `solve_ms`
+  为 1741.11ms；`run_20260521_102201` 三次无 oracle 重复计时为
+  1752.32ms、1742.11ms、1744.67ms，均值 1746.37ms，略优于
+  `run_20260521_085919` 的 1754.30ms。
 
 ## 已测但不保留的局部实验
 
