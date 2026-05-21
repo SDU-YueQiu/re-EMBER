@@ -908,6 +908,66 @@ struct RecoveredPolygonBuildResult
     std::string error;
 };
 
+bool recoverRawTrustedPolygonSoupData(
+    const std::vector<Polygon256> &fragments,
+    RecoveredPolygonSoupData &outData,
+    std::string &outError)
+{
+    std::vector<std::string> fragmentErrors(fragments.size());
+    parallelForStatic(fragments.size(), [&](std::size_t polygonIndex)
+    {
+        const std::vector<PlanePoint3i> &vertices = fragments[polygonIndex].vertices();
+        for (const PlanePoint3i &vertex : vertices)
+        {
+            if (!vertex.hasUniqueIntersection() || isZero(vertex.x.w))
+            {
+                fragmentErrors[polygonIndex] =
+                    "Failed to recover polygon " + std::to_string(polygonIndex) +
+                    ": Failed to recover an ordered polygon vertex with a unique finite homogeneous point.";
+                return;
+            }
+        }
+    });
+
+    for (const std::string &fragmentError : fragmentErrors)
+    {
+        if (!fragmentError.empty())
+            return failIo(outError, fragmentError);
+    }
+
+    std::size_t totalVertexSlotCount = 0;
+    for (const Polygon256 &fragment : fragments)
+        totalVertexSlotCount += fragment.edgeCount();
+
+    std::unordered_map<
+        HomogeneousPointKey,
+        std::size_t,
+        HomogeneousPointKeyHash,
+        HomogeneousPointKeyEqual> vertexIndexByKey;
+    vertexIndexByKey.reserve(totalVertexSlotCount);
+    outData.uniqueVertices.reserve(totalVertexSlotCount);
+    outData.faces.reserve(fragments.size());
+
+    for (const Polygon256 &fragment : fragments)
+    {
+        const std::vector<PlanePoint3i> &vertices = fragment.vertices();
+        std::vector<std::size_t> face;
+        face.reserve(vertices.size());
+        for (const PlanePoint3i &vertex : vertices)
+        {
+            HomogeneousPointKey key(vertex.x);
+            const auto [entry, inserted] = vertexIndexByKey.emplace(std::move(key), outData.uniqueVertices.size());
+            if (inserted)
+                outData.uniqueVertices.push_back(vertex);
+
+            face.push_back(entry->second);
+        }
+        outData.faces.push_back(std::move(face));
+    }
+
+    return true;
+}
+
 bool recoverPolygonSoupData(
     const std::vector<Polygon256> &fragments,
     RecoveredPolygonSoupData &outData,
@@ -921,6 +981,9 @@ bool recoverPolygonSoupData(
     outData.faceEdgePlanes.clear();
     outData.faceEdgeProvenances.clear();
     outError.clear();
+
+    if (!includeTopologyMetadata && !validateFragments)
+        return recoverRawTrustedPolygonSoupData(fragments, outData, outError);
 
     std::vector<RecoveredPolygonBuildResult> recoveredPolygons(fragments.size());
     parallelForStatic(fragments.size(), [&](std::size_t polygonIndex)

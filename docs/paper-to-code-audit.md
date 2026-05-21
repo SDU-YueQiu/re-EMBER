@@ -308,6 +308,17 @@
   `solve_ms` 约 118.253ms、`end_to_end_ms` 约 337.346ms，优于
   `run_20260522_005611` / `run_20260522_005732` 两轮保留基线均值
   118.736ms / 337.992ms。
+- raw OBJ 导出在 `validateFragments=false` 且不需要 topology metadata 时绕过
+  `RecoveredPolygonBuildResult::orderedVertices` 中间复制，先并行触发 fragment 顶点缓存
+  和有限性检查，再按原顺序直接从 `Polygon256::vertices()` 做全局齐次顶点去重与
+  face index 恢复。公开 API 默认验证路径、conforming/STL 拓扑恢复路径不变。
+  Debug 构建和 `ctest --preset default --output-on-failure --timeout 120` 通过；两轮
+  100 组论文样本 `run_20260522_023707` / `run_20260522_023820` 与
+  `run_20260522_021956` 的结构计数、result 计数、exported face 数和 trace 次数完全一致，
+  且第二轮 100 个 raw OBJ 与基线逐文件 SHA256 完全一致。相对
+  `run_20260522_021842` / `run_20260522_021956` 当前保留基线，两轮新结果均值
+  `export_ms` 从 89.545ms 降到 84.127ms，`end_to_end_ms` 从 337.345ms 降到
+  332.007ms，`process_elapsed_ms` 从 387.247ms 降到 376.655ms。
 
 ## 已测但不保留的局部实验
 
