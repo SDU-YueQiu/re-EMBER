@@ -16,6 +16,7 @@
 #include <boost/multiprecision/cpp_int.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <array>
 #include <charconv>
 #include <cctype>
@@ -915,6 +916,19 @@ struct RecoveredPolygonBuildResult
     std::string error;
 };
 
+void storeMinimumIndex(std::atomic<std::size_t> &target, std::size_t value) noexcept
+{
+    std::size_t current = target.load(std::memory_order_relaxed);
+    while (value < current &&
+           !target.compare_exchange_weak(
+               current,
+               value,
+               std::memory_order_relaxed,
+               std::memory_order_relaxed))
+    {
+    }
+}
+
 bool recoverRawTrustedPolygonSoupDataCompact(
     const std::vector<Polygon256> &fragments,
     RawRecoveredPolygonSoupData &outData,
@@ -924,26 +938,31 @@ bool recoverRawTrustedPolygonSoupDataCompact(
     outData.faceVertexIndices.clear();
     outData.faceOffsets.clear();
 
-    std::vector<std::string> fragmentErrors(fragments.size());
+    constexpr std::size_t kNoInvalidPolygon = std::numeric_limits<std::size_t>::max();
+    std::atomic<std::size_t> firstInvalidPolygon{kNoInvalidPolygon};
     parallelForStatic(fragments.size(), [&](std::size_t polygonIndex)
     {
+        if (polygonIndex >= firstInvalidPolygon.load(std::memory_order_relaxed))
+            return;
+
         const std::vector<PlanePoint3i> &vertices = fragments[polygonIndex].vertices();
         for (const PlanePoint3i &vertex : vertices)
         {
             if (!vertex.hasUniqueIntersection() || isZero(vertex.x.w))
             {
-                fragmentErrors[polygonIndex] =
-                    "Failed to recover polygon " + std::to_string(polygonIndex) +
-                    ": Failed to recover an ordered polygon vertex with a unique finite homogeneous point.";
+                storeMinimumIndex(firstInvalidPolygon, polygonIndex);
                 return;
             }
         }
     });
 
-    for (const std::string &fragmentError : fragmentErrors)
+    const std::size_t invalidPolygon = firstInvalidPolygon.load(std::memory_order_relaxed);
+    if (invalidPolygon != kNoInvalidPolygon)
     {
-        if (!fragmentError.empty())
-            return failIo(outError, fragmentError);
+        return failIo(
+            outError,
+            "Failed to recover polygon " + std::to_string(invalidPolygon) +
+            ": Failed to recover an ordered polygon vertex with a unique finite homogeneous point.");
     }
 
     std::size_t totalVertexSlotCount = 0;
