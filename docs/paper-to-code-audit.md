@@ -145,6 +145,14 @@
   为 1786.30ms；`run_20260521_085121` 额外做 3 次无 oracle 重复计时，按每轮
   22 个 workload 聚合 `solve_ms` 为 1781.70ms、1783.78ms、1791.77ms，
   相比上一阶段 3 次均值约 1794.77ms 继续下降。
+- trusted clipping 的 release 路径只保留边数和 provenance 数量检查，把每条输出边的
+  `hasUniqueIntersection()` / 支撑平面平行性结构验证和 `isValid()` 留在 Debug；
+  依据是当前裁剪输入已经是有效凸多边形，边顺序和新增裁剪边由同一次遍历维护。
+  `run_20260521_085436` 对同一 10 small / 10 medium / 2 large workload 做了
+  `-NoTracy -VerifyWithOracle`，22 个 verifier 全部通过，聚合 `solve_ms` 从
+  1786.30ms 降到 1761.29ms，`end_to_end_ms` 从 5196.28ms 降到 5147.10ms。
+  `run_20260521_085919` 额外做 3 次无 oracle 重复计时，按每轮 22 个 workload
+  聚合 `solve_ms` 为 1745.69ms、1754.54ms、1762.66ms，收益稳定。
 
 ## 已测但不保留的局部实验
 
