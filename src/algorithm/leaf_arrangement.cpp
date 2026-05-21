@@ -163,7 +163,7 @@ std::vector<Polygon256> buildLeafArrangement(const std::vector<Polygon256> &poly
         }
 
         BSPTree tree;
-        tree.setBasePolygon(polygons[i], i);
+        tree.setBasePolygonForPrecomputedRelations(polygons[i], i);
         for (std::size_t insertionIndex = insertionBegin; insertionIndex < insertionEnd; ++insertionIndex)
         {
             const LeafArrangementInsertion &insertion = adjacency[insertionIndex];

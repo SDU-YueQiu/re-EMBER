@@ -74,8 +74,21 @@ void BSPTree::setBasePolygon(const Polygon256 &polygon, std::size_t orderKey)
     REEMBER_PROFILE_ZONE("BSPTree::setBasePolygon");
 
     basePolygon = polygon;
+    basePlane = basePolygon.plane;
+    hasFullBasePolygon = true;
     baseOrderKey = orderKey;
     root = std::make_unique<BSPNode>(basePolygon);
+}
+
+void BSPTree::setBasePolygonForPrecomputedRelations(const Polygon256 &polygon, std::size_t orderKey)
+{
+    REEMBER_PROFILE_ZONE("BSPTree::setBasePolygonForPrecomputedRelations");
+
+    basePolygon = Polygon256();
+    basePlane = polygon.plane;
+    hasFullBasePolygon = false;
+    baseOrderKey = orderKey;
+    root = std::make_unique<BSPNode>(polygon);
 }
 
 void BSPTree::insert(const Polygon256 &polygon, std::size_t incomingOrder)
@@ -85,7 +98,7 @@ void BSPTree::insert(const Polygon256 &polygon, std::size_t incomingOrder)
     if (!polygon.isValid())
         throw std::runtime_error("BSPTree::insert received an invalid incoming polygon.");
 
-    if (!basePolygon.isValid())
+    if (!hasFullBasePolygon || !basePolygon.isValid())
         throw std::runtime_error("BSPTree::insert cannot run because the base polygon is invalid.");
 
     insertTrusted(polygon, incomingOrder);
@@ -94,6 +107,9 @@ void BSPTree::insert(const Polygon256 &polygon, std::size_t incomingOrder)
 void BSPTree::insertTrusted(const Polygon256 &polygon, std::size_t incomingOrder)
 {
     REEMBER_PROFILE_ZONE("BSPTree::insertTrusted");
+
+    if (!hasFullBasePolygon)
+        throw std::runtime_error("BSPTree::insertTrusted requires a full base polygon.");
 
     if (!doAABBsOverlap(basePolygon.aabb(), polygon.aabb()))
         return;
@@ -174,11 +190,11 @@ void BSPTree::addSegmentRecursive(BSPNode &node, const Plane3i &v0, const Plane3
     if (areSamePlaneEquation(node.splitPlane, insertPlane))
         return;
 
-    const int side0 = classifyPlaneTripleIntersectionAgainstPlane(basePolygon.plane, v0, insertPlane, node.splitPlane);
-    const int side1 = classifyPlaneTripleIntersectionAgainstPlane(basePolygon.plane, v1, insertPlane, node.splitPlane);
+    const int side0 = classifyPlaneTripleIntersectionAgainstPlane(basePlane, v0, insertPlane, node.splitPlane);
+    const int side1 = classifyPlaneTripleIntersectionAgainstPlane(basePlane, v1, insertPlane, node.splitPlane);
 #ifndef NDEBUG
-    const PlanePoint3i p0(basePolygon.plane, v0, insertPlane);
-    const PlanePoint3i p1(basePolygon.plane, v1, insertPlane);
+    const PlanePoint3i p0(basePlane, v0, insertPlane);
+    const PlanePoint3i p1(basePlane, v1, insertPlane);
     if (side0 != p0.classify(node.splitPlane) || side1 != p1.classify(node.splitPlane))
         throw std::runtime_error("BSPTree optimized endpoint classification disagrees with PlanePoint3i.");
 #endif
