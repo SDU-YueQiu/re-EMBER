@@ -383,6 +383,16 @@
 
 ## 已测但不保留的局部实验
 
+- 叶片分类中间端点预检循环反转：尝试把
+  `hasIntermediateEndpointOnInputSurface()` 从 polygon 外层 / path 中间端点内层改成
+  中间端点外层 / polygon 内层，希望减少每个 polygon 上重复读取 path 端点和分支。
+  该改动只调整“是否存在中间端点落在输入面上”的遍历顺序，不改变候选拒绝语义。
+  Debug 构建和 `ctest --preset default --output-on-failure --timeout 120` 通过；
+  100 组论文样本 `run_20260522_054900` 与当前保留基线 `run_20260522_045123`
+  的结构计数、候选/trace 诊断计数和 100 个 raw OBJ SHA256 完全一致，但平均
+  `solve_ms` 为 117.174ms，差于当前保留优化 `run_20260522_053232` /
+  `run_20260522_053346` 的两轮均值 116.541ms。说明原有 polygon 外层顺序更适合
+  当前缓存访问局部性，源码不保留。
 - 局部 BSP 递归插入端点约束平面零侧短路：尝试在
   `BSPTree::addSegmentRecursive()` 计算端点相对当前 `node.splitPlane` 的侧别前，
   若 carrier 端点约束平面 `v0` / `v1` 与 `node.splitPlane` 完全相同则直接返回
