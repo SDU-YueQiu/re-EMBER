@@ -51,6 +51,7 @@ bool computePolygonIntersectionCarrierTrusted(
  * @brief 一次计算一对多边形在两个方向上的交线载体。
  *
  * @pre `lhs` 与 `rhs` 均满足 `Polygon256::isValid()`。
+ * @pre 调用方已经确认 `lhs.aabb()` 与 `rhs.aabb()` 重叠。
  */
 bool computeBidirectionalPolygonIntersectionCarriersTrusted(
     const Polygon256& lhs,
