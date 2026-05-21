@@ -19,7 +19,7 @@
 当前对外流水线是：
 
 ```text
-OBJ/STL -> 共享 scale + 浮点输入AABB -> Polygon soup -> BoolProblem(校验/懒顶点缓存) -> SubdivisionSolver -> resultFragments -> raw/conforming OBJ n-gon / STL triangles
+OBJ/STL -> 共享 scale + 浮点输入AABB -> Polygon soup -> BoolProblem(校验/懒顶点缓存) -> SubdivisionSolver -> resultFragmentChunks/resultFragments -> raw/conforming OBJ n-gon / STL triangles
 ```
 
 其中职责边界是：
@@ -39,7 +39,7 @@ flowchart TD
     F --> G["BoolProblem::setOperation() / setOperandAssumptions() / setOperands()"]
     G --> H["BoolProblem::solve(sceneAABB)"]
     H --> I["SubdivisionSolver::solve()"]
-    I --> J["resultFragments()"]
+    I --> J["resultFragmentChunks() / resultFragments()"]
     J --> K{"--output-topology"}
     K -->|"raw"| L["OBJ n-gon 或 STL triangles 输出"]
     K -->|"conforming"| M["精确 T-junction 修复"]
@@ -58,11 +58,12 @@ flowchart TD
 6. 调用 `buildPolygonSoup()` 把输入面片转换为 `Polygon256` 集合。
 7. 构造 `BoolProblem`，设置布尔运算、输入假设、总线程数和左右操作数。
 8. 调用 `problem.solve(sceneAABB)`。
-9. 把 `problem.resultFragments()` 按输出扩展名写回 OBJ 或 STL。
+9. 默认 raw OBJ 直接把 `problem.resultFragmentChunks()` 写回 n 边面；需要 conforming/STL
+   或外部公开访问时，再按需物化为 `problem.resultFragments()`。
 
 这里有几个实现细节值得单独记住：
 
-- 应用层并行不是只拆左右输入：`computeScaledMeshAABB()` 按顶点静态分块，`buildPolygonSoup()` 按顶点量化和输入面构造静态分块，导出阶段按结果片段恢复有序顶点；错误检查和最终合并仍按原始顺序串行执行。CLI 写出 `problem.resultFragments()` 时信任 solver 内部片段，不重复执行完整 `Polygon256::isValid()`；公开 I/O API 仍默认验证传入片段。`raw` OBJ 导出只构建顶点/面索引，并用扁平 face-index 数组写出，不复制 T-junction 修复所需的边平面和边来源元数据。
+- 应用层并行不是只拆左右输入：`computeScaledMeshAABB()` 按顶点静态分块，`buildPolygonSoup()` 按顶点量化和输入面构造静态分块，导出阶段按结果片段恢复有序顶点；错误检查和最终合并仍按原始顺序串行执行。CLI 写出 `problem.resultFragmentChunks()` 时信任 solver 内部片段，不重复执行完整 `Polygon256::isValid()`，也不先把所有结果搬进一个大 `resultFragments()` vector；公开 I/O API 仍默认验证传入片段。`raw` OBJ 导出只构建顶点/面索引，并用扁平 face-index 数组写出，不复制 T-junction 修复所需的边平面和边来源元数据。
 - `setOperands()` 会给左操作数写入基础 `WNTV={1,0}`，给右操作数写入 `WNTV={0,1}`；CLI 在构建完左右 polygon soup 后直接移交给 `BoolProblem`，避免再复制整批 `Polygon256`。
 - CLI 的 `--threads` 会同时设置应用层 `task_arena` 大小和 `BoolProblem::setThreadCount()`；`0` 表示自动并发度，`1` 表示全流程强制串行，`N>1` 表示总参与线程数为 `N`。
 - `BoolProblem` 不再暴露直接注入任意 `WNTV` polygon 集合的公开入口，公开输入边界固定为二元操作数。
@@ -464,7 +465,7 @@ flowchart TD
 - `frontStatus == IN && backStatus == OUT`：翻转片段朝向后输出。
 - 其它组合：不输出。
 
-因此 `resultFragments()` 表示的是布尔边界上的状态过渡面，而不是所有叶级片段。
+因此 `resultFragments()` 表示的是布尔边界上的状态过渡面，而不是所有叶级片段。内部递归返回时会先保留子树结果块；`resultFragments()` 只是公开连续数组视图，首次读取时才把这些块物化。
 
 ```mermaid
 flowchart TD
@@ -481,6 +482,8 @@ flowchart TD
 当前公开给外部观察求解过程的主要接口不是递归节点对象，而是：
 
 - `BoolProblem::resultFragments()`
+- `BoolProblem::resultFragmentChunks()`
+- `BoolProblem::resultFragmentCount()`
 - `BoolProblem::leafSummaries()`
 - `BoolProblem::solveMetrics()`
 

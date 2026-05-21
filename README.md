@@ -92,7 +92,7 @@ For CGAL Nef failures, `--diagnose-nef` prints exact mesh topology statistics be
 - `--scale <positive_integer>` overrides the shared quantization scale.
 - `--leaf-threshold <positive_integer>` controls when subdivision stops at a leaf.
 - `--threads <positive_integer>` sets the application-layer task arena size and solver thread count; use `1` to force serial execution.
-- `--output-topology raw|conforming` chooses application export topology. `raw` writes `resultFragments()` directly and skips conforming-only topology metadata; `conforming` globally inserts existing vertices that lie on other face edges to remove T-junctions. `conforming` is exact but slow and should be used for debugging/inspection rather than performance runs. Coplanar merging and Nef output are disabled.
+- `--output-topology raw|conforming` chooses application export topology. `raw` writes solver result chunks directly and skips conforming-only topology metadata; `conforming` globally inserts existing vertices that lie on other face edges to remove T-junctions. `conforming` is exact but slow and should be used for debugging/inspection rather than performance runs. Coplanar merging and Nef output are disabled.
 - `--timings-out <metrics.txt>` writes the timing and solve summary for a single run.
 - `--assume-lhs-nsi`, `--assume-lhs-nnc`, `--assume-rhs-nsi`, and `--assume-rhs-nnc` declare input assumptions for faster runs. `NNC` requires `NSI` for the same side.
 

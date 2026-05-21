@@ -118,6 +118,14 @@ public:
     void extractResultFragments(std::vector<Polygon256>& out);
 
     /**
+     * @brief 从当前子树收集到的结果片段块移动到 out 中。
+     *
+     * @note 并行递归路径会保留子树块边界，调用方可在只需要顺序扫描结果时避免
+     *       额外扁平化；块顺序仍等价于 `extractResultFragments()` 的输出顺序。
+     */
+    void extractResultFragmentChunks(std::vector<std::vector<Polygon256>>& out);
+
+    /**
      * @brief 提取从当前子树收集到的叶子诊断信息。
      */
     void extractLeafSummaries(std::vector<BoolLeafSummary>& out) noexcept;
