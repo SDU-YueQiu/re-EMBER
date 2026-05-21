@@ -128,6 +128,15 @@
   `-NoTracy -VerifyWithOracle`，22 个 verifier 全部通过，聚合 `solve_ms` 从
   `run_20260521_080040` 的 1879.84ms 降到 1852.88ms，`end_to_end_ms` 从
   5274.77ms 降到 5231.12ms。
+- axis / plane replacement 分类路径复用已知端点缓存构造 `Segment256`：路径构造阶段
+  已经持有当前点、下一整数点或目标 axis-probe 点时，直接走 trusted segment 入口，
+  避免按同一组三平面重复恢复端点并重复做线段有效性分类；该改动仍只使用论文允许的
+  坐标平面、已有支撑平面、三平面交点和 4D dot，不引入新平面。`run_20260521_083433`
+  对同一 10 small / 10 medium / 2 large workload 做了 `-NoTracy -VerifyWithOracle`，
+  22 个 verifier 全部通过，聚合 `solve_ms` 从 `run_20260521_080941` 的
+  1852.88ms 降到 1777.65ms，`end_to_end_ms` 从 5231.12ms 降到 5196.95ms。
+  `run_20260521_083920` 额外做 3 次无 oracle 重复计时，按每轮 22 个 workload
+  聚合 `solve_ms` 为 1791.98ms、1800.61ms、1791.71ms，确认收益不是单次噪声。
 
 ## 已测但不保留的局部实验
 

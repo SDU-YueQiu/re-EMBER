@@ -75,6 +75,23 @@ struct Segment256
         const Plane3i &startPlane,
         const Plane3i &endPlane,
         const Line256 &directionLine) noexcept;
+    /**
+     * @brief 使用调用方已经验证的有向端点平面和端点缓存构造线段。
+     *
+     * @param startPlane 起点外侧边界平面。
+     * @param endPlane 终点外侧边界平面。
+     * @param directionLine 线段所在直线。
+     * @param startPoint 与 `directionLine` 和 `startPlane` 一致的起点缓存。
+     * @param endPoint 与 `directionLine` 和 `endPlane` 一致的终点缓存。
+     * @note 该入口只用于内部热路径；调用方必须保证线段满足 `isValid()` 的几何约定。
+     */
+    Segment256(
+        AssumePrimitivePlanesTag,
+        const Plane3i &startPlane,
+        const Plane3i &endPlane,
+        const Line256 &directionLine,
+        const PlanePoint3i &startPoint,
+        const PlanePoint3i &endPoint) noexcept;
 
     const PlanePoint3i &getStartPointRef() const noexcept
     {
