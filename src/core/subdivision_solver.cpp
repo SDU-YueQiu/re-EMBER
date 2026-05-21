@@ -559,31 +559,50 @@ struct SplitCostEstimate
     std::size_t imbalance = 0;
 };
 
-SplitCostEstimate estimateSplitCostFromPolygons(
-    const std::vector<Polygon256> &polygons,
-    const AABBSplit3i &split)
+void finalizeSplitCostEstimate(SplitCostEstimate &cost) noexcept
 {
-    REEMBER_PROFILE_ZONE("estimateSplitCostFromPolygons");
+    cost.maxChildCount = std::max(cost.leftCount, cost.rightCount);
+    cost.imbalance = cost.maxChildCount - std::min(cost.leftCount, cost.rightCount);
+}
 
-    SplitCostEstimate cost;
-    for (const Polygon256 &polygon : polygons)
+void appendSplitCostEstimate(SplitCostEstimate &cost, const AABB3i &polygonBox, const AABBSplit3i &split) noexcept
+{
+    if (isValidAABB(polygonBox))
     {
-        const AABB3i &polygonBox = polygon.aabb();
-        if (isValidAABB(polygonBox) && axisMaximum(polygonBox, split.axis) <= split.coordinate)
-            ++cost.leftCount;
-        else if (isValidAABB(polygonBox) && axisMinimum(polygonBox, split.axis) >= split.coordinate)
-            ++cost.rightCount;
-        else
+        if (axisMaximum(polygonBox, split.axis) <= split.coordinate)
         {
             ++cost.leftCount;
+            return;
+        }
+        if (axisMinimum(polygonBox, split.axis) >= split.coordinate)
+        {
             ++cost.rightCount;
-            ++cost.splitCount;
+            return;
         }
     }
 
-    cost.maxChildCount = std::max(cost.leftCount, cost.rightCount);
-    cost.imbalance = cost.maxChildCount - std::min(cost.leftCount, cost.rightCount);
-    return cost;
+    ++cost.leftCount;
+    ++cost.rightCount;
+    ++cost.splitCount;
+}
+
+void estimateSplitCostsFromPolygons(
+    const std::vector<Polygon256> &polygons,
+    const std::array<AABBSplit3i, 3> &splits,
+    std::size_t splitCount,
+    std::array<SplitCostEstimate, 3> &outCosts)
+{
+    REEMBER_PROFILE_ZONE("estimateSplitCostsFromPolygons");
+
+    for (const Polygon256 &polygon : polygons)
+    {
+        const AABB3i &polygonBox = polygon.aabb();
+        for (std::size_t splitIndex = 0; splitIndex < splitCount; ++splitIndex)
+            appendSplitCostEstimate(outCosts[splitIndex], polygonBox, splits[splitIndex]);
+    }
+
+    for (std::size_t splitIndex = 0; splitIndex < splitCount; ++splitIndex)
+        finalizeSplitCostEstimate(outCosts[splitIndex]);
 }
 
 bool isBetterSplitCost(
@@ -736,6 +755,9 @@ bool chooseCenterRangeSplit(
     Integer bestRange = 0;
     AABBSplit3i bestSplit;
     SplitCostEstimate bestCost;
+    std::array<AABBSplit3i, 3> candidateSplits{};
+    std::array<Integer, 3> candidateRanges{};
+    std::size_t candidateCount = 0;
     for (const SplitAxis3i axis : {
                 SplitAxis3i::X, SplitAxis3i::Y, SplitAxis3i::Z
             })
@@ -748,14 +770,27 @@ bool chooseCenterRangeSplit(
         if (!splitAABBAtCoordinate(box, axis, averageCenterCoordinate(stats, axis), candidate))
             continue;
 
-        const SplitCostEstimate candidateCost = estimateSplitCostFromPolygons(polygons, candidate);
+        candidateSplits[candidateCount] = candidate;
+        candidateRanges[candidateCount] = range;
+        ++candidateCount;
+    }
+
+    if (candidateCount == 0)
+        return false;
+
+    std::array<SplitCostEstimate, 3> candidateCosts{};
+    estimateSplitCostsFromPolygons(polygons, candidateSplits, candidateCount, candidateCosts);
+    for (std::size_t candidateIndex = 0; candidateIndex < candidateCount; ++candidateIndex)
+    {
+        const SplitCostEstimate &candidateCost = candidateCosts[candidateIndex];
+        const Integer &range = candidateRanges[candidateIndex];
         if (!hasCandidate ||
                 isBetterSplitCost(candidateCost, range, bestCost, bestRange))
         {
             hasCandidate = true;
             bestRange = range;
             bestCost = candidateCost;
-            bestSplit = candidate;
+            bestSplit = candidateSplits[candidateIndex];
         }
     }
 
