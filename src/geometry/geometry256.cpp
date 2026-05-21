@@ -11,6 +11,19 @@
 
 namespace ember
 {
+namespace
+{
+PlanePoint3i makeUnnormalizedPlanePoint(
+    const Plane3i &p,
+    const Plane3i &q,
+    const Plane3i &r) noexcept
+{
+    // 多边形缓存顶点在核心求解中只用于符号分类、AABB 和比例等价比较；
+    // 这些操作都不要求 canonical 齐次点，直接保留 intersect_3_planes 原始输出。
+    return PlanePoint3i(p, q, r, intersectHomogeneousUnnormalized(p, q, r));
+}
+}
+
 // 返回使用平面方程反转后的平面
 Plane3i flippedPlane(const Plane3i &plane) noexcept
 {
@@ -30,7 +43,7 @@ void orientPolygonEdgesOutward(const Plane3i &supportPlane, std::vector<Plane3i>
     for (std::size_t i = 0; i < n; ++i)
     {
         const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
-        const PlanePoint3i vertex(supportPlane, edges[i], edges[prev]);
+        const PlanePoint3i vertex = makeUnnormalizedPlanePoint(supportPlane, edges[i], edges[prev]);
         if (!vertex.hasUniqueIntersection())
             return;
         vertices.push_back(vertex);
@@ -226,7 +239,7 @@ void Polygon256::rebuildVertexCache() const
     for (std::size_t i = 0; i < n; ++i)
     {
         const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
-        cachedVertices_.emplace_back(plane, edgePlanes[i], edgePlanes[prev]);
+        cachedVertices_.push_back(makeUnnormalizedPlanePoint(plane, edgePlanes[i], edgePlanes[prev]));
     }
     vertexCacheValid_ = true;
 }
@@ -242,7 +255,7 @@ void Polygon256::rebuildVertexAndAABBCaches() const
     for (std::size_t i = 0; i < n; ++i)
     {
         const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
-        cachedVertices_.emplace_back(plane, edgePlanes[i], edgePlanes[prev]);
+        cachedVertices_.push_back(makeUnnormalizedPlanePoint(plane, edgePlanes[i], edgePlanes[prev]));
         appendPointToAABB(cachedAABB_, cachedVertices_.back());
     }
     vertexCacheValid_ = true;

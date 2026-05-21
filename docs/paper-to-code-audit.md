@@ -188,6 +188,12 @@
   `run_20260521_122941` 的 22 个 verifier 全部通过且单轮 `solve_ms`
   为 1660.13ms；`run_20260521_123402` 三次无 oracle 重复计时为
   1695.42ms、1674.61ms、1685.70ms，均值 1685.24ms。
+- `Polygon256` 的派生顶点缓存改为保存 `intersectHomogeneousUnnormalized()` 的原始
+  三平面交点。缓存顶点在求解核心里用于 `classify_vertex`、AABB 整数包围和比例等价
+  比较，均不要求 canonical 齐次坐标；I/O 和去重边界仍显式做 primitive 化。Debug 测试通过，
+  `run_20260521_124929` 的 22 个 verifier 全部通过且单轮 `solve_ms`
+  为 1694.39ms；`run_20260521_125353` 三次无 oracle 重复计时为
+  1688.01ms、1649.74ms、1692.92ms，均值 1676.89ms。
 
 ## 已测但不保留的局部实验
 
