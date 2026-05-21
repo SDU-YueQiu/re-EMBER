@@ -342,6 +342,17 @@
   `run_20260522_030809` 逐文件 SHA256 完全一致。两轮新结果均值 `solve_ms`
   从 118.311ms 降到 117.948ms，`end_to_end_ms` 从 331.715ms 降到
   331.085ms，`process_elapsed_ms` 从 376.917ms 降到 376.034ms。
+- 叶片分类 axis-probe 路径中的纯整数网格段直接用已知两端 `PlanePoint3i`
+  构造 `Segment256`，不再回到通用 coordinate-plane 段构造入口重复恢复端点、
+  定向边界平面并做端点互侧分类。该路径只用于已确认起点和下一整数 AABB 网格点的
+  轴对齐段，最后通向支撑平面的非整数段仍走原通用构造；候选点、trace 次数和
+  WNV 传播数学不变。Debug 构建和 `ctest --preset default --output-on-failure --timeout 120`
+  通过；两轮 100 组论文样本 `run_20260522_040610` / `run_20260522_040952`
+  与当前保留基线 `run_20260522_033921` 的结构计数和
+  `leaf_classification_trace_attempt_count` 完全一致，100 个 raw OBJ 与基线逐文件
+  SHA256 完全一致。两轮新结果均值 `solve_ms` 从 117.948ms 降到 117.172ms，
+  `end_to_end_ms` 从 331.085ms 降到 330.307ms，`process_elapsed_ms`
+  从 376.034ms 降到 375.520ms。
 
 ## 已测但不保留的局部实验
 

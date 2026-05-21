@@ -1106,6 +1106,64 @@ inline bool buildAxisAlignedSegmentFromCoordinatePlanes(
     return true;
 }
 
+inline Plane3i makeOrientedAxisSegmentBoundPlane(
+    SplitAxis3i axis,
+    const Integer &coordinate,
+    bool reverse) noexcept
+{
+    Plane3i plane = makeIntegerCoordinatePlane(axis, coordinate);
+    return reverse ? reversedPlaneOrientationPreservingScale(plane) : plane;
+}
+
+inline bool buildAxisAlignedIntegerSegmentWithKnownPoints(
+    const std::array<Integer, 3> &startCoordinates,
+    const std::array<Integer, 3> &endCoordinates,
+    SplitAxis3i changedAxis,
+    const PlanePoint3i &startPoint,
+    const PlanePoint3i &endPoint,
+    Segment256 &outSegment) noexcept
+{
+    // 轴探测路径的整数网格段已经持有两端齐次点，可直接按变化轴定向边界平面。
+    const int changedIndex = axisOrderKey(changedAxis);
+    if (startCoordinates[changedIndex] == endCoordinates[changedIndex])
+        return false;
+
+    std::array<int, 2> fixedIndices = {1, 2};
+    if (changedAxis == SplitAxis3i::Y)
+        fixedIndices = {0, 2};
+    else if (changedAxis == SplitAxis3i::Z)
+        fixedIndices = {0, 1};
+
+    const SplitAxis3i fixedAxis0 =
+        fixedIndices[0] == 0 ? SplitAxis3i::X :
+        fixedIndices[0] == 1 ? SplitAxis3i::Y :
+        SplitAxis3i::Z;
+    const SplitAxis3i fixedAxis1 =
+        fixedIndices[1] == 0 ? SplitAxis3i::X :
+        fixedIndices[1] == 1 ? SplitAxis3i::Y :
+        SplitAxis3i::Z;
+    const Line256 direction(
+        makeIntegerCoordinatePlane(fixedAxis0, startCoordinates[fixedIndices[0]]),
+        makeIntegerCoordinatePlane(fixedAxis1, startCoordinates[fixedIndices[1]]));
+    if (!direction.isValid())
+        return false;
+
+    const bool increasing = endCoordinates[changedIndex] > startCoordinates[changedIndex];
+    const Plane3i startPlane =
+        makeOrientedAxisSegmentBoundPlane(changedAxis, startCoordinates[changedIndex], increasing);
+    const Plane3i endPlane =
+        makeOrientedAxisSegmentBoundPlane(changedAxis, endCoordinates[changedIndex], !increasing);
+
+    outSegment = Segment256(
+                     AssumePrimitivePlanes,
+                     startPlane,
+                     endPlane,
+                     direction,
+                     startPoint,
+                     endPoint);
+    return true;
+}
+
 /**
  * @brief 按坐标轴顺序构造 1 到 3 段轴对齐路径。
  */
@@ -1232,13 +1290,13 @@ inline bool buildAxisProbePath(
             HomPoint4i(next[0], next[1], next[2], 1));
 
         Segment256 segment;
-        if (!buildAxisAlignedSegmentFromCoordinatePlanes(
-                    currentPlanes,
-                    nextPlanes,
+        if (!buildAxisAlignedIntegerSegmentWithKnownPoints(
+                    current,
+                    next,
                     axis,
-                    segment,
-                    &currentPoint,
-                    &nextPoint))
+                    currentPoint,
+                    nextPoint,
+                    segment))
         {
             outPath.clear();
             return false;
