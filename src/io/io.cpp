@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -1526,15 +1527,64 @@ bool applyTopologyMode(
     return true;
 }
 
-// 导出 OBJ 时只写几何坐标；这里把齐次点按 x/w, y/w, z/w 近似恢复为十进制。
-void writeObjVertexLine(std::ostream &stream, const PlanePoint3i &vertex, std::uint64_t coordinateScale)
+void appendDouble(std::string &buffer, double value)
+{
+    std::array<char, 64> digits{};
+    const auto [end, error] = std::to_chars(
+                                  digits.data(),
+                                  digits.data() + digits.size(),
+                                  value,
+                                  std::chars_format::general,
+                                  std::numeric_limits<double>::max_digits10);
+    if (error == std::errc())
+    {
+        buffer.append(digits.data(), end);
+        return;
+    }
+
+    std::ostringstream fallback;
+    fallback << std::setprecision(std::numeric_limits<double>::max_digits10) << value;
+    buffer += fallback.str();
+}
+
+void appendIndex(std::string &buffer, std::size_t value)
+{
+    std::array<char, 32> digits{};
+    const auto [end, error] = std::to_chars(
+                                  digits.data(),
+                                  digits.data() + digits.size(),
+                                  value);
+    if (error == std::errc())
+    {
+        buffer.append(digits.data(), end);
+        return;
+    }
+
+    buffer += std::to_string(value);
+}
+
+void appendObjVertexLine(std::string &buffer, const PlanePoint3i &vertex, std::uint64_t coordinateScale)
 {
     const ObjVertex point = homogeneousPointToObjVertex(vertex, coordinateScale);
+    buffer += "v ";
+    appendDouble(buffer, point.x);
+    buffer.push_back(' ');
+    appendDouble(buffer, point.y);
+    buffer.push_back(' ');
+    appendDouble(buffer, point.z);
+    buffer.push_back('\n');
+}
 
-    stream << "v "
-           << point.x << " "
-           << point.y << " "
-           << point.z << "\n";
+std::size_t estimateObjTextSize(const RecoveredPolygonSoupData &recovered) noexcept
+{
+    std::size_t faceVertexSlots = 0;
+    for (const std::vector<std::size_t> &face : recovered.faces)
+        faceVertexSlots += face.size();
+
+    return 36u +
+           recovered.uniqueVertices.size() * 96u +
+           recovered.faces.size() * 4u +
+           faceVertexSlots * 12u;
 }
 
 bool buildStlTrianglesFromRecoveredData(
@@ -2019,18 +2069,25 @@ bool writePolygonSoupObj(
     }
 
     // 默认保持多边形集合形态：写顶点，再逐面写 OBJ n 边面。
-    output << "# Ember exact polygon soup export\n";
-    output << std::setprecision(std::numeric_limits<long double>::digits10 + 1);
+    std::string objText;
+    objText.reserve(estimateObjTextSize(recovered));
+    objText += "# Ember exact polygon soup export\n";
     for (const PlanePoint3i &vertex : recovered.uniqueVertices)
-        writeObjVertexLine(output, vertex, options.coordinateScale);
+        appendObjVertexLine(objText, vertex, options.coordinateScale);
 
     for (const std::vector<std::size_t> &face : recovered.faces)
     {
-        output << "f";
+        objText.push_back('f');
         for (const std::size_t vertexIndex : face)
-            output << " " << (vertexIndex + 1);
-        output << "\n";
+        {
+            objText.push_back(' ');
+            appendIndex(objText, vertexIndex + 1u);
+        }
+        objText.push_back('\n');
     }
+    output.write(objText.data(), static_cast<std::streamsize>(objText.size()));
+    if (!output)
+        return failIo(outError, "Failed to finish writing OBJ output file: " + path);
 
     outFaceCount = recovered.faces.size();
     return true;
