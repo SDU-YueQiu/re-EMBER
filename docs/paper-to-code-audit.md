@@ -383,6 +383,18 @@
 
 ## 已测但不保留的局部实验
 
+- 叶片分类 WNV surface-point trace 增加叶片局部 polygon AABB BVH：尝试在
+  `LeafClassificationContext` 中为当前 `polygons_` 构造保序 broad-phase 索引，
+  让 `tracePathWNVToSurfacePointTrustedWithStartSides()` 先按 path AABB 查询可能
+  相交的 polygon 原始下标，再按原始顺序进入原有精判循环。第一版对 `polygonCount >= 16`
+  建索引，第二版改为 `polygonCount >= 128` 懒构建且查询结果超过半数时回落全表扫描。
+  Debug 构建和 `ctest --preset default --output-on-failure --timeout 120` 均通过；
+  两轮 100 组论文样本 `run_20260522_060650` / `run_20260522_060919` 的 100 个
+  raw OBJ SHA256 互相完全一致，但平均 `solve_ms` 分别为 120.454ms / 120.082ms，
+  明显差于当前保留优化 `run_20260522_053232` / `run_20260522_053346` 的两轮均值
+  116.541ms。说明当前 leaf trace 的多边形集合规模和 path-AABB 选择性不足以抵消
+  BVH 构建、查询和结果排序成本，源码不保留；下一步应转向减少 leaf trace 次数、
+  懒物化 leaf polygon 或共享更高层结构，而不是给每个 leaf 单独建索引。
 - 叶片分类候选路径签名省略起点：尝试让 `makePathSignature()` 只记录每段终点，
   不再记录首段起点。进入 trace 前候选路径已经由 debug 前置条件约束为从当前
   local reference 出发，同一 fragment 内起点为常量，因此该改动不改变 path
