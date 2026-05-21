@@ -333,6 +333,17 @@
 
 ## 已测但不保留的局部实验
 
+- 叶片分类候选路径去重旁路：当前 100 组论文样本中
+  `leaf_classification_candidate_generated_count` 为 1411882，而
+  `leaf_classification_candidate_duplicate_skip_count` 只有 923。尝试让
+  `registerUniqueLeafClassificationCandidatePath()` 只检查空路径，不再为每条候选构造
+  `HomPoint4i` 路径签名并线性查重，允许重复候选直接进入 trace。Debug 构建和 ctest
+  通过；`run_20260522_032346` / `run_20260522_032456` 与当前保留基线
+  `run_20260522_030809` 的结构计数完全一致，100 个 raw OBJ 与基线逐文件
+  SHA256 完全一致；但重复 trace 从 1328146 增至 1329069 后，两轮均值
+  `solve_ms` 为 118.338ms，差于 WNV polygon AABB 复用基线
+  `run_20260522_030701` / `run_20260522_030809` 的 118.311ms，端到端均值也从
+  331.715ms 退化到 332.183ms。少做签名查重不足以抵消额外 trace 和噪声；不保留。
 - 交线载体构造复用已读 polygon AABB：尝试把
   `computePolygonPlaneIntersection()` 拆出接收 `AABB3i` 的内部入口，让
   `computePolygonIntersectionCarrierTrusted()` 和
