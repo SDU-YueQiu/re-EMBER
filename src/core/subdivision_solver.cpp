@@ -469,9 +469,9 @@ bool buildSubdivisionSplitStats(
         if (!isValidAABB(*polygonBox))
             return false;
 
-        const Integer centerX = axisMidpoint(*polygonBox, SplitAxis3i::X);
-        const Integer centerY = axisMidpoint(*polygonBox, SplitAxis3i::Y);
-        const Integer centerZ = axisMidpoint(*polygonBox, SplitAxis3i::Z);
+        const Integer centerX = floorDivByTwo(polygonBox->xMin + polygonBox->xMax);
+        const Integer centerY = floorDivByTwo(polygonBox->yMin + polygonBox->yMax);
+        const Integer centerZ = floorDivByTwo(polygonBox->zMin + polygonBox->zMax);
 
         {
             REEMBER_PROFILE_ZONE("buildSubdivisionSplitStats::accumulate");

@@ -137,6 +137,14 @@
   1852.88ms 降到 1777.65ms，`end_to_end_ms` 从 5231.12ms 降到 5196.95ms。
   `run_20260521_083920` 额外做 3 次无 oracle 重复计时，按每轮 22 个 workload
   聚合 `solve_ms` 为 1791.98ms、1800.61ms、1791.71ms，确认收益不是单次噪声。
+- `buildSubdivisionSplitStats()` 的三轴 AABB 中心计算改为直接读取 `x/y/zMin/Max`
+  字段，避免在每个 polygon 上反复通过 `axisMidpoint()` / `axisMinimum()` /
+  `axisMaximum()` 做轴分派；公式仍是各轴 `floor((min + max) / 2)`，不改变切分语义。
+  `run_20260521_084638` 对同一 10 small / 10 medium / 2 large workload 做了
+  `-NoTracy -VerifyWithOracle`，22 个 verifier 全部通过，单轮聚合 `solve_ms`
+  为 1786.30ms；`run_20260521_085121` 额外做 3 次无 oracle 重复计时，按每轮
+  22 个 workload 聚合 `solve_ms` 为 1781.70ms、1783.78ms、1791.77ms，
+  相比上一阶段 3 次均值约 1794.77ms 继续下降。
 
 ## 已测但不保留的局部实验
 
