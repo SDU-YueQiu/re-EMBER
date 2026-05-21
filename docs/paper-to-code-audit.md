@@ -405,6 +405,17 @@
   `run_20260522_005611` / `run_20260522_005732` 两轮保留基线均值，`solve_ms`
   基本持平略退，`end_to_end_ms` 略退。候选点数量较小，额外分支和 move 路径没有
   换回稳定收益；不保留。
+- 叶片 pair relation 前置 AABB/平行/共面判定：尝试在
+  `buildLeafPairRelation()` 已知 AABB overlap 后先判断支撑平面是否平行，非平行时调用
+  新的 overlapping/non-parallel trusted carrier 入口，平行时用已知平行的共面检查，
+  避免 `computeBidirectionalPolygonIntersectionCarriersTrusted()` 与 `areCoplanarPolygons()`
+  重复做 AABB 和法向平行判定。ctest 通过，两轮 100 组 NoTracy
+  `run_20260522_021124` / `run_20260522_021237` 与 `run_20260522_005732`
+  的结构计数、result 计数和 `leaf_classification_trace_attempt_count` 完全一致；
+  但两轮新结果均值 `solve_ms` 约 118.956ms、`end_to_end_ms` 约 338.719ms，
+  不优于 `run_20260522_005611` / `run_20260522_005732` 两轮保留基线均值
+  118.736ms / 337.992ms。重复判定本身不是当前主导成本，新增分支和额外入口没有
+  换回稳定收益；不保留。
 - trusted clipped polygon eager 顶点/AABB 缓存：结构计数不变，solve 信号为负。
 - BSP 插入端点齐次交点沿递归缓存：结构计数不变，22 个 verifier 全部通过，
   但 `run_20260521_032931` 相比 `run_20260521_031822` 的聚合 `solve_ms`
