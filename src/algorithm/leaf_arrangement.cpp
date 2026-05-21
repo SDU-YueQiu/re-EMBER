@@ -9,6 +9,7 @@
 #include "geometry/polygon_ops.h"
 
 #include <algorithm>
+#include <stdexcept>
 
 namespace ember
 {
@@ -35,6 +36,17 @@ struct LeafArrangementInsertion
     std::size_t polygonIndex = 0;
     detail::IntersectionCarrier carrier;
 };
+
+struct VectorAppendVisitorState
+{
+    std::vector<Polygon256> *fragments = nullptr;
+};
+
+void appendFragmentToVector(void *userData, Polygon256 &&fragment)
+{
+    auto *state = static_cast<VectorAppendVisitorState *>(userData);
+    state->fragments->push_back(std::move(fragment));
+}
 
 LeafPairRelation buildLeafPairRelation(const Polygon256 &lhs, const Polygon256 &rhs)
 {
@@ -72,10 +84,24 @@ LeafPairRelation buildLeafPairRelation(const Polygon256 &lhs, const Polygon256 &
 
 std::vector<Polygon256> buildLeafArrangement(const std::vector<Polygon256> &polygons)
 {
+    std::vector<Polygon256> fragments;
+    VectorAppendVisitorState state{&fragments};
+    visitLeafArrangementFragments(polygons, &state, appendFragmentToVector);
+    return fragments;
+}
+
+std::size_t visitLeafArrangementFragments(
+    const std::vector<Polygon256> &polygons,
+    void *userData,
+    LeafArrangementFragmentVisitor visitor)
+{
     REEMBER_PROFILE_ZONE("buildLeafArrangement");
 
-    std::vector<Polygon256> fragments;
+    if (visitor == nullptr)
+        throw std::runtime_error("visitLeafArrangementFragments received a null visitor.");
+
     const std::size_t polygonCount = polygons.size();
+    std::size_t fragmentCount = 0u;
     if (polygonCount < 8u)
     {
         REEMBER_PROFILE_ZONE("buildLeafArrangement::smallCase");
@@ -92,9 +118,9 @@ std::vector<Polygon256> buildLeafArrangement(const std::vector<Polygon256> &poly
                 tree.insertTrusted(polygons[j], j);
             }
 
-            tree.extractLeafGeometriesInto(fragments);
+            fragmentCount += tree.visitLeafGeometries(userData, visitor);
         }
-        return fragments;
+        return fragmentCount;
     }
 
     std::vector<LeafArrangementInsertion> adjacency;
@@ -158,7 +184,8 @@ std::vector<Polygon256> buildLeafArrangement(const std::vector<Polygon256> &poly
         const std::size_t insertionEnd = adjacencyOffsets[i + 1u];
         if (insertionBegin == insertionEnd)
         {
-            fragments.push_back(polygons[i]);
+            visitor(userData, Polygon256(polygons[i]));
+            ++fragmentCount;
             continue;
         }
 
@@ -177,8 +204,8 @@ std::vector<Polygon256> buildLeafArrangement(const std::vector<Polygon256> &poly
                 tree.insertCoplanarPolygonTrusted(polygons[insertion.polygonIndex], insertion.polygonIndex);
         }
 
-        tree.extractLeafGeometriesInto(fragments);
+        fragmentCount += tree.visitLeafGeometries(userData, visitor);
     }
-    return fragments;
+    return fragmentCount;
 }
 }

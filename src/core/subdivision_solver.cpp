@@ -1364,8 +1364,7 @@ void SubdivisionSolver::finishCurrentNodeAsLeaf()
 {
     REEMBER_PROFILE_ZONE("SubdivisionSolver::finishCurrentNodeAsLeaf");
     isLeaf_ = true;
-    solveLeafArrangement();
-    classifyLeafFragmentsAndCollectResults();
+    solveLeafArrangementAndClassifyFragments();
     finalizeLeafNode();
 }
 

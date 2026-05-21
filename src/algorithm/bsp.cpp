@@ -156,6 +156,16 @@ void BSPTree::extractLeafGeometriesInto(std::vector<Polygon256> &outLeafGeometri
     extractLeafGeometriesRecursive(root.get(), outLeafGeometries);
 }
 
+std::size_t BSPTree::visitLeafGeometries(void *userData, BSPLeafGeometryVisitor visitor)
+{
+    REEMBER_PROFILE_ZONE("BSPTree::visitLeafGeometries");
+
+    if (visitor == nullptr)
+        throw std::runtime_error("BSPTree::visitLeafGeometries received a null visitor.");
+
+    return visitLeafGeometriesRecursive(root.get(), userData, visitor);
+}
+
 void BSPTree::addSegmentRecursive(BSPNode &node, const Plane3i &v0, const Plane3i &v1, const Plane3i &insertPlane)
 {
     REEMBER_PROFILE_ZONE("BSPTree::addSegmentRecursive");
@@ -281,6 +291,28 @@ void BSPTree::extractLeafGeometriesRecursive(BSPNode *node, std::vector<Polygon2
 
     extractLeafGeometriesRecursive(node->front.get(), outLeafGeometries);
     extractLeafGeometriesRecursive(node->back.get(), outLeafGeometries);
+}
+
+std::size_t BSPTree::visitLeafGeometriesRecursive(
+    BSPNode *node,
+    void *userData,
+    BSPLeafGeometryVisitor visitor)
+{
+    if (!node)
+        return 0u;
+
+    if (node->isLeaf)
+    {
+        if (node->disabled)
+            return 0u;
+
+        visitor(userData, std::move(node->leafGeometry));
+        return 1u;
+    }
+
+    const std::size_t frontCount = visitLeafGeometriesRecursive(node->front.get(), userData, visitor);
+    const std::size_t backCount = visitLeafGeometriesRecursive(node->back.get(), userData, visitor);
+    return frontCount + backCount;
 }
 }
 

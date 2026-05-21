@@ -179,6 +179,11 @@ private:
     void solveLeafArrangement();
 
     /**
+     * @brief 将局部 BSP 编排片段逐片分类，避免批量保存 `leafFragments_`。
+     */
+    void solveLeafArrangementAndClassifyFragments();
+
+    /**
      * @brief 分类叶片片段并收集布尔结果面。
      */
     void classifyLeafFragmentsAndCollectResults();

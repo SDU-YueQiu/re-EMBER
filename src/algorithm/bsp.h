@@ -4,11 +4,14 @@
  */
 #include "geometry/geometry256.h"
 #include "geometry/clipping.h"
+#include <cstddef>
 #include <memory>
 #include <vector>
 
 namespace ember
 {
+using BSPLeafGeometryVisitor = void (*)(void *userData, Polygon256 &&leafGeometry);
+
 struct BSPNode
 {
     bool isLeaf;
@@ -88,6 +91,16 @@ public:
     void extractLeafGeometriesInto(std::vector<Polygon256>& outLeafGeometries);
 
     /**
+     * @brief 将当前局部 BSP 的启用叶子几何逐片交给调用方。
+     *
+     * @param[in,out] userData 透传给 `visitor` 的调用方状态。
+     * @param[in] visitor 接收每个启用叶片几何的回调。
+     * @return 访问到的启用叶片数量。
+     * @note 调用后当前树只应被销毁或重置，不应继续查询几何。
+     */
+    std::size_t visitLeafGeometries(void *userData, BSPLeafGeometryVisitor visitor);
+
+    /**
      * @brief 直接向当前局部 BSP 插入一条已构造好的切分线段。
      *
      * @param[in] v0 线段第一个端点约束平面。
@@ -107,6 +120,10 @@ private:
     // 递归检测每片叶子多边形是否完全落在指定共面多边形中；若在其中则禁用该叶片。
     static void disableOverlapLeavesRecursive(BSPNode* node, const Polygon256& polygon);
     static void extractLeafGeometriesRecursive(BSPNode* node, std::vector<Polygon256>& outLeafGeometries);
+    static std::size_t visitLeafGeometriesRecursive(
+        BSPNode *node,
+        void *userData,
+        BSPLeafGeometryVisitor visitor);
     std::unique_ptr<BSPNode> root;
     Polygon256 basePolygon;
     Plane3i basePlane;

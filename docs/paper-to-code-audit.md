@@ -380,6 +380,16 @@
   `run_20260522_045123` 的结构计数、trace 诊断计数和 100 个 raw OBJ SHA256
   完全一致。两轮新结果均值 `solve_ms` 从 116.842ms 降到 116.541ms；
   `export_ms` / `end_to_end_ms` 基本处于导出和调度噪声内。
+- 叶片局部 BSP 抽片与叶片分类融合：为 `BSPTree` 和 `leaf_arrangement` 增加逐片
+  visitor 入口，普通叶片不再先把全部启用片段批量写入 `leafFragments_` 后再第二轮分类，
+  而是在局部 BSP 抽出一个启用 leaf geometry 后立即调用原有 `classifyLeafFragment()`
+  并写入结果。单操作数跳过 leaf BSP 的 bulk fast path 仍保留原 `polygons_` 别名语义；
+  `buildLeafArrangement()` 的 vector 返回入口也保留给测试和旧调用方。Debug 构建和
+  `ctest --preset default --output-on-failure --timeout 120` 通过；三轮 100 组论文样本
+  `run_20260522_061654` / `run_20260522_061813` / `run_20260522_062118`
+  与上一保留基线的结构计数、trace 诊断计数和 100 个 raw OBJ SHA256 完全一致。
+  三轮新结果均值 `solve_ms` 从 116.541ms 降到 115.888ms；`end_to_end_ms`
+  为 332.787ms，`process_elapsed_ms` 为 376.636ms。
 
 ## 已测但不保留的局部实验
 
