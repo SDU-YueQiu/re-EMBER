@@ -370,7 +370,7 @@ flowchart TD
 
 ## 9. 叶片分类流程
 
-`classifyLeafFragment()` 会对叶片片段求出其支撑平面两侧的 `frontWNV/backWNV`，再用布尔指示函数决定是否输出。普通局部 BSP 路径由 `solveLeafArrangementAndClassifyFragments()` 在 visitor 回调中逐片调用它；若当前叶子满足 NSI/NNC 单操作数快路径，并且 `leafFragments_` 实际直接别名到原始 `polygons_`，则仍走 `classifyLeafFragmentsAndCollectResults()` 的 bulk fast path，只真实分类一个代表面，再把该结果直接作用到整批多边形。
+`classifyLeafFragment()` 会对叶片片段求出其支撑平面两侧的 `frontWNV/backWNV`，再用布尔指示函数决定是否输出。普通局部 BSP 路径由 `solveLeafArrangementAndClassifyFragments()` 在 visitor 回调中逐片调用它，并把成功分类结果直接写到 `resultFragments_`，不再为该路径保留整批 `ClassifiedFragment` 中间数组；若当前叶子满足 NSI/NNC 单操作数快路径，并且 `leafFragments_` 实际直接别名到原始 `polygons_`，则仍走 `classifyLeafFragmentsAndCollectResults()` 的 bulk fast path，只真实分类一个代表面，再把该结果直接作用到整批多边形。
 
 核心顺序：
 
