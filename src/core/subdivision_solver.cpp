@@ -1364,7 +1364,7 @@ bool SubdivisionSolver::shouldSpawnParallelSiblingTask() const noexcept
 
     const std::size_t smallerChildPolygonCount = std::min(leftChild_->polygonCount_, rightChild_->polygonCount_);
     const std::size_t largerChildPolygonCount = std::max(leftChild_->polygonCount_, rightChild_->polygonCount_);
-    const std::size_t spawnPolygonFloor = std::max<std::size_t>(leafPolygonThreshold_ * 2u, 16u);
+    const std::size_t spawnPolygonFloor = std::max<std::size_t>(leafPolygonThreshold_, 16u);
     return smallerChildPolygonCount >= spawnPolygonFloor &&
            largerChildPolygonCount > leafPolygonThreshold_;
 }
