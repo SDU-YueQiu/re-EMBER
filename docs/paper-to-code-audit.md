@@ -444,6 +444,13 @@
 
 ## 已测但不保留的局部实验
 
+- CLI 默认路径关闭 `BoolProblem::leafSummaries()` 收集：为 `BoolProblem` 增加
+  `setCollectLeafSummaries(false)` 并把该开关传入 `SubdivisionSolver`，尝试避免每个
+  叶子摘要在子树合并时向上搬运；公开默认仍收集 leaf summaries。`ctest --test-dir build\tests --output-on-failure --timeout 120`
+  通过，`run_20260522_071428` 与保留基线 `run_20260522_070657` 的结构计数和
+  100 个 raw OBJ SHA256 完全一致，但平均 `solve_ms` 从 109.153ms 退化到
+  109.941ms，`end_to_end_ms` 从 258.271ms 退化到 259.184ms。leaf summary 聚合
+  不是当前默认 CLI 热点，源码不保留。
 - 叶片分类 WNV surface-point trace 增加叶片局部 polygon AABB BVH：尝试在
   `LeafClassificationContext` 中为当前 `polygons_` 构造保序 broad-phase 索引，
   让 `tracePathWNVToSurfacePointTrustedWithStartSides()` 先按 path AABB 查询可能
