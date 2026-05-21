@@ -481,9 +481,14 @@ bool repairSurfaceCandidatePath(
     std::vector<Segment256> &outPath)
 {
     outPath.clear();
-    if (!candidate.targetPoint.hasUniqueIntersection() ||
-            !fragment.containsStrictly(candidate.targetPoint))
+    if (!candidate.targetPoint.hasUniqueIntersection())
         return false;
+#ifndef NDEBUG
+    if (!fragment.containsStrictly(candidate.targetPoint))
+        return false;
+#else
+    (void)fragment;
+#endif
 
     if (buildAxisRepairPath(
                 context.localReference.point,
@@ -528,12 +533,19 @@ bool prepareLeafClassificationCandidate(
     LeafClassificationPathCandidate &candidate)
 {
     ++context.solveMetrics.leafClassificationCandidateGeneratedCount;
-    if (!candidate.targetPoint.hasUniqueIntersection() ||
-            !fragment.containsStrictly(candidate.targetPoint))
+    if (!candidate.targetPoint.hasUniqueIntersection())
     {
         ++context.solveMetrics.leafClassificationCandidateRejectedCount;
         return false;
     }
+#ifndef NDEBUG
+    // 候选枚举器已经负责生成严格内部目标；Release 热路径信任该前置条件。
+    if (!fragment.containsStrictly(candidate.targetPoint))
+    {
+        ++context.solveMetrics.leafClassificationCandidateRejectedCount;
+        return false;
+    }
+#endif
 
     if (!isTraceableSurfaceCandidatePath(
                 context.localReference.point,

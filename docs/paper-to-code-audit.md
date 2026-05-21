@@ -208,6 +208,14 @@
   为 1645.242ms；`run_20260521_134044` 三次无 oracle 重复计时为
   1649.68ms、1649.91ms、1643.52ms，均值 1647.70ms，较
   `run_20260521_131933` 的 1657.38ms 继续降低约 0.58%。
+- 叶片分类候选目标在生成阶段已经通过严格内部点检查，Release 热路径在
+  `prepareLeafClassificationCandidate()` 和 candidate repair 中不再重复执行
+  `fragment.containsStrictly(targetPoint)`；Debug 仍保留检查来守住候选枚举器前置条件。
+  该改动不改变候选路径、trace 次数或 WNV 传播数学，只减少每个候选准备阶段的重复
+  边半空间分类。Debug 测试通过，`run_20260521_140155` 的 22 个 verifier
+  全部通过；`run_20260521_140622` 三次无 oracle 重复计时为 1640.84ms、
+  1625.48ms、1656.14ms，均值 1640.82ms，较 `run_20260521_134044`
+  的 1647.70ms 继续降低约 0.42%。
 
 ## 已测但不保留的局部实验
 
