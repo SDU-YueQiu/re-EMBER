@@ -577,15 +577,23 @@ int main(int argc, char **argv)
                 options.threadCount,
                 [&]
             {
-                lhsPrepared =
-                    ember::computeScaledMeshAABB(lhsMesh, sharedScale, lhsAABB, lhsPrepareError) &&
-                    ember::buildPolygonSoup(lhsMesh, sharedScale, buildOptions, lhsPolygons, lhsPrepareError);
+                lhsPrepared = ember::buildPolygonSoupWithAABB(
+                                  lhsMesh,
+                                  sharedScale,
+                                  buildOptions,
+                                  lhsAABB,
+                                  lhsPolygons,
+                                  lhsPrepareError);
             },
                 [&]
             {
-                rhsPrepared =
-                    ember::computeScaledMeshAABB(rhsMesh, sharedScale, rhsAABB, rhsPrepareError) &&
-                    ember::buildPolygonSoup(rhsMesh, sharedScale, buildOptions, rhsPolygons, rhsPrepareError);
+                rhsPrepared = ember::buildPolygonSoupWithAABB(
+                                  rhsMesh,
+                                  sharedScale,
+                                  buildOptions,
+                                  rhsAABB,
+                                  rhsPolygons,
+                                  rhsPrepareError);
             });
             if (!lhsPrepared)
             {

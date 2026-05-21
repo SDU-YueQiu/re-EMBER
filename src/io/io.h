@@ -257,6 +257,28 @@ bool buildPolygonSoup(
     std::string &outError);
 
 /**
+ * @brief 一次顶点扫描内同时构造输入 AABB 和 `Polygon256` 多边形集合。
+ *
+ * @param[in] mesh 输入网格数据。
+ * @param[in] sharedScale 调用方为全部输入统一选定的量化尺度。
+ * @param[in] options 多边形集合构建策略。
+ * @param[out] outAABB 成功时写入覆盖输入浮点顶点的整数 AABB。
+ * @param[out] outPolygons 成功时写入转换后的凸多边形集合。
+ * @param[out] outError 失败时写入可读错误信息。
+ * @retval true AABB 和多边形集合都构造成功。
+ * @retval false `sharedScale` 非法、输入顶点为空，或任一顶点/面不满足当前几何约束。
+ * @note 语义等价于先调用 `computeScaledMeshAABB()` 再调用 `buildPolygonSoup()`，
+ *       但应用层热路径可避免重复扫描和中间结果分配。
+ */
+bool buildPolygonSoupWithAABB(
+    const ObjMeshData &mesh,
+    std::uint64_t sharedScale,
+    const PolygonSoupBuildOptions &options,
+    AABB3i &outAABB,
+    std::vector<Polygon256> &outPolygons,
+    std::string &outError);
+
+/**
  * @brief 将布尔结果多边形集合直接导出为 OBJ n 边面。
  *
  * @param[in] fragments 待导出的结果面集合。

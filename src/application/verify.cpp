@@ -439,21 +439,19 @@ PreparedProblem prepareProblem(const VerifyOptions &options)
 
     ember::AABB3i lhsAABB;
     ember::AABB3i rhsAABB;
-    if (!ember::computeScaledMeshAABB(prepared.lhsMesh, prepared.sharedScale, lhsAABB, error))
-        throw std::runtime_error(error);
-    if (!ember::computeScaledMeshAABB(prepared.rhsMesh, prepared.sharedScale, rhsAABB, error))
-        throw std::runtime_error(error);
-    if (!ember::buildPolygonSoup(
+    if (!ember::buildPolygonSoupWithAABB(
                 prepared.lhsMesh,
                 prepared.sharedScale,
                 buildOptions,
+                lhsAABB,
                 prepared.lhsPolygons,
                 error))
         throw std::runtime_error(error);
-    if (!ember::buildPolygonSoup(
+    if (!ember::buildPolygonSoupWithAABB(
                 prepared.rhsMesh,
                 prepared.sharedScale,
                 buildOptions,
+                rhsAABB,
                 prepared.rhsPolygons,
                 error))
         throw std::runtime_error(error);
