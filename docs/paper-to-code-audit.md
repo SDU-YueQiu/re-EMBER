@@ -345,6 +345,16 @@
 
 ## 已测但不保留的局部实验
 
+- WNV 普通 trace 的 segment/polygon trusted 交点旁路：在
+  `tracePathWNVImpl()` 中，尝试用已完成的 segment AABB 与 polygon AABB/支撑平面
+  相关性预筛作为前置条件，绕过 `intersectionSegmentPolygon()` 内部重复 AABB 构造
+  和 plane-box 判断，并直接用未约分 `intersect_3_planes` 交点做面内/线段内判定。
+  Debug 构建和 ctest 通过；`run_20260522_034616` 与当前保留基线
+  `run_20260522_033921` 的结构计数和 trace 计数完全一致，100 个 raw OBJ 与基线
+  逐文件 SHA256 完全一致；但单轮 `solve_ms` 为 118.156ms，差于当前保留基线
+  `run_20260522_033808` / `run_20260522_033921` 的 117.948ms 均值。
+  该路径节省的重复 AABB/规范化工作没有抵消额外局部 helper 和分类路径变化成本；
+  不保留。
 - 局部 BSP 叶片裁剪前 AABB-平面剪枝：尝试在
   `BSPTree::addSegmentRecursive()` 的 leaf 分支进入
   `clipLeafGeometryByPlaneTrusted()` 前先读取 `node.leafGeometry.aabb()`，用
