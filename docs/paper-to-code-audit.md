@@ -464,6 +464,16 @@
   trace/candidate 计数一致，平均 `prepare_ms` 从 52.091ms 降到 48.236ms，
   `end_to_end_ms` 从 252.100ms 降到 248.175ms；`solve_ms` / `export_ms`
   基本只剩计时噪声。
+- 应用层输入准备改用 `buildPolygonSoupWithAABB()`：每个 mesh 的浮点顶点
+  `floor/ceil` AABB 区间和四舍五入量化顶点在同一轮静态并行扫描里生成，
+  后续面构造仍复用原来的严格 `Polygon256` 构建逻辑；公开的
+  `computeScaledMeshAABB()` / `buildPolygonSoup()` 仍保留给拆分调用方。`ctest
+  --test-dir build\tests --output-on-failure --timeout 120` 通过；`run_20260522_073835`
+  对 34 个 small 样本做 `-VerifyWithOracle` 全部通过。`run_20260522_074030`
+  的 100 组 NoTracy 与 `run_20260522_073439` 的 key structural counters、
+  leaf classification trace/candidate 计数一致，100 个 raw OBJ SHA256 完全一致；
+  平均 `prepare_ms` 从 48.236ms 降到 47.382ms，`end_to_end_ms` 从 248.175ms
+  降到 247.759ms。
 
 ## 已测但不保留的局部实验
 

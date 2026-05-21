@@ -287,6 +287,13 @@ struct VertexAabbResult
     std::string error;
 };
 
+struct VertexPrepareResult
+{
+    Vec3i vertex;
+    AABB3i box;
+    std::string error;
+};
+
 // 量化后重复顶点会让某些边退化成零长度，先在面级别提前拦截。
 bool hasDuplicateFaceVertex(const std::vector<Vec3i> &faceVertices) noexcept
 {
@@ -503,6 +510,52 @@ void buildPolygonsFromQuantizedFace(
     }
 
     outResult.error = faceError;
+}
+
+bool buildPolygonSoupFromQuantizedVertices(
+    const ObjMeshData &mesh,
+    const std::vector<Vec3i> &quantizedVertices,
+    const PolygonSoupBuildOptions &options,
+    std::vector<Polygon256> &outPolygons,
+    std::string &outError)
+{
+    std::vector<FacePolygonBuildResult> faceResults(mesh.faces.size());
+    parallelForStatic(mesh.faces.size(), [&](std::size_t faceIndex)
+    {
+        // 每个输入面都必须在量化后独立满足：无重复点、可定支撑平面、全体共面、严格凸。
+        buildPolygonsFromQuantizedFace(
+            quantizedVertices,
+            mesh.faces[faceIndex],
+            faceIndex,
+            options,
+            faceResults[faceIndex]);
+    });
+
+    std::size_t polygonCount = 0;
+    for (const FacePolygonBuildResult &result : faceResults)
+    {
+        if (!result.error.empty())
+            return failIo(outError, result.error);
+
+        polygonCount += result.polygonCount;
+    }
+
+    outPolygons.reserve(polygonCount);
+    for (FacePolygonBuildResult &result : faceResults)
+    {
+        if (result.polygonCount == 1u && result.extraPolygons.empty())
+        {
+            outPolygons.push_back(std::move(result.polygon));
+            continue;
+        }
+
+        outPolygons.insert(
+            outPolygons.end(),
+            std::make_move_iterator(result.extraPolygons.begin()),
+            std::make_move_iterator(result.extraPolygons.end()));
+    }
+
+    return true;
 }
 
 ObjVertex homogeneousPointToObjVertex(const PlanePoint3i &vertex, std::uint64_t coordinateScale)
@@ -2508,44 +2561,81 @@ bool buildPolygonSoup(
         quantizedVertices[i] = quantizedResults[i].vertex;
     }
 
-    std::vector<FacePolygonBuildResult> faceResults(mesh.faces.size());
-    parallelForStatic(mesh.faces.size(), [&](std::size_t faceIndex)
-    {
-        // 每个输入面都必须在量化后独立满足：无重复点、可定支撑平面、全体共面、严格凸。
-        buildPolygonsFromQuantizedFace(
-            quantizedVertices,
-            mesh.faces[faceIndex],
-            faceIndex,
-            options,
-            faceResults[faceIndex]);
-    });
+    return buildPolygonSoupFromQuantizedVertices(mesh, quantizedVertices, options, outPolygons, outError);
 
-    std::size_t polygonCount = 0;
-    for (const FacePolygonBuildResult &result : faceResults)
-    {
-        if (!result.error.empty())
-            return failIo(outError, result.error);
+}
 
-        polygonCount += result.polygonCount;
-    }
+bool buildPolygonSoupWithAABB(
+    const ObjMeshData &mesh,
+    std::uint64_t sharedScale,
+    const PolygonSoupBuildOptions &options,
+    AABB3i &outAABB,
+    std::vector<Polygon256> &outPolygons,
+    std::string &outError)
+{
+    outAABB = AABB3i();
+    outPolygons.clear();
+    outError.clear();
 
-    outPolygons.reserve(polygonCount);
-    for (FacePolygonBuildResult &result : faceResults)
+    if (sharedScale == 0)
+        return failIo(outError, "Shared scale must be a positive integer.");
+    if (mesh.vertices.empty())
+        return failIo(outError, "Cannot compute an AABB for a mesh without vertices.");
+
+    std::vector<VertexPrepareResult> vertexResults(mesh.vertices.size());
+    parallelForStatic(mesh.vertices.size(), [&](std::size_t vertexIndex)
     {
-        if (result.polygonCount == 1u && result.extraPolygons.empty())
+        const ObjVertex &vertex = mesh.vertices[vertexIndex];
+        Integer xMin;
+        Integer xMax;
+        Integer yMin;
+        Integer yMax;
+        Integer zMin;
+        Integer zMax;
+        std::string vertexError;
+        if (!computeScaledCoordinateInterval(vertex.x, sharedScale, xMin, xMax, vertexError) ||
+                !computeScaledCoordinateInterval(vertex.y, sharedScale, yMin, yMax, vertexError) ||
+                !computeScaledCoordinateInterval(vertex.z, sharedScale, zMin, zMax, vertexError))
         {
-            outPolygons.push_back(std::move(result.polygon));
-            continue;
+            vertexResults[vertexIndex].error =
+                "Failed to compute scaled AABB for mesh vertex " +
+                std::to_string(vertexIndex) + ": " + vertexError;
+            return;
         }
 
-        outPolygons.insert(
-            outPolygons.end(),
-            std::make_move_iterator(result.extraPolygons.begin()),
-            std::make_move_iterator(result.extraPolygons.end()));
+        appendScaledVertexIntervalToAABB(
+            vertexResults[vertexIndex].box,
+            xMin,
+            xMax,
+            yMin,
+            yMax,
+            zMin,
+            zMax);
+
+        if (!quantizeVertex(vertex, sharedScale, vertexResults[vertexIndex].vertex, vertexError))
+        {
+            vertexResults[vertexIndex].error =
+                "Failed to quantize mesh vertex " + std::to_string(vertexIndex) + ": " + vertexError;
+        }
+    });
+
+    std::vector<Vec3i> quantizedVertices(mesh.vertices.size());
+    for (std::size_t i = 0; i < vertexResults.size(); ++i)
+    {
+        if (!vertexResults[i].error.empty())
+        {
+            outAABB = AABB3i();
+            return failIo(outError, vertexResults[i].error);
+        }
+
+        mergeAABB(outAABB, vertexResults[i].box);
+        quantizedVertices[i] = vertexResults[i].vertex;
     }
 
-    return true;
+    if (!isValidAABB(outAABB))
+        return false;
 
+    return buildPolygonSoupFromQuantizedVertices(mesh, quantizedVertices, options, outPolygons, outError);
 }
 
 bool writePolygonSoupObj(

@@ -53,7 +53,7 @@ flowchart TD
 1. 解析 `--lhs --rhs --op --out --scale --leaf-threshold --threads --output-topology raw|conforming`。
 2. 按扩展名读取左右输入网格（OBJ/STL）；左右输入由应用层并行调度。
 3. 选择共享 `scale`，把左右输入放进同一个整数坐标系。
-4. 用 `computeScaledMeshAABB()` 对输入网格浮点顶点执行 `floor(coord * scale)` / `ceil(coord * scale)`，得到左右输入 AABB；左右 AABB 与 polygon soup 构建在应用层并行执行。
+4. 用 `buildPolygonSoupWithAABB()` 在同一轮顶点扫描内量化输入顶点，并按 `floor(coord * scale)` / `ceil(coord * scale)` 得到左右输入 AABB；左右输入在应用层并行准备。
 5. 合并左右输入 AABB，并扩展一圈 margin 作为根场景 AABB。
 6. 调用 `buildPolygonSoup()` 把输入面片转换为 `Polygon256` 集合。
 7. 构造 `BoolProblem`，设置布尔运算、输入假设、总线程数和左右操作数。
@@ -63,7 +63,7 @@ flowchart TD
 
 这里有几个实现细节值得单独记住：
 
-- 应用层并行不是只拆左右输入：二元输入的共享 scale 选择直接按左右 mesh 引用扫描，不为临时 mesh 数组复制顶点和面；`computeScaledMeshAABB()` 按顶点静态分块，`buildPolygonSoup()` 按顶点量化和输入面构造静态分块，导出阶段按结果片段恢复有序顶点；错误检查和最终合并仍按原始顺序串行执行。CLI 写出 `problem.resultFragmentChunks()` 时信任 solver 内部片段，不重复执行完整 `Polygon256::isValid()`，也不先把所有结果搬进一个大 `resultFragments()` vector；公开 I/O API 仍默认验证传入片段。`raw` OBJ 导出只构建顶点/面索引，并用扁平 face-index 数组写出，不复制 T-junction 修复所需的边平面和边来源元数据。
+- 应用层并行不是只拆左右输入：二元输入的共享 scale 选择直接按左右 mesh 引用扫描，不为临时 mesh 数组复制顶点和面；`buildPolygonSoupWithAABB()` 按顶点静态分块，同时得到输入 AABB 覆盖区间和量化顶点，再按输入面构造 polygon soup；导出阶段按结果片段恢复有序顶点；错误检查和最终合并仍按原始顺序串行执行。CLI 写出 `problem.resultFragmentChunks()` 时信任 solver 内部片段，不重复执行完整 `Polygon256::isValid()`，也不先把所有结果搬进一个大 `resultFragments()` vector；公开 I/O API 仍默认验证传入片段。`raw` OBJ 导出只构建顶点/面索引，并用扁平 face-index 数组写出，不复制 T-junction 修复所需的边平面和边来源元数据。
 - `setOperands()` 会给左操作数写入基础 `WNTV={1,0}`，给右操作数写入 `WNTV={0,1}`；CLI 在构建完左右 polygon soup 后直接移交给 `BoolProblem`，避免再复制整批 `Polygon256`。
 - CLI 的 `--threads` 会同时设置应用层 `task_arena` 大小和 `BoolProblem::setThreadCount()`；`0` 表示自动并发度，`1` 表示全流程强制串行，`N>1` 表示总参与线程数为 `N`。
 - `BoolProblem` 不再暴露直接注入任意 `WNTV` polygon 集合的公开入口，公开输入边界固定为二元操作数。
@@ -73,7 +73,7 @@ flowchart TD
 
 ### 2.1 CGAL Nef verifier 的语义边界
 
-`src/application/verify.cpp` 复用同一条输入准备路径：`readMesh()`、`chooseSharedScale()`、`computeScaledMeshAABB()` 和启用 `triangulateNonCoplanarFaces=true` 的 `buildPolygonSoup()`。因此 `re-EMBER_verify` 校验的是“量化后的 `Polygon256` 左右输入”上的精确布尔集合，而不是原始浮点 OBJ/STL 在 CAD 语义里的真实实体。
+`src/application/verify.cpp` 复用同一条输入准备路径：`readMesh()`、`chooseSharedScale()` 和启用 `triangulateNonCoplanarFaces=true` 的 `buildPolygonSoupWithAABB()`。因此 `re-EMBER_verify` 校验的是“量化后的 `Polygon256` 左右输入”上的精确布尔集合，而不是原始浮点 OBJ/STL 在 CAD 语义里的真实实体。
 
 verifier 会用这批量化 polygon soup 同时做两件事：一边运行 `BoolProblem` 并读取 `resultFragments()`；另一边把左右输入精确转成 CGAL Nef oracle 并缓存。候选结果默认以 `--candidate-mode fragments-nef` 从 `resultFragments()` 恢复 exact conforming mesh 后再转 Nef，避免 OBJ double 导出/回读造成二次误差，也避免旧 Nef 侧全局二次 T-junction refinement；也可以用 `export-conforming` 测试同一 exact conforming 拓扑，或用 `export-nef` 测试 Nef 后处理路径。候选结果转 CGAL mesh 前会在 exact rational 点域中补齐面片之间的 T-junction，把落在某条边上的全局顶点插入该面的边界循环，再三角化成共形 surface mesh。最终判定先尝试把 simple candidate/oracle Nef 转回 exact surface mesh，并比较精确顶点集与面边界环集合；若完全相同，报告中的 `surface_compare_used=1` 表示无需运行最终 Nef overlay 已经证明相等。只有 exact surface 不完全一致时，才退回候选 Nef 与 oracle Nef 的正则化对称差；这只比较实体集合，不要求 face count、片段切分方式或 OBJ 顶点顺序一致。需要复现旧路径时可加 `--disable-surface-compare`。
 

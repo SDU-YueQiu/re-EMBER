@@ -457,7 +457,7 @@ ObjMeshData solveObjBooleanMesh(
     ember::QuantizeOptions options;
     std::uint64_t scale = 0;
     std::string error;
-    if (!ember::chooseSharedScale({lhs, rhs}, options, scale, error))
+    if (!ember::chooseSharedScale(lhs, rhs, options, scale, error))
     {
         throw std::runtime_error("io_tests failed to choose shared scale: " + error);
     }
@@ -469,12 +469,9 @@ ObjMeshData solveObjBooleanMesh(
     std::vector<Polygon256> rhsPolygons;
     ember::AABB3i lhsAABB;
     ember::AABB3i rhsAABB;
-    if (!ember::computeScaledMeshAABB(lhs, scale, lhsAABB, error) ||
-            !ember::computeScaledMeshAABB(rhs, scale, rhsAABB, error))
-        throw std::runtime_error("io_tests failed to compute input AABB: " + error);
-    if (!ember::buildPolygonSoup(lhs, scale, polygonBuildOptions, lhsPolygons, error) ||
-            !ember::buildPolygonSoup(rhs, scale, polygonBuildOptions, rhsPolygons, error))
-        throw std::runtime_error("io_tests failed to build polygon soup: " + error);
+    if (!ember::buildPolygonSoupWithAABB(lhs, scale, polygonBuildOptions, lhsAABB, lhsPolygons, error) ||
+            !ember::buildPolygonSoupWithAABB(rhs, scale, polygonBuildOptions, rhsAABB, rhsPolygons, error))
+        throw std::runtime_error("io_tests failed to prepare polygon soup: " + error);
 
     ember::BoolProblem problem(leafThreshold);
     problem.setOperation(operation);
