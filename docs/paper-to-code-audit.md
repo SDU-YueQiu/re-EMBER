@@ -345,6 +345,15 @@
 
 ## 已测但不保留的局部实验
 
+- 子参考点 fast AABB 候选短容器内联缓冲：在
+  `visitFastAABBPathCandidateSeeds()` 中把候选坐标去重表和三轴 inset 选择表从
+  短 `std::vector` 改为 `boost::container::small_vector`，尝试减少每个需要传播
+  子参考点的内部节点在 fast candidate 枚举阶段的堆分配。Debug 构建和 ctest 通过；
+  `run_20260522_035608` 与当前保留基线 `run_20260522_033921` 的结构计数、
+  child-reference candidate/trace 计数和 leaf trace 计数完全一致，100 个 raw OBJ
+  与基线逐文件 SHA256 完全一致；但单轮 `solve_ms` 为 118.090ms，差于当前保留
+  基线 `run_20260522_033808` / `run_20260522_033921` 的 117.948ms 均值，
+  `export_ms` 与端到端也未改善。该短容器替换不保留。
 - WNV 普通 trace 的 segment/polygon trusted 交点旁路：在
   `tracePathWNVImpl()` 中，尝试用已完成的 segment AABB 与 polygon AABB/支撑平面
   相关性预筛作为前置条件，绕过 `intersectionSegmentPolygon()` 内部重复 AABB 构造
