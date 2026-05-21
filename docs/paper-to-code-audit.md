@@ -435,6 +435,15 @@
   `run_20260522_021842` / `run_20260522_021956` 当前保留基线均值 118.252ms，
   `end_to_end_ms` 基本持平。通用 corner path 的短 vector 扩容不是当前主导成本；
   不保留。
+- fast AABB 子参考候选去重表延迟分配：尝试在
+  `visitFastAABBPathCandidateSeeds()` 中先访问候选路径，只有 visitor 继续枚举时才
+  `reserve(20)` 并记录已发射目标，目标是让常见“首个 fast candidate 成功”路径不分配
+  去重表。Debug 构建和 ctest 已在实验前通过，100 组论文样本
+  `run_20260522_023020` 与 `run_20260522_021956` 的结构计数、child reference
+  candidate/trace 计数和 leaf classification trace 次数完全一致；但单轮
+  `solve_ms` 从 118.531ms 到 118.631ms，且差于
+  `run_20260522_021842` / `run_20260522_021956` 当前保留基线均值 118.252ms。
+  端到端小幅改善更像准备/导出噪声，核心 solve 没有收益；不保留。
 - trusted clipped polygon eager 顶点/AABB 缓存：结构计数不变，solve 信号为负。
 - BSP 插入端点齐次交点沿递归缓存：结构计数不变，22 个 verifier 全部通过，
   但 `run_20260521_032931` 相比 `run_20260521_031822` 的聚合 `solve_ms`
