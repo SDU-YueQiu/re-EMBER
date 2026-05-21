@@ -238,6 +238,11 @@
   `run_20260521_113104` 的 22 个 verifier 全部通过，但 trace 尝试数从
   当前保留版本的 232002 增至 245780，单轮 `solve_ms` 为 1734.45ms，
   差于 `run_20260521_103114` 的三次均值 1728.62ms；预筛仍然比多跑无效 trace 便宜。
+- `hasIntermediateEndpointOnInputSurface()` 改为先判断中间点是否落在 polygon
+  支撑平面，再查已有 AABB 和边半空间，尝试减少完整 `polygon.classify()`；
+  Debug 测试通过，`run_20260521_113741` 的 22 个 verifier 全部通过且计数不变，
+  但单轮 `solve_ms` 为 1808.25ms，明显差于当前保留版本；现有 AABB-first
+  快速拒绝顺序更适合当前 workload。
 - centroid axis 的 local reference 整数起点按叶片缓存：结构计数不变，22 个
   verifier 全部通过，但 `run_20260521_033829` 相比 `run_20260521_031822`
   的聚合 `solve_ms` 从 2423.462ms 退化到 2431.565ms；减少重复解析不足以抵消
