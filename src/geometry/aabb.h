@@ -200,33 +200,33 @@ inline void appendPointCoordinateIntervalToAABB(
     if (zMax > box.zMax) box.zMax = zMax;
 }
 
-inline bool appendPointToAABB(AABB3i &box, const PlanePoint3i &point) noexcept
+inline bool appendHomPointToAABB(AABB3i &box, const HomPoint4i &point) noexcept
 {
-    if (!point.hasUniqueIntersection() || isZero(point.x.w))
+    if (isZero(point.w))
         return false;
 
-    if (point.x.w == 1)
+    if (point.w == 1)
     {
         appendPointCoordinateIntervalToAABB(
             box,
-            point.x.x,
-            point.x.x,
-            point.x.y,
-            point.x.y,
-            point.x.z,
-            point.x.z);
+            point.x,
+            point.x,
+            point.y,
+            point.y,
+            point.z,
+            point.z);
         return true;
     }
-    if (point.x.w == -1)
+    if (point.w == -1)
     {
         appendPointCoordinateIntervalToAABB(
             box,
-            -point.x.x,
-            -point.x.x,
-            -point.x.y,
-            -point.x.y,
-            -point.x.z,
-            -point.x.z);
+            -point.x,
+            -point.x,
+            -point.y,
+            -point.y,
+            -point.z,
+            -point.z);
         return true;
     }
 
@@ -236,11 +236,19 @@ inline bool appendPointToAABB(AABB3i &box, const PlanePoint3i &point) noexcept
     Integer yMax = 0;
     Integer zMin = 0;
     Integer zMax = 0;
-    floorCeilDiv(point.x.x, point.x.w, xMin, xMax);
-    floorCeilDiv(point.x.y, point.x.w, yMin, yMax);
-    floorCeilDiv(point.x.z, point.x.w, zMin, zMax);
+    floorCeilDiv(point.x, point.w, xMin, xMax);
+    floorCeilDiv(point.y, point.w, yMin, yMax);
+    floorCeilDiv(point.z, point.w, zMin, zMax);
     appendPointCoordinateIntervalToAABB(box, xMin, xMax, yMin, yMax, zMin, zMax);
     return true;
+}
+
+inline bool appendPointToAABB(AABB3i &box, const PlanePoint3i &point) noexcept
+{
+    if (!point.hasUniqueIntersection())
+        return false;
+
+    return appendHomPointToAABB(box, point.x);
 }
 
 inline bool buildPointPairAABB(

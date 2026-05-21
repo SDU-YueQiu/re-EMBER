@@ -237,7 +237,7 @@ private:
     void invalidateDerivedCaches() noexcept;
     void invalidateValidityCache() const noexcept;
     void rebuildVertexCache() const;
-    void rebuildVertexAndAABBCaches() const;
+    void rebuildAABBCache() const;
     void rebuildAABBCacheFromVertices() const;
     bool computeValidity() const;
 
