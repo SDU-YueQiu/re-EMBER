@@ -105,22 +105,22 @@ bool buildTrustedClippedPolygon(
     std::vector<PolygonEdgeProvenance> provenances,
     Polygon256& outPolygon)
 {
-    // 裁剪已知来自有效凸多边形，且边顺序由裁剪遍历维护；这里只做结构检查，
-    // 避免在 BSP 热路径重复执行普通构造中的边法向重定向和完整凸性验证。
+    // 裁剪已知来自有效凸多边形，且边顺序由裁剪遍历维护；release 只保留
+    // 最小结构检查，Debug 再验证完整凸性不变量。
     Polygon256 polygon;
     polygon.plane = source.plane;
     polygon.edgePlanes = std::move(edges);
     polygon.edgeProvenances = std::move(provenances);
     polygon.WNTV = source.WNTV;
 
-    if (!hasTrustedClippedPolygonStructure(polygon))
+    if (polygon.edgeCount() < 3u || polygon.edgeProvenances.size() != polygon.edgeCount())
     {
         outPolygon = Polygon256();
         return false;
     }
 
 #ifndef NDEBUG
-    if (!polygon.isValid())
+    if (!hasTrustedClippedPolygonStructure(polygon) || !polygon.isValid())
     {
         outPolygon = Polygon256();
         return false;
