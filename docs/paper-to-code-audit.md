@@ -374,6 +374,17 @@
 
 ## 已测但不保留的局部实验
 
+- WNV surface-point trace 复用末段终点面内分类：尝试在最后一段
+  `classifyEndPoint` 时顺带返回 `StrictInterior/Boundary`，当已确认
+  `surfaceHit == &endPoint` 时跳过后续 `classifyPolygonSurfacePointUnchecked()`
+  的第二次边半空间扫描。该改动不改变 trace 次数、boundary policy 或 WNV/WNTV
+  累加语义。Debug 构建和 `ctest --preset default --output-on-failure --timeout 120`
+  通过；两轮 100 组论文样本 `run_20260522_051128` / `run_20260522_051243`
+  与当前保留基线 `run_20260522_045123` 的结构计数、trace 诊断计数和 100 个
+  raw OBJ SHA256 完全一致。第一轮 `solve_ms` 为 116.655ms，但第二轮退到
+  117.071ms，两轮均值 116.863ms，略差于末段曲面命中终点复用后两轮保留基线
+  `run_20260522_045009` / `run_20260522_045123` 的 116.842ms。
+  说明额外分类状态维护没有稳定覆盖重复面内扫描成本，源码不保留。
 - WNTV-aware split 候选按 polygon 放大成本择优：尝试在仍只选择可分离 WNTV 类的
   候选切面前提下，复用 `SplitCostEstimate` 先最小化 `splitCount`、child 最大
   polygon 数和不平衡度，再用原先的分离距离打平。该方向希望减少后续 leaf BSP
