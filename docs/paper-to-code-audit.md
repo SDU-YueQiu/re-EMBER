@@ -279,6 +279,12 @@
   但 100 组论文样本重复 NoTracy 结果不稳定：`run_20260521_235526`
   平均 `solve_ms` 小幅下降 0.5%，`run_20260521_235640` 又退化 0.4%，端到端
   同步偏负；收益落在噪声内且增加了 `insertTrusted()` 的状态分支，不保留。
+- `buildRoundedCentroidPoint()` 尝试把欧氏顶点 `vector` 改成流式三角扇重心计算，
+  避免每个 centroid axis 尝试临时分配并保存全部 `Vec3d`。Debug 构建和 ctest
+  通过，100 组论文样本结构计数、centroid 点计数、axis path 尝试数均与
+  `run_20260521_233848` 一致；但 `run_20260522_000027` 平均 `solve_ms`
+  从 120.335ms 退化到 120.837ms，large 平均从 246.313ms 到 247.601ms；
+  不保留。
 - center-range fallback 全量扫描每轴 polygon AABB 端点作为候选切面：该方向试图把
   固定平均中心切面改成更接近“最小局部复制代价”的轴平面选择。第一版按
   `splitCount` 优先会选择几乎不推进递归的一侧空切，`re-EMBER_paper_small_batch`
