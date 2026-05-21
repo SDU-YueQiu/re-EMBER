@@ -5,8 +5,8 @@
 
 ## 当前基线
 
-- 最近可比性能基线：`提前释放内部节点多边形`（本文所在提交）。
-- 计时基线：`build/performance/run_20260521_080040/timings.csv`，Release
+- 最近可比性能基线：`提前释放叶节点中间几何`（本文所在提交）。
+- 计时基线：`build/performance/run_20260521_080941/timings.csv`，Release
   NoTracy，论文实验集 `10 small / 10 medium / 2 large`，`--threads 20`。
 - 最近 Tracy 归因：`build/performance/run_20260521_072920/`，单个 large
   workload，RelWithDebInfo，Tracy 和 math Tracy 开启。
@@ -122,6 +122,12 @@
   `run_20260521_072311` 的 1893.49ms 降到 1879.84ms；`run_20260521_080523`
   额外做 3 次无 oracle 重复计时，按每轮 22 个 workload 聚合 `solve_ms` 为
   1868.40ms。端到端时间受导出和 I/O 噪声影响未同步下降，solver 指标保留为正收益。
+- 叶节点完成 metrics 记录后立即清空 `polygons_`、`leafFragments_` 和
+  `classifiedFragments_`；后续只需要 `resultFragments_`、`leafSummaries_` 和计数。
+  `run_20260521_080941` 对同一 10 small / 10 medium / 2 large workload 做了
+  `-NoTracy -VerifyWithOracle`，22 个 verifier 全部通过，聚合 `solve_ms` 从
+  `run_20260521_080040` 的 1879.84ms 降到 1852.88ms，`end_to_end_ms` 从
+  5274.77ms 降到 5231.12ms。
 
 ## 已测但不保留的局部实验
 

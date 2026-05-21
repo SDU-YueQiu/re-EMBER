@@ -1250,6 +1250,9 @@ void SubdivisionSolver::finalizeLeafNode()
     resultFragmentChunks_.clear();
     resultFragmentCount_ = resultFragments_.size();
     finalizeNodeMetrics(true);
+    polygons_.clear();
+    leafFragments_.clear();
+    classifiedFragments_.clear();
     solved_ = true;
 }
 
