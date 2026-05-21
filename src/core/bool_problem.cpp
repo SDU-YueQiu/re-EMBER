@@ -84,6 +84,26 @@ int toTaskArenaConcurrency(std::size_t threadCount) noexcept
     const std::size_t maxInt = static_cast<std::size_t>(std::numeric_limits<int>::max());
     return static_cast<int>(std::min(threadCount, maxInt));
 }
+
+void materializeResultChunks(
+    std::vector<Polygon256> &out,
+    std::vector<std::vector<Polygon256>> &chunks,
+    std::size_t totalCount)
+{
+    if (chunks.empty())
+        return;
+
+    out.clear();
+    out.reserve(totalCount);
+    for (std::vector<Polygon256> &chunk : chunks)
+    {
+        out.insert(
+            out.end(),
+            std::make_move_iterator(chunk.begin()),
+            std::make_move_iterator(chunk.end()));
+    }
+    chunks.clear();
+}
 }
 
 BoolProblem::BoolProblem(std::size_t leafPolygonThreshold) noexcept
@@ -183,11 +203,12 @@ void BoolProblem::solve(const AABB3i &sceneAABB)
             solver.solve();
         });
         discarded_ = solver.isDiscarded();
-        solver.extractResultFragments(resultFragments_);
-        if (resultFragments_.empty())
+        solver.extractResultFragmentChunks(resultFragmentChunks_);
+        resultFragments_.clear();
+        solveMetrics_ = solver.solveMetrics();
+        if (solveMetrics_.resultFragmentCount == 0)
             discarded_ = true;
         solver.extractLeafSummaries(leafSummaries_);
-        solveMetrics_ = solver.solveMetrics();
         return;
     }
 
@@ -201,11 +222,12 @@ void BoolProblem::solve(const AABB3i &sceneAABB)
         rhsAssumptions_);
     solver.solve();
     discarded_ = solver.isDiscarded();
-    solver.extractResultFragments(resultFragments_);
-    if (resultFragments_.empty())
+    solver.extractResultFragmentChunks(resultFragmentChunks_);
+    resultFragments_.clear();
+    solveMetrics_ = solver.solveMetrics();
+    if (solveMetrics_.resultFragmentCount == 0)
         discarded_ = true;
     solver.extractLeafSummaries(leafSummaries_);
-    solveMetrics_ = solver.solveMetrics();
 }
 
 bool BoolProblem::isDiscarded() const noexcept
@@ -213,9 +235,20 @@ bool BoolProblem::isDiscarded() const noexcept
     return discarded_;
 }
 
-const std::vector<Polygon256> &BoolProblem::resultFragments() const noexcept
+const std::vector<Polygon256> &BoolProblem::resultFragments() const
 {
+    materializeResultChunks(resultFragments_, resultFragmentChunks_, solveMetrics_.resultFragmentCount);
     return resultFragments_;
+}
+
+const std::vector<std::vector<Polygon256>> &BoolProblem::resultFragmentChunks() const noexcept
+{
+    return resultFragmentChunks_;
+}
+
+std::size_t BoolProblem::resultFragmentCount() const noexcept
+{
+    return solveMetrics_.resultFragmentCount;
 }
 
 const std::vector<BoolLeafSummary> &BoolProblem::leafSummaries() const noexcept

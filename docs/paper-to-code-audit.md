@@ -432,6 +432,15 @@
   的 34 个 small verifier 全部通过，`run_20260522_065758` 相比 `run_20260522_065445`
   的结构计数和 100 个 raw OBJ SHA256 完全一致，平均 `export_ms` 从 81.736ms
   到 81.431ms，`end_to_end_ms` 从 264.485ms 到 263.519ms。
+- `BoolProblem` 保留 `SubdivisionSolver` 的结果块，默认 CLI raw OBJ 导出直接顺序扫描
+  `resultFragmentChunks()`，不再在 `solve()` 末尾把所有子树结果移动到一个大
+  `resultFragments_` vector；公开 `resultFragments()` 仍保留并在首次读取时按需物化，
+  verifier 和测试语义不变。`ctest --test-dir build\tests --output-on-failure --timeout 120`
+  通过；`run_20260522_070826` 对 34 个 small 样本做 `-VerifyWithOracle` 全部通过。
+  `run_20260522_070657` 的 100 组 NoTracy 与 `run_20260522_065758` 的 key structural
+  counters、leaf classification trace/candidate 计数完全一致，100 个 raw OBJ SHA256
+  完全一致；平均 `solve_ms` 从 114.365ms 降到 109.153ms，`export_ms` 基本持平
+  （81.431ms 到 81.898ms），`end_to_end_ms` 从 263.519ms 降到 258.271ms。
 
 ## 已测但不保留的局部实验
 

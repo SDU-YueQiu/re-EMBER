@@ -267,6 +267,19 @@ bool writePolygonSoupObj(
     const PolygonSoupExportOptions &options);
 
 /**
+ * @brief 将分块保存的多边形集合按指定拓扑策略导出为 OBJ n 边面。
+ *
+ * @note `Raw + validateFragments=false` 可直接顺序扫描分块结果；其它模式会在 I/O
+ *       边界物化为单个片段数组后复用普通公开导出路径。
+ */
+bool writePolygonSoupObj(
+    const std::vector<std::vector<Polygon256>> &fragmentChunks,
+    const std::string &path,
+    std::size_t &outFaceCount,
+    std::string &outError,
+    const PolygonSoupExportOptions &options);
+
+/**
  * @brief 将布尔结果多边形集合导出为 STL 三角面。
  *
  * @param[in] fragments 待导出的结果面集合。
@@ -319,6 +332,16 @@ bool writePolygonSoupMesh(
  */
 bool writePolygonSoupMesh(
     const std::vector<Polygon256> &fragments,
+    const std::string &path,
+    std::size_t &outFaceCount,
+    std::string &outError,
+    const PolygonSoupExportOptions &options);
+
+/**
+ * @brief 按输出扩展名和指定拓扑策略导出分块多边形集合。
+ */
+bool writePolygonSoupMesh(
+    const std::vector<std::vector<Polygon256>> &fragmentChunks,
     const std::string &path,
     std::size_t &outFaceCount,
     std::string &outError,

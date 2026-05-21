@@ -1285,6 +1285,20 @@ void SubdivisionSolver::extractResultFragments(std::vector<Polygon256>& out)
     out.swap(resultFragments_);
 }
 
+void SubdivisionSolver::extractResultFragmentChunks(std::vector<std::vector<Polygon256>>& out)
+{
+    out.clear();
+    if (!resultFragmentChunks_.empty())
+    {
+        out.swap(resultFragmentChunks_);
+        resultFragments_.clear();
+        return;
+    }
+
+    if (!resultFragments_.empty())
+        out.push_back(std::move(resultFragments_));
+}
+
 void SubdivisionSolver::extractLeafSummaries(std::vector<BoolLeafSummary>& out) noexcept
 {
     leafSummaries_.swap(out);

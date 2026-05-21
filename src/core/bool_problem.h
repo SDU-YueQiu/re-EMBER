@@ -208,8 +208,24 @@ public:
      * @brief 读取最终布尔结果多边形集合。
      *
      * @return 仅包含 `(OUT, IN)` 或 `(IN, OUT)` 过渡的结果面集合。
+     * @note 求解器内部可能以块形式暂存结果；首次调用本函数会按公开 API 约定物化为
+     *       单个连续数组。
      */
-    const std::vector<Polygon256> &resultFragments() const noexcept;
+    const std::vector<Polygon256> &resultFragments() const;
+
+    /**
+     * @brief 读取最终结果片段的块视图。
+     *
+     * @return 按 `resultFragments()` 顺序排列的结果块；每个块内部顺序稳定。
+     * @note 该入口用于 CLI / I/O 顺序扫描默认 raw OBJ 输出，避免先把所有结果片段
+     *       扁平化成单个 vector。调用 `resultFragments()` 后该视图可能为空。
+     */
+    const std::vector<std::vector<Polygon256>> &resultFragmentChunks() const noexcept;
+
+    /**
+     * @brief 返回最终结果片段数量，不强制物化 `resultFragments()`。
+     */
+    std::size_t resultFragmentCount() const noexcept;
 
     /**
      * @brief 读取最近一次求解产生的叶子诊断摘要。
@@ -261,8 +277,11 @@ private:
     /// 当前问题的输入多边形集合，所有元素都必须属于 lhs `{1,0}` 或 rhs `{0,1}`。
     std::vector<Polygon256> polygons_;
 
-    /// 最近一次求解筛选出的布尔结果面。
-    std::vector<Polygon256> resultFragments_;
+    /// 最近一次求解筛选出的布尔结果面；按需从块形式物化。
+    mutable std::vector<Polygon256> resultFragments_;
+
+    /// 最近一次求解筛选出的布尔结果块，顺序等价于扁平结果。
+    mutable std::vector<std::vector<Polygon256>> resultFragmentChunks_;
 
     /// 最近一次求解产生的叶子诊断摘要。
     std::vector<BoolLeafSummary> leafSummaries_;

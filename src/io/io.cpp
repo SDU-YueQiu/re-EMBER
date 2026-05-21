@@ -998,6 +998,96 @@ bool recoverRawTrustedPolygonSoupDataCompact(
     return true;
 }
 
+bool recoverRawTrustedPolygonSoupDataCompact(
+    const std::vector<std::vector<Polygon256>> &fragmentChunks,
+    RawRecoveredPolygonSoupData &outData,
+    std::string &outError)
+{
+    outData.uniqueVertices.clear();
+    outData.faceVertexIndices.clear();
+    outData.faceOffsets.clear();
+
+    std::vector<std::size_t> chunkFragmentOffsets;
+    chunkFragmentOffsets.reserve(fragmentChunks.size() + 1u);
+    chunkFragmentOffsets.push_back(0u);
+    std::size_t totalFragmentCount = 0;
+    std::size_t totalVertexSlotCount = 0;
+    for (const std::vector<Polygon256> &chunk : fragmentChunks)
+    {
+        totalFragmentCount += chunk.size();
+        for (const Polygon256 &fragment : chunk)
+            totalVertexSlotCount += fragment.edgeCount();
+        chunkFragmentOffsets.push_back(totalFragmentCount);
+    }
+
+    constexpr std::size_t kNoInvalidPolygon = std::numeric_limits<std::size_t>::max();
+    std::atomic<std::size_t> firstInvalidPolygon{kNoInvalidPolygon};
+    parallelForStatic(fragmentChunks.size(), [&](std::size_t chunkIndex)
+    {
+        const std::vector<Polygon256> &chunk = fragmentChunks[chunkIndex];
+        const std::size_t chunkOffset = chunkFragmentOffsets[chunkIndex];
+        if (chunkOffset >= firstInvalidPolygon.load(std::memory_order_relaxed))
+            return;
+
+        for (std::size_t localIndex = 0; localIndex < chunk.size(); ++localIndex)
+        {
+            const std::size_t polygonIndex = chunkOffset + localIndex;
+            if (polygonIndex >= firstInvalidPolygon.load(std::memory_order_relaxed))
+                return;
+
+            const std::vector<PlanePoint3i> &vertices = chunk[localIndex].vertices();
+            for (const PlanePoint3i &vertex : vertices)
+            {
+                if (!vertex.hasUniqueIntersection() || isZero(vertex.x.w))
+                {
+                    storeMinimumIndex(firstInvalidPolygon, polygonIndex);
+                    return;
+                }
+            }
+        }
+    });
+
+    const std::size_t invalidPolygon = firstInvalidPolygon.load(std::memory_order_relaxed);
+    if (invalidPolygon != kNoInvalidPolygon)
+    {
+        return failIo(
+            outError,
+            "Failed to recover polygon " + std::to_string(invalidPolygon) +
+            ": Failed to recover an ordered polygon vertex with a unique finite homogeneous point.");
+    }
+
+    std::unordered_map<
+        HomogeneousPointKey,
+        std::size_t,
+        HomogeneousPointKeyHash,
+        HomogeneousPointKeyEqual> vertexIndexByKey;
+    vertexIndexByKey.reserve(totalVertexSlotCount);
+    outData.uniqueVertices.reserve(totalVertexSlotCount);
+    outData.faceVertexIndices.reserve(totalVertexSlotCount);
+    outData.faceOffsets.reserve(totalFragmentCount + 1u);
+    outData.faceOffsets.push_back(0u);
+
+    for (const std::vector<Polygon256> &chunk : fragmentChunks)
+    {
+        for (const Polygon256 &fragment : chunk)
+        {
+            const std::vector<PlanePoint3i> &vertices = fragment.vertices();
+            for (const PlanePoint3i &vertex : vertices)
+            {
+                HomogeneousPointKey key(vertex.x);
+                const auto [entry, inserted] = vertexIndexByKey.emplace(std::move(key), outData.uniqueVertices.size());
+                if (inserted)
+                    outData.uniqueVertices.push_back(vertex);
+
+                outData.faceVertexIndices.push_back(entry->second);
+            }
+            outData.faceOffsets.push_back(outData.faceVertexIndices.size());
+        }
+    }
+
+    return true;
+}
+
 bool recoverRawTrustedPolygonSoupData(
     const std::vector<Polygon256> &fragments,
     RecoveredPolygonSoupData &outData,
@@ -1140,6 +1230,19 @@ bool recoverPolygonSoupData(
     }
 
     return true;
+}
+
+std::vector<Polygon256> flattenFragmentChunks(const std::vector<std::vector<Polygon256>> &fragmentChunks)
+{
+    std::size_t totalFragmentCount = 0;
+    for (const std::vector<Polygon256> &chunk : fragmentChunks)
+        totalFragmentCount += chunk.size();
+
+    std::vector<Polygon256> fragments;
+    fragments.reserve(totalFragmentCount);
+    for (const std::vector<Polygon256> &chunk : fragmentChunks)
+        fragments.insert(fragments.end(), chunk.begin(), chunk.end());
+    return fragments;
 }
 
 std::vector<AABB3i> buildVertexAABBs(const std::vector<PlanePoint3i> &vertices)
@@ -1961,6 +2064,42 @@ bool writeRawTrustedPolygonSoupObj(
     outFaceCount = recovered.faceOffsets.empty() ? 0u : recovered.faceOffsets.size() - 1u;
     return true;
 }
+
+bool writeRawTrustedPolygonSoupObj(
+    const std::vector<std::vector<Polygon256>> &fragmentChunks,
+    const std::string &path,
+    std::size_t &outFaceCount,
+    std::string &outError,
+    const PolygonSoupExportOptions &options)
+{
+    RawRecoveredPolygonSoupData recovered;
+    if (!recoverRawTrustedPolygonSoupDataCompact(fragmentChunks, recovered, outError))
+    {
+        outError = "Failed to prepare polygon soup OBJ export: " + outError;
+        return false;
+    }
+
+    std::ofstream output(path, std::ios::trunc);
+    if (!output)
+    {
+        return failIo(
+                   outError,
+                   "Failed to open OBJ output file for writing: " + path);
+    }
+
+    // 分块 raw 路径保持片段顺序，但避免先把全部 Polygon256 搬进一个大 vector。
+    std::string objText;
+    objText.reserve(estimateObjTextSize(recovered));
+    objText += "# Ember exact polygon soup export\n";
+    appendObjVertexLines(objText, recovered.uniqueVertices, options.coordinateScale);
+    appendObjFaceLines(objText, recovered.faceVertexIndices, recovered.faceOffsets);
+    output.write(objText.data(), static_cast<std::streamsize>(objText.size()));
+    if (!output)
+        return failIo(outError, "Failed to finish writing OBJ output file: " + path);
+
+    outFaceCount = recovered.faceOffsets.empty() ? 0u : recovered.faceOffsets.size() - 1u;
+    return true;
+}
 }
 
 const char *toString(PolygonSoupTopologyMode mode) noexcept
@@ -2427,6 +2566,28 @@ bool writePolygonSoupObj(
 
 }
 
+bool writePolygonSoupObj(
+    const std::vector<std::vector<Polygon256>> &fragmentChunks,
+    const std::string &path,
+    std::size_t &outFaceCount,
+    std::string &outError,
+    const PolygonSoupExportOptions &options)
+{
+    outFaceCount = 0;
+    outError.clear();
+
+    if (options.coordinateScale == 0)
+        return failIo(outError, "Coordinate scale must be a positive integer.");
+    if (!ensureOutputDirectoryExists(path, "OBJ", outError))
+        return false;
+
+    if (options.topologyMode == PolygonSoupTopologyMode::Raw && !options.validateFragments)
+        return writeRawTrustedPolygonSoupObj(fragmentChunks, path, outFaceCount, outError, options);
+
+    const std::vector<Polygon256> fragments = flattenFragmentChunks(fragmentChunks);
+    return writePolygonSoupObj(fragments, path, outFaceCount, outError, options);
+}
+
 bool writePolygonSoupStl(
     const std::vector<Polygon256> &fragments,
     const std::string &path,
@@ -2553,6 +2714,31 @@ bool writePolygonSoupMesh(
         return writePolygonSoupObj(fragments, path, outFaceCount, outError, options);
     case MeshFileFormat::Stl:
         return writePolygonSoupStl(fragments, path, outFaceCount, outError, options);
+    }
+
+    return failIo(outError, "Unsupported mesh file format.");
+}
+
+bool writePolygonSoupMesh(
+    const std::vector<std::vector<Polygon256>> &fragmentChunks,
+    const std::string &path,
+    std::size_t &outFaceCount,
+    std::string &outError,
+    const PolygonSoupExportOptions &options)
+{
+    MeshFileFormat format = MeshFileFormat::Obj;
+    if (!detectMeshFileFormatFromPath(path, format, outError))
+        return false;
+
+    switch (format)
+    {
+    case MeshFileFormat::Obj:
+        return writePolygonSoupObj(fragmentChunks, path, outFaceCount, outError, options);
+    case MeshFileFormat::Stl:
+    {
+        const std::vector<Polygon256> fragments = flattenFragmentChunks(fragmentChunks);
+        return writePolygonSoupStl(fragments, path, outFaceCount, outError, options);
+    }
     }
 
     return failIo(outError, "Unsupported mesh file format.");

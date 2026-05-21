@@ -641,7 +641,7 @@ int main(int argc, char **argv)
                 exportOptions.topologyMode = ember::app::toPolygonSoupTopologyMode(options.outputTopologyMode);
                 exportOptions.validateFragments = false;
                 exported = ember::writePolygonSoupMesh(
-                    problem.resultFragments(),
+                    problem.resultFragmentChunks(),
                     options.outputPath,
                     exportedFaces,
                     error,
@@ -689,7 +689,7 @@ int main(int argc, char **argv)
                 << " child_ref_candidates=" << timings.solveMetrics.childReferenceCandidateCount
                 << " child_ref_tried=" << timings.solveMetrics.childReferenceCandidateTriedCount
                 << " leaf_trace_attempts=" << timings.solveMetrics.leafClassificationTraceAttemptCount
-                << " result_fragments=" << problem.resultFragments().size()
+                << " result_fragments=" << problem.resultFragmentCount()
                 << " output_topology=" << ember::app::toString(options.outputTopologyMode)
                 << " exported_faces=" << exportedFaces
                 << std::endl;
