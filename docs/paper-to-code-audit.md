@@ -400,6 +400,15 @@
   `run_20260522_062546` / `run_20260522_062700` 与上一保留基线的结构计数、trace 诊断计数
   和 100 个 raw OBJ SHA256 完全一致。两轮新结果均值 `solve_ms` 从 115.888ms 降到
   114.508ms；`end_to_end_ms` 为 330.745ms，`process_elapsed_ms` 为 374.304ms。
+- 叶片编排 pair-relation adjacency 改为按 base polygon 链式追加：`polygonCount >= 8`
+  的预计算路径不再把所有 adjacency 写入全局数组后排序并构造 offsets，而是为每个
+  base 保留 head/tail 链表。pair relation 仍只计算一次，且每个 base 的插入顺序
+  仍保持 polygonIndex 递增。`ctest --test-dir build\tests --output-on-failure --timeout 120`
+  通过；`run_20260522_063615` 对 34 个 small 样本做 `-VerifyWithOracle` 全部通过。
+  `run_20260522_063924` 的 100 组 NoTracy 与 `run_20260522_062700` 的 key structural
+  counters、leaf classification trace/candidate 计数完全一致，`solve_ms` 从 114.895ms
+  到 113.992ms，`end_to_end_ms` 从 330.789ms 到 330.468ms。该收益很小，主要价值是
+  去掉局部 BSP 编排热路径中的排序和 offsets 构造。
 
 ## 已测但不保留的局部实验
 
