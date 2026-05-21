@@ -2351,6 +2351,61 @@ bool chooseSharedScale(
 
 }
 
+bool chooseSharedScale(
+    const ObjMeshData &lhs,
+    const ObjMeshData &rhs,
+    const QuantizeOptions &options,
+    std::uint64_t &outScale,
+    std::string &outError)
+{
+    outError.clear();
+    outScale = 0;
+
+    if (options.explicitScale.has_value())
+    {
+        if (*options.explicitScale == 0)
+            return failIo(outError, "Explicit scale must be a positive integer.");
+
+        outScale = *options.explicitScale;
+        return true;
+    }
+
+    // 二元布尔是应用层热路径，直接按引用扫描两侧网格，避免构造临时 mesh 数组。
+    long double maxAbsCoordinate = 0.0L;
+    const ObjMeshData *meshes[2] = {&lhs, &rhs};
+    for (const ObjMeshData *mesh : meshes)
+    {
+        for (const ObjVertex &vertex : mesh->vertices)
+        {
+            maxAbsCoordinate = std::max(maxAbsCoordinate, std::fabs(static_cast<long double>(vertex.x)));
+            maxAbsCoordinate = std::max(maxAbsCoordinate, std::fabs(static_cast<long double>(vertex.y)));
+            maxAbsCoordinate = std::max(maxAbsCoordinate, std::fabs(static_cast<long double>(vertex.z)));
+        }
+    }
+
+    if (maxAbsCoordinate == 0.0L)
+    {
+        outScale = 1;
+        return true;
+    }
+
+    if (maxAbsCoordinate > static_cast<long double>(kInputCoordinateLimit))
+    {
+        return failIo(
+                   outError,
+                   "Mesh coordinates exceed the 26-bit signed input bound even at scale 1.");
+    }
+
+    const long double upperBound = static_cast<long double>(kInputCoordinateLimit) / maxAbsCoordinate;
+    std::uint64_t scale = 1;
+    while (scale <= (std::numeric_limits<std::uint64_t>::max() / 10ULL) &&
+            static_cast<long double>(scale * 10ULL) <= upperBound)
+        scale *= 10ULL;
+
+    outScale = scale;
+    return true;
+}
+
 bool computeScaledMeshAABB(
     const ObjMeshData &mesh,
     std::uint64_t sharedScale,

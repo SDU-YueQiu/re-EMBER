@@ -560,7 +560,7 @@ int main(int argc, char **argv)
         ember::AABB3i sceneAABB;
         {
             REEMBER_PROFILE_ZONE("re-EMBER::prepare_polygons");
-            if (!ember::chooseSharedScale({lhsMesh, rhsMesh}, quantizeOptions, sharedScale, error))
+            if (!ember::chooseSharedScale(lhsMesh, rhsMesh, quantizeOptions, sharedScale, error))
             {
                 std::cerr << error << std::endl;
                 return 1;

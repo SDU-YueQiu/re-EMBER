@@ -454,6 +454,16 @@
   改默认值后的保留重跑 `run_20260522_072754` 确认脚本默认传入 75，结构计数与扫描一致，
   平均 `solve_ms=115.096ms`、`export_ms=69.116ms`、`end_to_end_ms=252.100ms`。
   `run_20260522_072559` 对 34 个 small 样本使用默认 75 和 CGAL oracle 校验，全部通过。
+- 二元应用入口选择共享 scale 时改走 `chooseSharedScale(lhs, rhs, ...)` 引用入口，
+  CLI、verifier 和 visual-test 不再用 `{lhsMesh, rhsMesh}` 为接口临时复制完整
+  `ObjMeshData`；保留向量入口给需要扫描任意 mesh 集合的公开调用方。该改动只减少
+  prepare 数据搬运，不改变共享 scale 选择规则。`ctest --test-dir build\tests
+  --output-on-failure --timeout 120` 通过；`run_20260522_073247` 对 34 个 small
+  样本做 `-VerifyWithOracle` 全部通过。`run_20260522_073439` 的 100 组 NoTracy
+  与 `run_20260522_072754` 的 key structural counters、leaf classification
+  trace/candidate 计数一致，平均 `prepare_ms` 从 52.091ms 降到 48.236ms，
+  `end_to_end_ms` 从 252.100ms 降到 248.175ms；`solve_ms` / `export_ms`
+  基本只剩计时噪声。
 
 ## 已测但不保留的局部实验
 

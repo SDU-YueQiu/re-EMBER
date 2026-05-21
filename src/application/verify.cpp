@@ -427,7 +427,8 @@ PreparedProblem prepareProblem(const VerifyOptions &options)
     ember::QuantizeOptions quantizeOptions;
     quantizeOptions.explicitScale = options.scale;
     if (!ember::chooseSharedScale(
-                {prepared.lhsMesh, prepared.rhsMesh},
+                prepared.lhsMesh,
+                prepared.rhsMesh,
                 quantizeOptions,
                 prepared.sharedScale,
                 error))
