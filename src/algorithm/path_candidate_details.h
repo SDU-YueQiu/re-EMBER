@@ -1609,10 +1609,31 @@ inline bool buildPlaneReplacementSegment(
     if (!direction.isValid())
         return false;
 
+    Plane3i startPlane = startPlanes[replacedPlaneIndex];
+    Plane3i endPlane = endPlanes[replacedPlaneIndex];
+    PlanePoint3i orientedStartPoint = startPoint;
+    PlanePoint3i orientedEndPoint = endPoint;
+    if (orientedEndPoint.classify(startPlane) > 0)
+    {
+        startPlane = reversedPlaneOrientationPreservingScale(startPlane);
+        orientedStartPoint = PlanePoint3i(direction.p1, direction.p2, startPlane, orientedStartPoint.x);
+    }
+    if (orientedStartPoint.classify(endPlane) > 0)
+    {
+        endPlane = reversedPlaneOrientationPreservingScale(endPlane);
+        orientedEndPoint = PlanePoint3i(direction.p1, direction.p2, endPlane, orientedEndPoint.x);
+    }
+    if (orientedStartPoint.classify(endPlane) != -1 ||
+            orientedEndPoint.classify(startPlane) != -1)
+        return false;
+
     outSegment = Segment256(
-                     startPlanes[replacedPlaneIndex],
-                     endPlanes[replacedPlaneIndex],
-                     direction);
+                     AssumeOrientedSegmentBounds,
+                     startPlane,
+                     endPlane,
+                     direction,
+                     orientedStartPoint,
+                     orientedEndPoint);
 
     return outSegment.isValid() &&
            areSamePlanePoint(outSegment.getStartPointRef(), startPoint) &&

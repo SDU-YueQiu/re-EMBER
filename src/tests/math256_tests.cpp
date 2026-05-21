@@ -596,6 +596,30 @@ void runMath256Tests()
             assert(insidePoint.classify(orientedSegment.start) < 0);
             assert(insidePoint.classify(orientedSegment.end) < 0);
         }
+
+        {
+            const ember::Line256 axisLine(px, pz);
+            const ember::Plane3i scaledStart(0, -2, 0, 0);
+            const ember::Plane3i scaledEnd(0, 2, 0, -4);
+            assert(!ember::isPrimitivePlaneEquation(scaledStart));
+            assert(!ember::isPrimitivePlaneEquation(scaledEnd));
+
+            const ember::PlanePoint3i startPoint(axisLine.p1, axisLine.p2, scaledStart);
+            const ember::PlanePoint3i endPoint(axisLine.p1, axisLine.p2, scaledEnd);
+            const ember::Segment256 cachedSegment(
+                ember::AssumeOrientedSegmentBounds,
+                scaledStart,
+                scaledEnd,
+                axisLine,
+                startPoint,
+                endPoint);
+
+            assert(cachedSegment.isValid());
+            assert(cachedSegment.start.b == Integer(-2));
+            assert(cachedSegment.end.b == Integer(2));
+            assert(ember::areSameHomPoint(cachedSegment.getStartPointRef().x, startPoint.x));
+            assert(ember::areSameHomPoint(cachedSegment.getEndPointRef().x, endPoint.x));
+        }
     }
 
     {
