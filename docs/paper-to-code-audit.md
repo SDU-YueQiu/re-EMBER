@@ -322,6 +322,15 @@
 
 ## 已测但不保留的局部实验
 
+- raw OBJ 导出 exact raw 齐次点缓存：在 raw trusted 导出路径里增加
+  raw `HomPoint4i` 完全相等到 OBJ 顶点下标的旁路缓存，raw miss 时仍走 primitive
+  canonical map，尝试减少重复 `primitiveHomPoint()`。Debug 构建和 ctest 通过，
+  `run_20260522_025056` 的结构计数、result/exported face 数与
+  `run_20260522_023820` 完全一致，100 个 raw OBJ 与基线逐文件 SHA256 完全一致；
+  但相对 raw 导出 fast path 保留基线 `run_20260522_023707` /
+  `run_20260522_023820`，单轮 `export_ms` 从 84.127ms 退化到 85.660ms，
+  `end_to_end_ms` 从 332.007ms 到 332.720ms。额外 hash map 查询和内存压力超过
+  raw 精确重复命中节省；不保留。
 - 删除 `ClassifiedFragment` 中间数组，改为在单片叶片分类成功后直接用当前
   front/back WNV 追加 `resultFragments_`，尝试避免每个成功分类片段额外复制一次
   `Polygon256`。结构计数与 `run_20260521_233848` 完全一致，但
