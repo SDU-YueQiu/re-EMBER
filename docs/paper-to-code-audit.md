@@ -224,6 +224,13 @@
   1644.60ms、1655.29ms、1653.80ms，均值 1651.23ms，差于半阈值版本
   `run_20260521_134044` 的 1647.70ms；更细任务已开始被调度开销抵消，
   保留 `leafPolygonThreshold / 2`（下限 8）。
+- split 路由顶点侧别扫描改用栈缓冲，只在确实需要裁剪时再 materialize 到
+  `SplitPolygonRoute::vertexSides`，尝试减少未切分 polygon 的临时 `vector`
+  分配；Debug 测试和 `run_20260521_135340` 的 22 个 verifier 均通过，但
+  `run_20260521_135821` 三次无 oracle 重复计时为 1664.73ms、1632.99ms、
+  1667.70ms，均值 1655.14ms，差于半阈值保留基线 `run_20260521_134044`
+  的 1647.70ms。额外分支和 split 时的 `assign()` 没有换回足够的分配成本，
+  不保留该改动。
 - 叶片分类候选路径 view：结构和 trace 计数不变，但 NoTracy solve 变慢。
 - `buildLeafArrangement()` 结果 vector 预留容量：结构计数不变，solve 信号为负。
 - `buildLeafArrangement()` 删除 `polygonCount < 8` 小叶片旧路径，并改用统一
