@@ -374,6 +374,18 @@
 
 ## 已测但不保留的局部实验
 
+- WNV surface-point trace 的末段端点边界命中类型复用：尝试在
+  `surfaceHit == &endPoint` 时跳过
+  `classifyKnownSegmentPolygonBoundaryPointHitUnchecked()` 内部的起终点平面点相等检查，
+  只保留 `collectBoundaryEdgesAtPointUnchecked()` 收集边界边，并直接标记为
+  `EndpointOnBoundary`。该实验建立在“末段曲面命中终点复用”已确认命中点就是
+  `endPoint` 的前提上，不改变 boundary policy 的后续判断。Debug 构建和
+  `ctest --preset default --output-on-failure --timeout 120` 已在实验分支通过；
+  `run_20260522_050106` 与当前保留基线 `run_20260522_045123` 的结构计数、
+  trace 诊断计数和 100 个 raw OBJ SHA256 完全一致；但单轮 `solve_ms`
+  为 117.077ms，慢于末段曲面命中终点复用后两轮保留基线
+  `run_20260522_045009` / `run_20260522_045123` 的 116.842ms 均值。
+  说明分支和 contact 状态手动维护没有覆盖掉两次端点相等检查成本，源码不保留。
 - WNV surface hit 面内分类与边界来源合并扫描：尝试把
   `classifyPolygonSurfacePointUnchecked()` 和随后边界命中时的
   `classifyKnownSegmentPolygonBoundaryPointHitUnchecked()` 合并成一次边半空间扫描，
