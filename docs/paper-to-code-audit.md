@@ -263,6 +263,15 @@
   平均 `export_ms` 从 `run_20260521_231745` 的 140.127ms 降到 91.831ms，
   `end_to_end_ms` 从 394.360ms 降到 344.953ms；slowest `large_021_1396886_minus_551020`
   的 `export_ms` 从 710.786ms 降到 479.708ms，`result_fragment_count` 仍为 116537。
+- OBJ raw 导出的最终文本生成按固定块并行生成顶点行和面行，再按块顺序拼接回同一个
+  输出缓冲；小输出仍走原单线程路径。该改动只改变文本组装调度，不改变顶点去重、
+  face 顺序或 solver 指标。Debug 构建和 `ctest --preset default --output-on-failure --timeout 120`
+  通过；两轮 100 组论文样本 `-NoTracy`、不跑 verifier 的结构计数与
+  `run_20260522_000710` 完全一致。`run_20260522_003433` 平均 `export_ms`
+  从 91.532ms 降到 90.378ms，`end_to_end_ms` 从 340.942ms 到 339.160ms；
+  `run_20260522_003601` 平均 `export_ms` 降到 90.185ms，但端到端受 solve/prepare
+  噪声影响为 341.594ms。只并行顶点行的 `run_20260522_003820` 降幅较弱
+  （`export_ms` 90.876ms），因此保留顶点行和面行同时分块的版本。
 - `buildPolygonSoup()` 的 face 级构建结果从“每个 face 一个 `std::vector<Polygon256>`”
   改为单 polygon 内联保存，只有非共面三角化 fallback 才使用 overflow vector。
   常规 OBJ 面仍按原有顺序生成同一个 `Polygon256`，三角化 fallback 语义不变。
