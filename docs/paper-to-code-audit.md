@@ -187,5 +187,12 @@
   22 个 verifier 全部通过，但 `run_20260521_075303` 相比 `run_20260521_072311`
   的聚合 `solve_ms` 从 1893.49ms 退化到 1906.74ms，`end_to_end_ms` 从 5251.62ms
   退化到 5272.82ms；保留乘法回判版本，当前 `_BitInt(256)` 下位运算分支不占优。
+- split plan 的 `vertexSides` 从每条 split route 独立 vector 改为 plan 级连续缓冲，
+  并给 trusted clipping 增加 `int* + count` 入口；22 个 verifier 全部通过，但
+  `run_20260521_082208` 相比当前基线 `run_20260521_080941` 只有单轮
+  `solve_ms` 1852.88ms -> 1850.92ms 的微弱信号，`end_to_end_ms` 5231.12ms ->
+  5264.79ms 退化；随后 `run_20260521_082736` 做 3 次无 oracle 重复计时，每轮
+  聚合 `solve_ms` 为 1882.86ms、1858.12ms、1852.29ms，平均不优于基线。
+  该路径不保留，说明 route 局部 vector 的分配不是当前 split materialization 主因。
 
 这些结论只用于避免近期重复试错；若 workload、算法边界或 profile 证据变化，可以重新评估。
