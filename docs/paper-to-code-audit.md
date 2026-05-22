@@ -5,16 +5,23 @@
 
 ## 当前基线
 
-- 最近可比性能基线：`提前释放叶节点中间几何`（本文所在提交）。
-- 计时基线：`build/performance/run_20260521_080941/timings.csv`，Release
-  NoTracy，论文实验集 `10 small / 10 medium / 2 large`，`--threads 20`。
+- 最近 100 组端到端性能基线：
+  `build/performance/run_20260522_101320/timings.csv`，Release NoTracy，论文实验集
+  `34 small / 33 medium / 33 large`，`--leaf-threshold 50`，`--threads 20`。
+- 该基线的总体平均阶段耗时为：`read_ms=16.540`、`prepare_ms=47.283`、
+  `solve_ms=111.626`、`export_ms=31.918`、`end_to_end_ms=207.368`。
+- 按规模聚合的端到端总量为：
+  small `1594.89ms`、medium `4725.99ms`、large `14415.93ms`。
+  large 上 `prepare_ms + export_ms = 5723.89ms`，已接近 `solve_ms=7466.18ms`
+  的 77%，后续不能只按 solver 口径判断优化价值。
 - 最近 Tracy 归因：`build/performance/run_20260521_072920/`，单个 large
   workload，RelWithDebInfo，Tracy 和 math Tracy 开启。
 - 当前流水线仍是 `OBJ/STL -> Polygon256 soup -> BoolProblem ->
   SubdivisionSolver -> resultFragments -> OBJ n-gon`。
 
-阶段计时应优先比较 `solve_ms`。`read_ms`、`prepare_ms`、`export_ms`
-只用于判断是否有 I/O 或导出噪声，不作为 solver 优化证据。
+阶段计时必须同时看 `read_ms`、`prepare_ms`、`solve_ms`、`export_ms` 和
+`end_to_end_ms`。solver 改动不能用导出噪声冒充收益；反过来，I/O、prepare 或
+export 改动也应按端到端 pipeline 收益独立保留或回滚。
 
 ## 机制对照
 
@@ -1152,5 +1159,24 @@
   （110.929ms -> 110.464ms），但 `end_to_end_ms` 小退（205.426ms -> 205.607ms），
   `leaf_classification_trace_attempt_count` 上升（13480.45 -> 13487.07），raw OBJ
   SHA mismatch=8。该模型触发少、节省节点极少，且会放大片段/trace，不保留。
+
+## 保留的端到端优化
+
+- raw/普通 OBJ 导出改为二进制 LF 输出，并把并行生成的顶点/面文本块直接按顺序写入
+  `ofstream`，不再先拼接成一份全量 OBJ 字符串；`writeObjMeshData()` 也统一使用
+  binary 模式，避免 Windows 文本换行转换。该改动只作用于 I/O 边界，不改变
+  `resultFragmentChunks()` / `resultFragments()` 的求解语义。
+- 验证：`cmake --preset tests`、`cmake --build --preset tests`、`ctest --preset default
+  --timeout 120`、默认 smoke 均通过；small 34 组 oracle 在
+  `build/performance/run_20260522_102123/verification.csv` 中 `passed=True` 共 34 项。
+- 100 组性能对比：保留前 `run_20260522_101320`，保留后
+  `run_20260522_101905`。总体 `export_ms` 从 `3191.84ms` 降到 `2949.86ms`
+  （-7.58%），`end_to_end_ms` 从 `20736.81ms` 降到 `20461.36ms`（-1.33%）。
+  large 聚合 `export_ms` 从 `2106.23ms` 降到 `1923.28ms`（-8.69%），端到端
+  从 `14415.93ms` 降到 `14185.14ms`（-1.60%）。`solve_ms` 基本持平，因此该提交
+  只声明为导出层收益。
+- `tools/profile-re-ember.ps1 -VerifyWithOracle` 现在配置 profiling build tree 时显式传入
+  `-DREEMBER_BUILD_VERIFY=ON`；否则同一命令会在 `profile_clang_notracy` 中构建不存在的
+  `re-EMBER_verify` target 而失败。未启用 verifier 时显式保持 `REEMBER_BUILD_VERIFY=OFF`。
 
 这些结论只用于避免近期重复试错；若 workload、算法边界或 profile 证据变化，可以重新评估。

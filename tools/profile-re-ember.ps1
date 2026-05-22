@@ -1094,6 +1094,13 @@ function Invoke-CMakeConfigure {
         "-DCMAKE_RC_COMPILER=$($tools.LlvmRc)",
         "-DCMAKE_BUILD_TYPE=$Configuration"
     )
+    if ($VerifyWithOracle) {
+        $args += "-DREEMBER_BUILD_VERIFY=ON"
+    }
+    else {
+        $args += "-DREEMBER_BUILD_VERIFY=OFF"
+    }
+
     if (-not $NoTracy) {
         $args += "-DREEMBER_ENABLE_TRACY=ON"
         if ($EnableMathTracy) {
