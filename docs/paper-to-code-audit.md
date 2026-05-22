@@ -513,6 +513,11 @@
   保留基线一致；但两轮 100 组 NoTracy `run_20260522_075950` /
   `run_20260522_080045` 的平均 `export_ms` 为 66.810ms / 66.833ms，
   均慢于保留基线 `run_20260522_075742` 的 66.575ms。源码不保留。
+- raw flat hash 桶数从 vertex slot 的两倍降到一倍：尝试减少桶数组写入和缓存压力。
+  `ctest --test-dir build\tests --output-on-failure --timeout 120` 通过，
+  `run_20260522_080454` 与保留基线 `run_20260522_075742` 的结构计数和
+  100 个 raw OBJ SHA256 完全一致；但平均 `export_ms` 从 66.575ms 退到
+  66.701ms。当前仍保留两倍 slot 的低负载桶表。
 - CLI 默认路径关闭 `BoolProblem::leafSummaries()` 收集：为 `BoolProblem` 增加
   `setCollectLeafSummaries(false)` 并把该开关传入 `SubdivisionSolver`，尝试避免每个
   叶子摘要在子树合并时向上搬运；公开默认仍收集 leaf summaries。`ctest --test-dir build\tests --output-on-failure --timeout 120`
