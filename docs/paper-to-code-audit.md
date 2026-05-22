@@ -514,6 +514,16 @@
   `run_20260522_082153` 结构计数完全一致，100 个 raw OBJ SHA256 完全一致；
   平均 `export_ms` 从约 52.6ms 降到 31.542ms，`end_to_end_ms` 从约
   227.9ms 降到 206.473ms。
+- `reversePolygonOrientation()` 改为内部 trusted 反向：输入片段已经来自有效
+  `Polygon256`，因此直接翻转支撑平面、反转边平面和 provenance 顺序，并在
+  Debug 下用 `isValid()` 断言，不再通过公开构造器重复 primitive 化和外向边校正。
+  `ctest --test-dir build\tests --output-on-failure --timeout 120` 通过；
+  `run_20260522_090639` 对 34 个 small 样本做 `-VerifyWithOracle` 全部通过。
+  两轮 100 组 NoTracy `run_20260522_090848` / `run_20260522_090947` 与
+  保留基线 `run_20260522_082933` 的结构计数完全一致，raw OBJ SHA256 全部一致；
+  第二轮平均 `solve_ms` 从 111.859ms 降到 110.929ms，`end_to_end_ms` 从
+  206.473ms 降到 205.426ms。该改动只降低反向输出片段的构造开销，不改变递归树或
+  叶片分类次数。
 
 ## 已测但不保留的局部实验
 

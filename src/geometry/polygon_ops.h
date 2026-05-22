@@ -7,7 +7,7 @@
 #include "geometry/geometry256.h"
 
 #include <algorithm>
-#include <utility>
+#include <cassert>
 #include <vector>
 
 namespace ember
@@ -36,16 +36,16 @@ inline bool areCoplanarPolygons(const Polygon256 &lhs, const Polygon256 &rhs)
 
 inline Polygon256 reversePolygonOrientation(const Polygon256 &polygon)
 {
-    std::vector<Plane3i> reversedEdges = polygon.edgePlanes;
-    std::vector<PolygonEdgeProvenance> reversedProvenances = polygon.edgeProvenances;
-    std::reverse(reversedEdges.begin(), reversedEdges.end());
-    std::reverse(reversedProvenances.begin(), reversedProvenances.end());
-
-    Polygon256 reversedPolygon(
-        Plane3i(-polygon.plane.a, -polygon.plane.b, -polygon.plane.c, -polygon.plane.d),
-        std::move(reversedEdges),
-        std::move(reversedProvenances));
+    Polygon256 reversedPolygon;
+    reversedPolygon.plane = reversedPlaneOrientationPreservingScale(polygon.plane);
+    reversedPolygon.edgePlanes = polygon.edgePlanes;
+    reversedPolygon.edgeProvenances = polygon.edgeProvenances;
+    std::reverse(reversedPolygon.edgePlanes.begin(), reversedPolygon.edgePlanes.end());
+    std::reverse(reversedPolygon.edgeProvenances.begin(), reversedPolygon.edgeProvenances.end());
     reversedPolygon.WNTV = polygon.WNTV;
+#ifndef NDEBUG
+    assert(reversedPolygon.isValid());
+#endif
     return reversedPolygon;
 }
 
