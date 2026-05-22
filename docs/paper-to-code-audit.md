@@ -1091,5 +1091,20 @@
   5264.79ms 退化；随后 `run_20260521_082736` 做 3 次无 oracle 重复计时，每轮
   聚合 `solve_ms` 为 1882.86ms、1858.12ms、1852.29ms，平均不优于基线。
   该路径不保留，说明 route 局部 vector 的分配不是当前 split materialization 主因。
+- `buildPolygonSoupWithAABB()` 合并每坐标的 AABB `floor/ceil` 和量化 `round`，
+  尝试把同一个 scaled 值只计算一次；Debug 构建和 ctest 通过，但 100 组论文样本
+  `run_20260522_083832` 相比保留基线 `run_20260522_082933` 的 `prepare_ms`
+  基本不变（46.737ms -> 46.732ms），`end_to_end_ms` 退化（206.473ms ->
+  207.446ms）。该阶段当前不受这一次乘法/finite 检查主导，不保留。
+- chunked raw OBJ 导出保留每个结果块的面索引数组，只在全局顶点合并后就地重写局部索引，
+  避免再摊平成一个全局 `faceVertexIndices`；Debug 构建和 ctest 通过，100 组论文样本
+  `run_20260522_084224` 与 `run_20260522_082933` 的 OBJ SHA 全部一致，结构计数一致。
+  但 `export_ms` 只从 31.542ms 到 31.370ms，`end_to_end_ms` 退化到 207.393ms；
+  复杂度明显超过收益，不保留。
+- `floorCeilDiv()` 增加 int64 窄化 fast path，目标是降低 AABB 重建里的 256 位除法成本；
+  直接使用 `__int128` 的版本在 Windows clang-cl 链接时缺少 `__divti3`，改成纯 int64
+  除法后 Debug 构建和 ctest 通过。100 组论文样本 `run_20260522_085256`
+  与 `run_20260522_082933` 结构计数一致，但 `solve_ms` 退化（111.859ms ->
+  112.218ms），`end_to_end_ms` 退化到 207.543ms。命中率或额外分支成本不划算，不保留。
 
 这些结论只用于避免近期重复试错；若 workload、算法边界或 profile 证据变化，可以重新评估。
