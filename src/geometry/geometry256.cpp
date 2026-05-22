@@ -249,19 +249,25 @@ void Polygon256::rebuildAABBCache() const
     REEMBER_PROFILE_ZONE("Polygon256::rebuildAABBCache");
 
     cachedAABB_ = AABB3i();
+    cachedVertices_.clear();
     const std::size_t n = edgePlanes.size();
+    cachedVertices_.reserve(n);
     for (std::size_t i = 0; i < n; ++i)
     {
         const std::size_t prev = (i == 0) ? (n - 1) : (i - 1);
-        if (!appendHomPointToAABB(
-                    cachedAABB_,
-                    intersectHomogeneousUnnormalized(plane, edgePlanes[i], edgePlanes[prev])))
+        const HomPoint4i vertex = intersectHomogeneousUnnormalized(plane, edgePlanes[i], edgePlanes[prev]);
+        if (!appendHomPointToAABB(cachedAABB_, vertex))
         {
             cachedAABB_ = AABB3i();
+            cachedVertices_.clear();
+            vertexCacheValid_ = false;
             aabbCacheValid_ = true;
             return;
         }
+        // AABB 重建已经拿到了同一组三平面交点，顺带保存顶点避免后续再次求交。
+        cachedVertices_.push_back(PlanePoint3i(plane, edgePlanes[i], edgePlanes[prev], vertex));
     }
+    vertexCacheValid_ = true;
     aabbCacheValid_ = true;
 }
 
