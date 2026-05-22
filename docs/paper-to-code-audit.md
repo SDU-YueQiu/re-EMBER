@@ -518,6 +518,13 @@
   `run_20260522_080454` 与保留基线 `run_20260522_075742` 的结构计数和
   100 个 raw OBJ SHA256 完全一致；但平均 `export_ms` 从 66.575ms 退到
   66.701ms。当前仍保留两倍 slot 的低负载桶表。
+- raw OBJ face index 预生成字符串 token：100 组输出平均每个唯一顶点索引在 face
+  中出现约 4.5 次，因此尝试为 `1..maxIndex` 预生成带前导空格的索引 token，
+  再由 face 写出阶段直接拼接。`ctest --test-dir build\tests --output-on-failure
+  --timeout 120` 通过，`run_20260522_080726` 与保留基线 `run_20260522_075742`
+  的结构计数和 100 个 raw OBJ SHA256 完全一致；但平均 `export_ms` 从
+  66.575ms 退到 67.421ms。额外 token 构造和字符串拼接成本超过重复
+  `to_chars` 节省，源码不保留。
 - CLI 默认路径关闭 `BoolProblem::leafSummaries()` 收集：为 `BoolProblem` 增加
   `setCollectLeafSummaries(false)` 并把该开关传入 `SubdivisionSolver`，尝试避免每个
   叶子摘要在子树合并时向上搬运；公开默认仍收集 leaf summaries。`ctest --test-dir build\tests --output-on-failure --timeout 120`
