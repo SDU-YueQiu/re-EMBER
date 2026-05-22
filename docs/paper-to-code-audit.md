@@ -1172,6 +1172,18 @@ export 改动也应按端到端 pipeline 收益独立保留或回滚。
   （110.929ms -> 110.464ms），但 `end_to_end_ms` 小退（205.426ms -> 205.607ms），
   `leaf_classification_trace_attempt_count` 上升（13480.45 -> 13487.07），raw OBJ
   SHA mismatch=8。该模型触发少、节省节点极少，且会放大片段/trace，不保留。
+- split stats / split cost 纯 AABB 读取实验：为 `Polygon256` 增加只构造 AABB、
+  不顺带填充顶点缓存的临时接口，并仅替换 `buildSubdivisionSplitStats()` 和
+  `estimateSplitCostsFromPolygons()`。该实验假设 split 统计阶段不应过早物化顶点。
+  `cmake --build --preset tests` 和 `ctest --preset default --timeout 120` 通过，
+  但两轮 100 组 `run_20260522_113213` / `run_20260522_113319` 相对当前基线
+  `run_20260522_112251` 端到端没有稳定收益：第一轮 overall `solve_ms`
+  下降 `86.24ms`，但 `prepare_ms` 上升 `22.91ms`、`export_ms` 上升 `48.39ms`，
+  `end_to_end_ms` 仅下降 `17.44ms`；第二轮 overall `solve_ms` 只下降
+  `51.67ms`，`prepare_ms` 上升 `28.23ms`、`export_ms` 上升 `37.85ms`，
+  `end_to_end_ms` 反而增加 `4.74ms`。相对更快的 `run_20260522_112145`，
+  第二轮 `end_to_end_ms` 增加 `116.08ms`。推迟顶点缓存会把成本转移到后续
+  prepare/export，large 组尤其不稳定，不保留。
 
 ## 保留的端到端优化
 
