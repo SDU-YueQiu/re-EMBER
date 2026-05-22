@@ -534,6 +534,14 @@ export 改动也应按端到端 pipeline 收益独立保留或回滚。
 
 ## 已测但不保留的局部实验
 
+- `PlanePoint3i` 顶点缓存写入改用 `emplace_back` 直接构造：尝试避免
+  `Polygon256::rebuildVertexCache()` 和 `rebuildAABBCache()` 中临时
+  `PlanePoint3i` 的复制。`ctest --preset default --timeout 120` 通过；
+  但 100 组 NoTracy `run_20260522_103556` 相对 AABB 顶点缓存复用后的两轮保留基线
+  信号不稳定：相对 `run_20260522_102925`，overall `end_to_end_ms` 仅下降
+  `50.669ms`、large `export_ms/end_to_end_ms` 分别回退 `34.745ms` / `28.023ms`；
+  相对 `run_20260522_102820`，overall `end_to_end_ms` 反而增加 `6.266ms`，
+  large 回退 `44.719ms`。该改动只改变构造写法，没有结构性收益；源码不保留。
 - raw OBJ 导出按文本块直接写 `ofstream`：尝试保留现有并行顶点/面文本块生成，
   但不再把所有块拼接成一个完整 `objText` 后单次写出，而是按 header、顶点块、
   面块顺序直接写文件，目标是减少最终大缓冲复制和峰值内存。`ctest --test-dir
