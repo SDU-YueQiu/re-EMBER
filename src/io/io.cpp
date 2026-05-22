@@ -2124,6 +2124,145 @@ void appendObjFaceLines(
         buffer += chunk;
 }
 
+bool writeTextChunk(std::ostream &output, const std::string &chunk)
+{
+    output.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+    return static_cast<bool>(output);
+}
+
+bool writeObjVertexLinesToStream(
+    std::ostream &output,
+    const std::vector<PlanePoint3i> &vertices,
+    std::uint64_t coordinateScale)
+{
+    constexpr std::size_t kParallelThreshold = 8192u;
+    constexpr std::size_t kChunkSize = 4096u;
+    if (vertices.size() < kParallelThreshold)
+    {
+        std::string chunk;
+        chunk.reserve(vertices.size() * 96u);
+        for (const PlanePoint3i &vertex : vertices)
+            appendObjVertexLine(chunk, vertex, coordinateScale);
+        return writeTextChunk(output, chunk);
+    }
+
+    const std::size_t chunkCount = (vertices.size() + kChunkSize - 1u) / kChunkSize;
+    std::vector<std::string> chunks(chunkCount);
+    parallelForStatic(chunkCount, [&](std::size_t chunkIndex)
+    {
+        const std::size_t begin = chunkIndex * kChunkSize;
+        const std::size_t end = std::min(vertices.size(), begin + kChunkSize);
+        std::string chunk;
+        chunk.reserve((end - begin) * 96u);
+        for (std::size_t vertexIndex = begin; vertexIndex < end; ++vertexIndex)
+            appendObjVertexLine(chunk, vertices[vertexIndex], coordinateScale);
+        chunks[chunkIndex] = std::move(chunk);
+    });
+
+    for (const std::string &chunk : chunks)
+    {
+        if (!writeTextChunk(output, chunk))
+            return false;
+    }
+    return true;
+}
+
+bool writeObjFaceLinesToStream(
+    std::ostream &output,
+    const std::vector<std::vector<std::size_t>> &faces)
+{
+    constexpr std::size_t kParallelThreshold = 8192u;
+    constexpr std::size_t kChunkSize = 4096u;
+    if (faces.size() < kParallelThreshold)
+    {
+        std::size_t faceVertexSlots = 0;
+        for (const std::vector<std::size_t> &face : faces)
+            faceVertexSlots += face.size();
+
+        std::string chunk;
+        chunk.reserve(faces.size() * 4u + faceVertexSlots * 12u);
+        for (const std::vector<std::size_t> &face : faces)
+            appendObjFaceLine(chunk, face);
+        return writeTextChunk(output, chunk);
+    }
+
+    const std::size_t chunkCount = (faces.size() + kChunkSize - 1u) / kChunkSize;
+    std::vector<std::string> chunks(chunkCount);
+    parallelForStatic(chunkCount, [&](std::size_t chunkIndex)
+    {
+        const std::size_t begin = chunkIndex * kChunkSize;
+        const std::size_t end = std::min(faces.size(), begin + kChunkSize);
+        std::size_t faceVertexSlots = 0;
+        for (std::size_t faceIndex = begin; faceIndex < end; ++faceIndex)
+            faceVertexSlots += faces[faceIndex].size();
+
+        std::string chunk;
+        chunk.reserve((end - begin) * 4u + faceVertexSlots * 12u);
+        for (std::size_t faceIndex = begin; faceIndex < end; ++faceIndex)
+            appendObjFaceLine(chunk, faces[faceIndex]);
+        chunks[chunkIndex] = std::move(chunk);
+    });
+
+    for (const std::string &chunk : chunks)
+    {
+        if (!writeTextChunk(output, chunk))
+            return false;
+    }
+    return true;
+}
+
+bool writeObjFaceLinesToStream(
+    std::ostream &output,
+    const std::vector<std::size_t> &faceVertexIndices,
+    const std::vector<std::size_t> &faceOffsets)
+{
+    constexpr std::size_t kParallelThreshold = 8192u;
+    constexpr std::size_t kChunkSize = 4096u;
+    const std::size_t faceCount = faceOffsets.empty() ? 0u : faceOffsets.size() - 1u;
+    if (faceCount < kParallelThreshold)
+    {
+        std::string chunk;
+        chunk.reserve(faceCount * 4u + faceVertexIndices.size() * 12u);
+        for (std::size_t faceIndex = 0; faceIndex < faceCount; ++faceIndex)
+        {
+            appendObjFaceLine(
+                chunk,
+                faceVertexIndices,
+                faceOffsets[faceIndex],
+                faceOffsets[faceIndex + 1u]);
+        }
+        return writeTextChunk(output, chunk);
+    }
+
+    const std::size_t chunkCount = (faceCount + kChunkSize - 1u) / kChunkSize;
+    std::vector<std::string> chunks(chunkCount);
+    parallelForStatic(chunkCount, [&](std::size_t chunkIndex)
+    {
+        const std::size_t begin = chunkIndex * kChunkSize;
+        const std::size_t end = std::min(faceCount, begin + kChunkSize);
+        const std::size_t faceVertexSlots = faceOffsets[end] - faceOffsets[begin];
+
+        std::string chunk;
+        chunk.reserve((end - begin) * 4u + faceVertexSlots * 12u);
+        for (std::size_t faceIndex = begin; faceIndex < end; ++faceIndex)
+        {
+            appendObjFaceLine(
+                chunk,
+                faceVertexIndices,
+                faceOffsets[faceIndex],
+                faceOffsets[faceIndex + 1u]);
+        }
+        chunks[chunkIndex] = std::move(chunk);
+    });
+
+    for (const std::string &chunk : chunks)
+    {
+        if (!writeTextChunk(output, chunk))
+            return false;
+    }
+    return true;
+}
+
 bool buildStlTrianglesFromRecoveredData(
     const RecoveredPolygonSoupData &recovered,
     std::uint64_t coordinateScale,
@@ -2178,7 +2317,7 @@ bool writeRawTrustedPolygonSoupObj(
         return false;
     }
 
-    std::ofstream output(path, std::ios::trunc);
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
     if (!output)
     {
         return failIo(
@@ -2186,13 +2325,14 @@ bool writeRawTrustedPolygonSoupObj(
                    "Failed to open OBJ output file for writing: " + path);
     }
 
-    // raw 可信路径只需要顶点表和面索引，避免为每个面分配独立小 vector。
-    std::string objText;
-    objText.reserve(estimateObjTextSize(recovered));
-    objText += "# Ember exact polygon soup export\n";
-    appendObjVertexLines(objText, recovered.uniqueVertices, options.coordinateScale);
-    appendObjFaceLines(objText, recovered.faceVertexIndices, recovered.faceOffsets);
-    output.write(objText.data(), static_cast<std::streamsize>(objText.size()));
+    // raw 可信路径只需要顶点表和面索引，按块写出避免再拼接一份全量 OBJ 文本。
+    const std::string header = "# Ember exact polygon soup export\n";
+    if (!writeTextChunk(output, header) ||
+        !writeObjVertexLinesToStream(output, recovered.uniqueVertices, options.coordinateScale) ||
+        !writeObjFaceLinesToStream(output, recovered.faceVertexIndices, recovered.faceOffsets))
+    {
+        return failIo(outError, "Failed to finish writing OBJ output file: " + path);
+    }
     if (!output)
         return failIo(outError, "Failed to finish writing OBJ output file: " + path);
 
@@ -2214,7 +2354,7 @@ bool writeRawTrustedPolygonSoupObj(
         return false;
     }
 
-    std::ofstream output(path, std::ios::trunc);
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
     if (!output)
     {
         return failIo(
@@ -2223,12 +2363,13 @@ bool writeRawTrustedPolygonSoupObj(
     }
 
     // 分块 raw 路径保持片段顺序，但避免先把全部 Polygon256 搬进一个大 vector。
-    std::string objText;
-    objText.reserve(estimateObjTextSize(recovered));
-    objText += "# Ember exact polygon soup export\n";
-    appendObjVertexLines(objText, recovered.uniqueVertices, options.coordinateScale);
-    appendObjFaceLines(objText, recovered.faceVertexIndices, recovered.faceOffsets);
-    output.write(objText.data(), static_cast<std::streamsize>(objText.size()));
+    const std::string header = "# Ember exact polygon soup export\n";
+    if (!writeTextChunk(output, header) ||
+        !writeObjVertexLinesToStream(output, recovered.uniqueVertices, options.coordinateScale) ||
+        !writeObjFaceLinesToStream(output, recovered.faceVertexIndices, recovered.faceOffsets))
+    {
+        return failIo(outError, "Failed to finish writing OBJ output file: " + path);
+    }
     if (!output)
         return failIo(outError, "Failed to finish writing OBJ output file: " + path);
 
@@ -2769,7 +2910,7 @@ bool writePolygonSoupObj(
         return false;
     }
 
-    std::ofstream output(path, std::ios::trunc);
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
     if (!output)
     {
         return failIo(
@@ -2779,12 +2920,13 @@ bool writePolygonSoupObj(
     }
 
     // 默认保持多边形集合形态：写顶点，再逐面写 OBJ n 边面。
-    std::string objText;
-    objText.reserve(estimateObjTextSize(recovered));
-    objText += "# Ember exact polygon soup export\n";
-    appendObjVertexLines(objText, recovered.uniqueVertices, options.coordinateScale);
-    appendObjFaceLines(objText, recovered.faces);
-    output.write(objText.data(), static_cast<std::streamsize>(objText.size()));
+    const std::string header = "# Ember exact polygon soup export\n";
+    if (!writeTextChunk(output, header) ||
+        !writeObjVertexLinesToStream(output, recovered.uniqueVertices, options.coordinateScale) ||
+        !writeObjFaceLinesToStream(output, recovered.faces))
+    {
+        return failIo(outError, "Failed to finish writing OBJ output file: " + path);
+    }
     if (!output)
         return failIo(outError, "Failed to finish writing OBJ output file: " + path);
 
@@ -2982,7 +3124,7 @@ bool writeObjMeshData(
     if (!ensureOutputDirectoryExists(path, "OBJ", outError))
         return false;
 
-    std::ofstream output(path, std::ios::trunc);
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
     if (!output)
         return failIo(outError, "Failed to open OBJ output file for writing: " + path);
 
