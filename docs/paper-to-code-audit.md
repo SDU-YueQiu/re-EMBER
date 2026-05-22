@@ -1178,5 +1178,19 @@ export 改动也应按端到端 pipeline 收益独立保留或回滚。
 - `tools/profile-re-ember.ps1 -VerifyWithOracle` 现在配置 profiling build tree 时显式传入
   `-DREEMBER_BUILD_VERIFY=ON`；否则同一命令会在 `profile_clang_notracy` 中构建不存在的
   `re-EMBER_verify` target 而失败。未启用 verifier 时显式保持 `REEMBER_BUILD_VERIFY=OFF`。
+- `Polygon256::rebuildAABBCache()` 在计算每个顶点齐次交点用于 AABB 时，同步填充
+  `cachedVertices_`，避免后续 `vertices()` / raw 导出恢复再次执行同一组三平面求交。该改动
+  保持 lazy 语义：只有真实请求 AABB 的 polygon 才会顺带得到顶点缓存，不恢复此前已回滚的
+  eager 全局预计算。
+- 验证：`cmake --preset tests`、`cmake --build --preset tests`、`ctest --preset default
+  --timeout 120`、默认 smoke 均通过；small 34 组 oracle 在
+  `build/performance/run_20260522_103051/verification.csv` 中 `passed=True` 共 34 项。
+- 100 组性能对比：基线 `run_20260522_101905`，两次实验为
+  `run_20260522_102820` 和 `run_20260522_102925`。两轮 overall `export_ms` 分别下降
+  `122.89ms`（-4.17%）和 `100.53ms`（-3.41%），overall `end_to_end_ms` 分别下降
+  `118.93ms`（-0.58%）和 `61.99ms`（-0.30%）。large 组更稳定：`export_ms` 分别下降
+  `90.25ms`（-4.69%）和 `86.92ms`（-4.52%），端到端分别下降 `100.86ms`
+  （-0.71%）和 `84.16ms`（-0.59%）。`solve_ms` 信号在两轮间接近噪声边界，因此该提交
+  只声明为“减少 AABB 后续顶点恢复/导出重复求交”的端到端收益。
 
 这些结论只用于避免近期重复试错；若 workload、算法边界或 profile 证据变化，可以重新评估。
