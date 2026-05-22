@@ -2449,6 +2449,11 @@ bool readObjMesh(const std::string &path, ObjMeshData &outMesh, std::string &out
     }
 
     const std::vector<tinyobj::shape_t> &shapes = reader.GetShapes();
+    std::size_t totalFaceCount = 0;
+    for (const tinyobj::shape_t &shape : shapes)
+        totalFaceCount += shape.mesh.num_face_vertices.size();
+    outMesh.faces.reserve(totalFaceCount);
+
     for (std::size_t shapeIndex = 0; shapeIndex < shapes.size(); ++shapeIndex)
     {
         const tinyobj::mesh_t &mesh = shapes[shapeIndex].mesh;
