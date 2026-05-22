@@ -466,7 +466,7 @@ struct FacePolygonBuildResult
 
 void buildPolygonsFromQuantizedFace(
     const std::vector<Vec3i> &quantizedVertices,
-    const std::vector<std::size_t> &face,
+    const ObjMeshFace &face,
     std::size_t faceIndex,
     const PolygonSoupBuildOptions &options,
     FacePolygonBuildResult &outResult)
@@ -2479,7 +2479,7 @@ bool readObjMesh(const std::string &path, ObjMeshData &outMesh, std::string &out
 
             // tinyobjloader 已处理标准 OBJ 索引形式，包括相对索引；
             // 本层只保留项目边界需要的几何位置索引。
-            std::vector<std::size_t> face;
+            ObjMeshFace face;
             face.reserve(faceVertexCount);
             for (std::size_t i = 0; i < faceVertexCount; ++i)
             {
@@ -3143,7 +3143,7 @@ bool writeObjMeshData(
 
     for (std::size_t faceIndex = 0; faceIndex < mesh.faces.size(); ++faceIndex)
     {
-        const std::vector<std::size_t> &face = mesh.faces[faceIndex];
+        const ObjMeshFace &face = mesh.faces[faceIndex];
         if (face.size() < 3u)
             return failIo(outError, "OBJ mesh export found a face with fewer than three vertices.");
 
@@ -3176,7 +3176,7 @@ bool writeStlMeshData(
         return false;
 
     std::vector<StlTriangle> triangles;
-    for (const std::vector<std::size_t> &face : mesh.faces)
+    for (const ObjMeshFace &face : mesh.faces)
     {
         if (face.size() < 3u)
             return failIo(outError, "STL mesh export found a face with fewer than three vertices.");
@@ -3258,6 +3258,21 @@ bool writeMesh(
     return failIo(outError, "Unsupported mesh file format.");
 }
 
+void assignObjMeshFacesFromRecovered(
+    const std::vector<std::vector<std::size_t>> &sourceFaces,
+    ObjMeshData &outMesh)
+{
+    outMesh.faces.clear();
+    outMesh.faces.reserve(sourceFaces.size());
+    for (const std::vector<std::size_t> &sourceFace : sourceFaces)
+    {
+        ObjMeshFace face;
+        face.reserve(sourceFace.size());
+        face.assign(sourceFace.begin(), sourceFace.end());
+        outMesh.faces.push_back(std::move(face));
+    }
+}
+
 bool buildObjMeshFromPolygonSoup(
     const std::vector<Polygon256> &fragments,
     ObjMeshData &outMesh,
@@ -3304,7 +3319,7 @@ bool buildObjMeshFromPolygonSoup(
     for (const PlanePoint3i &vertex : recovered.uniqueVertices)
         outMesh.vertices.push_back(homogeneousPointToObjVertex(vertex, options.coordinateScale));
 
-    outMesh.faces = std::move(recovered.faces);
+    assignObjMeshFacesFromRecovered(recovered.faces, outMesh);
 
     return true;
 }

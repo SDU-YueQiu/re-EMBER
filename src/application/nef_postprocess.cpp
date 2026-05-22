@@ -385,7 +385,7 @@ ObjMeshData makeObjMeshData(const NefPolyhedron &nef, std::uint64_t coordinateSc
     mesh.faces.reserve(surfaceMesh.number_of_faces());
     for (const auto face : surfaceMesh.faces())
     {
-        std::vector<std::size_t> meshFace;
+        ObjMeshFace meshFace;
         for (const auto vertex : CGAL::vertices_around_face(surfaceMesh.halfedge(face), surfaceMesh))
             meshFace.push_back(vertexMap.at(static_cast<std::size_t>(vertex.idx())));
 

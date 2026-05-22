@@ -26,6 +26,7 @@ namespace
 {
 using ember::BoolOp;
 using ember::ObjMeshData;
+using ember::ObjMeshFace;
 using ember::ObjVertex;
 using ember::Plane3i;
 using ember::PolygonSoupBuildOptions;
@@ -158,7 +159,7 @@ void assertWellFormedObjMesh(const ObjMeshData &mesh)
         if (!std::isfinite(vertex.x) || !std::isfinite(vertex.y) || !std::isfinite(vertex.z))
             throw std::runtime_error("io_tests produced a non-finite OBJ vertex.");
     }
-    for (const std::vector<std::size_t> &face : mesh.faces)
+    for (const ObjMeshFace &face : mesh.faces)
     {
         if (face.size() < 3u)
             throw std::runtime_error("io_tests produced an OBJ face with fewer than three vertices.");
@@ -1118,7 +1119,7 @@ void runIoTests()
         assert(mergedMesh.faces.size() == 2u);
 
         bool foundMergedRectangle = false;
-        for (const std::vector<std::size_t> &face : mergedMesh.faces)
+        for (const ObjMeshFace &face : mergedMesh.faces)
         {
             if (face.size() != 4u)
                 continue;
