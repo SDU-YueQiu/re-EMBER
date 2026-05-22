@@ -6,14 +6,14 @@
 ## 当前基线
 
 - 最近 100 组端到端性能基线：
-  `build/performance/run_20260522_105521/timings.csv`，Release NoTracy，论文实验集
+  `build/performance/run_20260522_112251/timings.csv`，Release NoTracy，论文实验集
   `34 small / 33 medium / 33 large`，`--leaf-threshold 50`，`--threads 20`。
-- 该基线的总体平均阶段耗时为：`read_ms=15.208`、`prepare_ms=46.946`、
-  `solve_ms=111.015`、`export_ms=28.302`、`end_to_end_ms=201.472`。
+- 该基线的总体平均阶段耗时为：`read_ms=15.396`、`prepare_ms=46.903`、
+  `solve_ms=111.944`、`export_ms=25.111`、`end_to_end_ms=199.355`。
 - 按规模聚合的端到端总量为：
-  small `1581.03ms`、medium `4633.47ms`、large `13932.70ms`。
-  large 上 `prepare_ms + export_ms = 5441.13ms`，仍接近 `solve_ms=7367.67ms`
-  的 74%，后续不能只按 solver 口径判断优化价值。
+  small `1577.50ms`、medium `4588.01ms`、large `13770.00ms`。
+  large 上 `prepare_ms + export_ms = 5172.59ms`，仍接近 `solve_ms=7462.67ms`
+  的 69%，后续不能只按 solver 口径判断优化价值。
 - 最近 Tracy 归因：`build/performance/run_20260521_072920/`，单个 large
   workload，RelWithDebInfo，Tracy 和 math Tracy 开启。
 - 当前流水线仍是 `OBJ/STL -> Polygon256 soup -> BoolProblem ->
@@ -1239,5 +1239,24 @@ export 改动也应按端到端 pipeline 收益独立保留或回滚。
   `read_ms` 差异仅 `5.392ms`（+0.36%），因此该提交只稳定声明为减少 I/O
   边界逐面堆分配带来的读入阶段收益；`solve_ms` / `export_ms` 的下降不作为
   solver 或导出优化结论。
+- raw trusted OBJ 导出在 `resultFragmentChunks()` 粒度恢复时，把相邻小 chunk
+  自适应合并成约 `4096` 个 vertex slot 的恢复组；结果片段少于 `10000` 时保持原
+  chunk 粒度，避免小输出因分组降低并行度。该改动只改变 raw 导出恢复的局部去重粒度，
+  按原 chunk/face 顺序合并，保持全局顶点首次出现顺序、face index 序列和求解结果不变。
+- 验证：`cmake --build --preset tests`、`ctest --preset default --timeout 120`、
+  `cmake --build --preset default-app`、默认 smoke 均通过；`large_021_1396886_minus_551020`
+  的 raw OBJ SHA256 与基线 `run_20260522_105521` 完全一致；small 34 组 oracle 在
+  `build/performance/run_20260522_112406/verification.csv` 中 `passed=True` 共 34 项。
+- Tracy 归因：`run_20260522_111304` 到 `run_20260522_111744` 的同一 large_021
+  单例中，恢复任务数从 `1676` 降到 `92`，`re-EMBER::export_obj` inclusive 从
+  `154.15ms` 降到 `118.37ms`；`RawVertexIndexBuilder::insertPrimitive` self
+  线程累计从 `105.46ms` 降到 `70.52ms`。
+- 100 组性能对比：保留基线 `run_20260522_105521`，自适应合并两次实验为
+  `run_20260522_112145` / `run_20260522_112251`。两轮 overall `export_ms`
+  分别下降 `334.61ms`（-11.82%）和 `319.14ms`（-11.28%），overall
+  `end_to_end_ms` 分别下降 `323.02ms`（-1.60%）和 `211.69ms`（-1.05%）。
+  large 组 `export_ms` 分别下降 `272.49ms`（-14.72%）和 `262.23ms`
+  （-14.17%）；medium 组 `export_ms` 分别下降 `63.54ms` 和 `62.42ms`。
+  `solve_ms` 在两轮中均小幅上升，按调度/测量噪声处理；该提交只声明为导出恢复收益。
 
 这些结论只用于避免近期重复试错；若 workload、算法边界或 profile 证据变化，可以重新评估。
