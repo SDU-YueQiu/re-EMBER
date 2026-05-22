@@ -7,6 +7,8 @@
 #include "geometry/aabb.h"
 #include "geometry/geometry256.h"
 
+#include <boost/container/small_vector.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -28,6 +30,14 @@ struct ObjVertex
 };
 
 /**
+ * @brief 外层 I/O 面索引列表。
+ *
+ * 大多数 OBJ/STL 输入面是三角形，内联保留 3 个顶点下标以减少逐面堆分配；
+ * n 边面仍可按需扩容，语义保持为输入顺序的 0-based 顶点下标。
+ */
+using ObjMeshFace = boost::container::small_vector<std::size_t, 3>;
+
+/**
  * @brief 轻量面网格数据。
  *
  * 历史命名沿用 `ObjMeshData`，但该结构也复用于 STL 等“仅几何位置 + 面索引”
@@ -37,7 +47,7 @@ struct ObjVertex
 struct ObjMeshData
 {
     std::vector<ObjVertex> vertices;
-    std::vector<std::vector<std::size_t>> faces;
+    std::vector<ObjMeshFace> faces;
 };
 
 /**

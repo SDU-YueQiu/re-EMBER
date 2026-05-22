@@ -360,7 +360,7 @@ SurfaceMesh makeSurfaceMesh(const ObjMeshData &mesh)
 
     for (std::size_t faceIndex = 0; faceIndex < mesh.faces.size(); ++faceIndex)
     {
-        const std::vector<std::size_t> &face = mesh.faces[faceIndex];
+        const ObjMeshFace &face = mesh.faces[faceIndex];
         if (face.size() < 3)
             throw std::runtime_error("OBJ face " + std::to_string(faceIndex) + " has fewer than three vertices.");
 
@@ -417,7 +417,7 @@ ObjMeshData makeObjMeshData(const SurfaceMesh &surfaceMesh)
     mesh.faces.reserve(surfaceMesh.number_of_faces());
     for (const auto face : surfaceMesh.faces())
     {
-        std::vector<std::size_t> meshFace;
+        ObjMeshFace meshFace;
         for (const auto vertex : CGAL::vertices_around_face(surfaceMesh.halfedge(face), surfaceMesh))
             meshFace.push_back(vertexMap.at(static_cast<std::size_t>(vertex.idx())));
 
@@ -776,7 +776,7 @@ void setViewerMesh(
     }
 
     std::size_t viewerFaceCount = 0;
-    for (const std::vector<std::size_t> &face : mesh.faces)
+    for (const ObjMeshFace &face : mesh.faces)
     {
         if (face.size() >= 3)
             viewerFaceCount += face.size() - 2;
@@ -784,7 +784,7 @@ void setViewerMesh(
 
     Eigen::MatrixXi viewerFaces(static_cast<Eigen::Index>(viewerFaceCount), 3);
     std::size_t viewerFaceIndex = 0;
-    for (const std::vector<std::size_t> &face : mesh.faces)
+    for (const ObjMeshFace &face : mesh.faces)
     {
         for (std::size_t i = 1; i + 1 < face.size(); ++i)
         {
@@ -813,13 +813,13 @@ void setViewerMesh(
     if (style.showLines)
     {
         std::size_t edgeCount = 0;
-        for (const std::vector<std::size_t> &face : mesh.faces)
+        for (const ObjMeshFace &face : mesh.faces)
             edgeCount += face.size();
 
         Eigen::MatrixXd edgeStarts(static_cast<Eigen::Index>(edgeCount), 3);
         Eigen::MatrixXd edgeEnds(static_cast<Eigen::Index>(edgeCount), 3);
         std::size_t edgeIndex = 0;
-        for (const std::vector<std::size_t> &face : mesh.faces)
+        for (const ObjMeshFace &face : mesh.faces)
         {
             for (std::size_t i = 0; i < face.size(); ++i)
             {
