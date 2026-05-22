@@ -496,6 +496,15 @@
   的结构计数、result/exported face 数和 leaf classification trace 次数一致，
   100 个 raw OBJ SHA256 完全一致；平均 `export_ms` 从 66.575ms 降到
   49.571ms，`end_to_end_ms` 从 245.732ms 降到 228.397ms。
+- raw 导出成本下降后重新扫描默认 leaf threshold，把默认值从 75 回调到 50：
+  50 会比 75 产生更多叶片和 result fragment，但明显减少叶片内局部 BSP/trace
+  压力，新的导出路径能覆盖额外输出片段成本。100 组 NoTracy 扫描中，
+  `run_20260522_082017`（25）平均 `solve_ms/export_ms/end_to_end_ms` 为
+  `110.347ms / 60.647ms / 234.200ms`；`run_20260522_082057`（50）
+  为 `112.089ms / 52.425ms / 227.776ms`；保留基线
+  `run_20260522_081436`（75）为 `115.558ms / 49.571ms / 228.397ms`。
+  复跑 `run_20260522_082153`（50）为 `111.781ms / 52.769ms / 227.946ms`，
+  说明 50 对 `solve_ms` 的收益稳定，端到端也略优于 75；显式传入的阈值仍覆盖默认值。
 
 ## 已测但不保留的局部实验
 
@@ -511,7 +520,7 @@
   保留基线 75 的 `run_20260522_074030` 平均 `solve_ms/export_ms/end_to_end_ms`
   为 `115.327ms / 69.227ms / 247.759ms`；90 的 `run_20260522_074750`
   为 `118.033ms / 66.976ms / 247.945ms`；100 的 `run_20260522_074832`
-  为 `119.843ms / 65.758ms / 248.326ms`。当前默认阈值仍保持 75。
+  为 `119.843ms / 65.758ms / 248.326ms`。该阶段默认阈值仍保持 75。
 - sibling task 提交门槛从半个 leaf threshold 降到四分之一个 leaf threshold：
   目标是给 oneTBB 暴露更多中等规模子树任务。`ctest --test-dir build\tests
   --output-on-failure --timeout 120` 通过；100 组 NoTracy `run_20260522_075032`

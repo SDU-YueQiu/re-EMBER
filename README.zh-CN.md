@@ -65,7 +65,7 @@ vcpkg install cgal eigen3 libigl
 最小布尔测试命令：
 
 ```powershell
-build\default\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\boolean_smoke.obj --leaf-threshold 75
+build\default\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\boolean_smoke.obj --leaf-threshold 50
 ```
 
 `.obj` 输出保留 n 边面；`.stl` 输出会在 I/O 边界三角化。`--output-topology conforming` 会在导出前启用精确 T-junction 修复。该模式主要用于调试和 MeshLab 检查，不用于性能计时；它可能明显慢于 raw 输出。共面合并和 Nef 正则化输出仍在应用层 CLI 禁用。
@@ -77,7 +77,7 @@ build\default\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\
 ```powershell
 cmake --preset verify
 cmake --build --preset verify
-build\verify\re-EMBER_verify.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --leaf-threshold 75 --oracle-cache-dir build\oracle_cache\nef
+build\verify\re-EMBER_verify.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --leaf-threshold 50 --oracle-cache-dir build\oracle_cache\nef
 ```
 
 oracle 的精确性边界是 re-EMBER 已经量化后的 `Polygon256` 输入；它不声明验证原始浮点 OBJ/STL 在 CAD 语义上的真实布尔结果。默认缓存目录是 `build\oracle_cache\nef\`；需要强制重算时传 `--refresh-oracle`。`--candidate-mode fragments-nef|export-conforming|export-nef` 可选择用原始结果片段或 verifier 内部诊断候选构造候选结果；这些模式不代表应用层输出后处理已经启用，也不改变 oracle cache key。
@@ -88,7 +88,7 @@ oracle 的精确性边界是 re-EMBER 已经量化后的 `Polygon256` 输入；�
 - `--op union|intersection|difference` 选择布尔运算类型。
 - `--out <result.obj|result.stl>` 指定输出文件。
 - `--scale <positive_integer>` 手动覆盖共享量化尺度。
-- `--leaf-threshold <positive_integer>` 控制细分到叶子时的停止阈值；默认值为 75。
+- `--leaf-threshold <positive_integer>` 控制细分到叶子时的停止阈值；默认值为 50。
 - `--threads <positive_integer>` 指定应用层 task arena 大小和求解线程数；设为 `1` 可强制串行。
 - `--output-topology raw|conforming` 选择应用层导出拓扑。`raw` 直接写 `resultFragments()`，并跳过只供 conforming 修复使用的拓扑元数据；`conforming` 会全局查找并插入落在其他面边上的已有顶点以消除 T-junction。`conforming` 是精确但较慢的调试/检查模式，不应用于性能测试。共面合并和 Nef 输出仍禁用。
 - `--timings-out <metrics.txt>` 会把单次运行的计时和求解摘要写到文件里。
@@ -107,7 +107,7 @@ oracle 的精确性边界是 re-EMBER 已经量化后的 `Polygon256` 输入；�
 - `-ExecutablePath` 直接复用已有的 `re-EMBER.exe`，不重新构建。
 - `-Configuration` 选择 profiling 构建类型。只计时的 `-NoTracy` 默认使用 `Release`；Tracy 采样默认使用 `RelWithDebInfo`。
 - `-Iterations`、`-TimeoutSeconds`、`-BuildTimeoutSeconds`、`-ReportTimeoutSeconds` 控制运行超时。
-- `-LeafThreshold` 会传给求解器，默认值为 75；`-Threads` 同时设置应用层 task arena 大小和求解线程数。
+- `-LeafThreshold` 会传给求解器，默认值为 50；`-Threads` 同时设置应用层 task arena 大小和求解线程数。
 - `-NoTracy` 跳过 Tracy 采样，使用 `build\profile_clang_notracy\`。
 - `-EnableMathTracy` 额外打开底层 `math256` Tracy 区间，并使用 `build\profile_clang_tracy_math\`。
 - `-SkipBuild` 复用已有的 profiling 构建树。

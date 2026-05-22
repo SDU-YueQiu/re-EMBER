@@ -294,7 +294,7 @@ if(REEMBER_BUILD_TESTS)
       -Op difference
       -NoTracy
       -Iterations 1
-      -LeafThreshold 75
+      -LeafThreshold 50
       -Threads "${REEMBER_CTEST_THREADS}"
   )
   set_tests_properties(re-EMBER_paper_small_batch PROPERTIES

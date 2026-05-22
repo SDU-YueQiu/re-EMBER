@@ -4,7 +4,7 @@
 
 ## 默认样本和参数
 
-默认纳入 `small_001` 到 `small_010` 共 10 个 small pair。CTest 会固定调用 `profile-re-ember.ps1 -InputRoot tests/paper_experiments/inputs/small -Op difference -NoTracy -Iterations 1 -LeafThreshold 75`，并通过 `-ExecutablePath` 复用当前 CTest 构建树里的 CLI；普通手动 `-NoTracy` 运行在未显式传 `-Configuration` 时默认使用 `Release`。线程数默认取当前构建机的逻辑处理器数 `REEMBER_CTEST_THREADS`，并继续启用论文实验使用的四个输入假设。只有在专门排查串行分支时才应把 `REEMBER_CTEST_THREADS` 显式设为 `1`。`inputs/medium` 和 `inputs/large` 与 small 使用同一目录约定，但不默认进入 120 秒 CTest。
+默认纳入 `small_001` 到 `small_010` 共 10 个 small pair。CTest 会固定调用 `profile-re-ember.ps1 -InputRoot tests/paper_experiments/inputs/small -Op difference -NoTracy -Iterations 1 -LeafThreshold 50`，并通过 `-ExecutablePath` 复用当前 CTest 构建树里的 CLI；普通手动 `-NoTracy` 运行在未显式传 `-Configuration` 时默认使用 `Release`。线程数默认取当前构建机的逻辑处理器数 `REEMBER_CTEST_THREADS`，并继续启用论文实验使用的四个输入假设。只有在专门排查串行分支时才应把 `REEMBER_CTEST_THREADS` 显式设为 `1`。`inputs/medium` 和 `inputs/large` 与 small 使用同一目录约定，但不默认进入 120 秒 CTest。
 
 面向优化阶段的混合批量入口是 `-UsePaperExperimentSet`。它会读取 `tests/paper_experiments/manifest.csv`，在当前 `build/performance/run_<timestamp>/` 下生成只含 `lhs.obj` / `rhs.obj` 链接或副本的临时输入根目录，并按 manifest 顺序选择样本；默认就是 10 个 small、10 个 medium 和 2 个 large，可用 `-PaperSmallCount`、`-PaperMediumCount`、`-PaperLargeCount` 调整。全量 100 组使用 `-PaperSmallCount 34 -PaperMediumCount 33 -PaperLargeCount 33`。这个入口适合和 `-NoTracy -VerifyWithOracle` 组合，用于每个优化阶段的同集性能和正确性验证。
 
@@ -25,7 +25,7 @@ ctest --test-dir build -C Debug --output-on-failure --timeout 120
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
   -UsePaperExperimentSet -NoTracy -Configuration Release -Iterations 1 `
-  -LeafThreshold 75 -VerifyWithOracle
+  -LeafThreshold 50 -VerifyWithOracle
 ```
 
 全量 100 组性能运行使用：
@@ -33,7 +33,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
   -UsePaperExperimentSet -PaperSmallCount 34 -PaperMediumCount 33 -PaperLargeCount 33 `
-  -NoTracy -Configuration Release -Iterations 1 -LeafThreshold 75
+  -NoTracy -Configuration Release -Iterations 1 -LeafThreshold 50
 ```
 
 `re-EMBER_tests` 依赖 `re-EMBER`，因此上面的构建命令会同时生成 CLI。paper 聚合 test 会复用当前构建树里的 `re-EMBER.exe`，并把测试输出、逐 case metrics、OBJ 和汇总报告写入最新的 `build/performance/run_<timestamp>/`。当前默认 10 个 small pair 在本工作树中应全部通过；如果新增或修改算法导致聚合 test 失败，应先修复默认集合，再考虑继续从论文实验集追加更多 pair。

@@ -15,10 +15,10 @@ namespace ember
 /**
  * @brief 默认叶片停止阈值。
  *
- * @note 当前默认值按 100 组 paper workload 的 CLI 端到端时间校准；调用方仍可显式传入
- *       leaf threshold 覆盖它。
+ * @note 当前默认值按 100 组 paper workload 的 CLI 求解时间和端到端时间校准；调用方仍可
+ *       显式传入 leaf threshold 覆盖它。
  */
-inline constexpr std::size_t kDefaultLeafPolygonThreshold = 75;
+inline constexpr std::size_t kDefaultLeafPolygonThreshold = 50;
 
 /**
  * @brief 二元布尔运算类型。

@@ -12,7 +12,7 @@ param(
     [string]$PaperExperimentDir,
     [string]$ExecutablePath,
     [ValidateSet("Debug", "Release", "RelWithDebInfo", "MinSizeRel")][string]$Configuration = "RelWithDebInfo",
-    [int]$LeafThreshold = 75,
+    [int]$LeafThreshold = 50,
     [int]$Threads = 0,
     [int]$Iterations = 5,
     [int]$TimeoutSeconds = 300,
