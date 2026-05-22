@@ -664,6 +664,14 @@ public:
     std::size_t insert(const PlanePoint3i &vertex, std::vector<PlanePoint3i> &uniqueVertices)
     {
         const HomPoint4i key = primitiveHomPoint(vertex.x);
+        return insertPrimitive(key, vertex, uniqueVertices);
+    }
+
+    std::size_t insertPrimitive(
+        const HomPoint4i &key,
+        const PlanePoint3i &vertex,
+        std::vector<PlanePoint3i> &uniqueVertices)
+    {
         const std::size_t bucketIndex = hashHomogeneousPrimitivePoint(key) & (bucketHeads_.size() - 1u);
         for (std::size_t entry = bucketHeads_[bucketIndex]; entry != kNoEntry; entry = nextEntries_[entry])
         {
@@ -677,6 +685,11 @@ public:
         bucketHeads_[bucketIndex] = vertexIndex;
         uniqueVertices.push_back(vertex);
         return vertexIndex;
+    }
+
+    std::vector<HomPoint4i> releaseKeys()
+    {
+        return std::move(keys_);
     }
 
 private:
@@ -1022,6 +1035,7 @@ struct RawRecoveredPolygonSoupData
 struct LocalRawRecoveredChunk
 {
     std::vector<PlanePoint3i> uniqueVertices;
+    std::vector<HomPoint4i> primitiveVertexKeys;
     std::vector<std::size_t> faceVertexIndices;
     std::vector<std::size_t> faceOffsets;
 };
@@ -1164,6 +1178,7 @@ bool recoverRawTrustedPolygonSoupDataCompact(
             }
             local.faceOffsets.push_back(local.faceVertexIndices.size());
         }
+        local.primitiveVertexKeys = std::move(localVertexIndexBuilder).releaseKeys();
         localChunks[chunkIndex] = std::move(local);
     });
 
@@ -1187,8 +1202,13 @@ bool recoverRawTrustedPolygonSoupDataCompact(
     {
         localToGlobal.clear();
         localToGlobal.reserve(chunk.uniqueVertices.size());
-        for (const PlanePoint3i &vertex : chunk.uniqueVertices)
-            localToGlobal.push_back(vertexIndexBuilder.insert(vertex, outData.uniqueVertices));
+        for (std::size_t vertexIndex = 0; vertexIndex < chunk.uniqueVertices.size(); ++vertexIndex)
+        {
+            localToGlobal.push_back(vertexIndexBuilder.insertPrimitive(
+                chunk.primitiveVertexKeys[vertexIndex],
+                chunk.uniqueVertices[vertexIndex],
+                outData.uniqueVertices));
+        }
 
         for (std::size_t faceIndex = 0; faceIndex + 1u < chunk.faceOffsets.size(); ++faceIndex)
         {
