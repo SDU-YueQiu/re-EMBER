@@ -507,6 +507,12 @@
   从 159.69 增至 168.35，`solve_ms` 仅从 115.327ms 到 115.139ms，
   但 `end_to_end_ms` 从 247.759ms 退化到 247.851ms，属于噪声级且进程耗时
   也退化。当前仍保留半阈值门槛。
+- raw 顶点 key 的整数 hash 改为直接扫描 `UnsignedInteger` limb：尝试避免
+  `hashIntegerForKey()` 内部的 signed `_BitInt` mask 和临时 chunk。`ctest --test-dir
+  build\tests --output-on-failure --timeout 120` 通过，raw OBJ SHA256 与 flat hash
+  保留基线一致；但两轮 100 组 NoTracy `run_20260522_075950` /
+  `run_20260522_080045` 的平均 `export_ms` 为 66.810ms / 66.833ms，
+  均慢于保留基线 `run_20260522_075742` 的 66.575ms。源码不保留。
 - CLI 默认路径关闭 `BoolProblem::leafSummaries()` 收集：为 `BoolProblem` 增加
   `setCollectLeafSummaries(false)` 并把该开关传入 `SubdivisionSolver`，尝试避免每个
   叶子摘要在子树合并时向上搬运；公开默认仍收集 leaf summaries。`ctest --test-dir build\tests --output-on-failure --timeout 120`
