@@ -1145,5 +1145,12 @@
   与保留基线 `run_20260522_090947` 结构计数一致，raw OBJ SHA mismatch=0。但
   `solve_ms` 小退（110.929ms -> 111.100ms），`end_to_end_ms` 小退（205.426ms ->
   207.133ms）。额外 AABB vector 和外层分支没有抵消原函数内预筛成本，不保留。
+- 自适应稀疏叶片停止条件尝试把固定阈值扩展为“polygon 数略高于阈值且局部 AABB
+  重叠图稀疏时提前作为叶片”。第一版会把可由继续细分恢复的 `PATH_INVALID` 误判为
+  分类失败；修正为显式 stop reason 后，34 个 small oracle 通过，100 组论文样本
+  `run_20260522_094559` 相对保留基线 `run_20260522_090947` 的 `solve_ms` 仅小幅下降
+  （110.929ms -> 110.464ms），但 `end_to_end_ms` 小退（205.426ms -> 205.607ms），
+  `leaf_classification_trace_attempt_count` 上升（13480.45 -> 13487.07），raw OBJ
+  SHA mismatch=8。该模型触发少、节省节点极少，且会放大片段/trace，不保留。
 
 这些结论只用于避免近期重复试错；若 workload、算法边界或 profile 证据变化，可以重新评估。
