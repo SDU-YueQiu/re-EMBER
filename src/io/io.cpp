@@ -1019,6 +1019,13 @@ struct RawRecoveredPolygonSoupData
     std::vector<std::size_t> faceOffsets;
 };
 
+struct LocalRawRecoveredChunk
+{
+    std::vector<PlanePoint3i> uniqueVertices;
+    std::vector<std::size_t> faceVertexIndices;
+    std::vector<std::size_t> faceOffsets;
+};
+
 struct RecoveredPolygonBuildResult
 {
     std::vector<PlanePoint3i> orderedVertices;
@@ -1105,20 +1112,26 @@ bool recoverRawTrustedPolygonSoupDataCompact(
     outData.faceOffsets.clear();
 
     std::vector<std::size_t> chunkFragmentOffsets;
+    std::vector<std::size_t> chunkVertexSlotCounts;
     chunkFragmentOffsets.reserve(fragmentChunks.size() + 1u);
+    chunkVertexSlotCounts.reserve(fragmentChunks.size());
     chunkFragmentOffsets.push_back(0u);
     std::size_t totalFragmentCount = 0;
     std::size_t totalVertexSlotCount = 0;
     for (const std::vector<Polygon256> &chunk : fragmentChunks)
     {
         totalFragmentCount += chunk.size();
+        std::size_t chunkVertexSlotCount = 0;
         for (const Polygon256 &fragment : chunk)
-            totalVertexSlotCount += fragment.edgeCount();
+            chunkVertexSlotCount += fragment.edgeCount();
+        totalVertexSlotCount += chunkVertexSlotCount;
+        chunkVertexSlotCounts.push_back(chunkVertexSlotCount);
         chunkFragmentOffsets.push_back(totalFragmentCount);
     }
 
     constexpr std::size_t kNoInvalidPolygon = std::numeric_limits<std::size_t>::max();
     std::atomic<std::size_t> firstInvalidPolygon{kNoInvalidPolygon};
+    std::vector<LocalRawRecoveredChunk> localChunks(fragmentChunks.size());
     parallelForStatic(fragmentChunks.size(), [&](std::size_t chunkIndex)
     {
         const std::vector<Polygon256> &chunk = fragmentChunks[chunkIndex];
@@ -1126,6 +1139,12 @@ bool recoverRawTrustedPolygonSoupDataCompact(
         if (chunkOffset >= firstInvalidPolygon.load(std::memory_order_relaxed))
             return;
 
+        LocalRawRecoveredChunk local;
+        local.uniqueVertices.reserve(chunkVertexSlotCounts[chunkIndex]);
+        local.faceVertexIndices.reserve(chunkVertexSlotCounts[chunkIndex]);
+        local.faceOffsets.reserve(chunk.size() + 1u);
+        local.faceOffsets.push_back(0u);
+        RawVertexIndexBuilder localVertexIndexBuilder(chunkVertexSlotCounts[chunkIndex]);
         for (std::size_t localIndex = 0; localIndex < chunk.size(); ++localIndex)
         {
             const std::size_t polygonIndex = chunkOffset + localIndex;
@@ -1140,8 +1159,12 @@ bool recoverRawTrustedPolygonSoupDataCompact(
                     storeMinimumIndex(firstInvalidPolygon, polygonIndex);
                     return;
                 }
+
+                local.faceVertexIndices.push_back(localVertexIndexBuilder.insert(vertex, local.uniqueVertices));
             }
+            local.faceOffsets.push_back(local.faceVertexIndices.size());
         }
+        localChunks[chunkIndex] = std::move(local);
     });
 
     const std::size_t invalidPolygon = firstInvalidPolygon.load(std::memory_order_relaxed);
@@ -1159,13 +1182,20 @@ bool recoverRawTrustedPolygonSoupDataCompact(
     outData.faceOffsets.push_back(0u);
 
     RawVertexIndexBuilder vertexIndexBuilder(totalVertexSlotCount);
-    for (const std::vector<Polygon256> &chunk : fragmentChunks)
+    std::vector<std::size_t> localToGlobal;
+    for (const LocalRawRecoveredChunk &chunk : localChunks)
     {
-        for (const Polygon256 &fragment : chunk)
+        localToGlobal.clear();
+        localToGlobal.reserve(chunk.uniqueVertices.size());
+        for (const PlanePoint3i &vertex : chunk.uniqueVertices)
+            localToGlobal.push_back(vertexIndexBuilder.insert(vertex, outData.uniqueVertices));
+
+        for (std::size_t faceIndex = 0; faceIndex + 1u < chunk.faceOffsets.size(); ++faceIndex)
         {
-            const std::vector<PlanePoint3i> &vertices = fragment.vertices();
-            for (const PlanePoint3i &vertex : vertices)
-                outData.faceVertexIndices.push_back(vertexIndexBuilder.insert(vertex, outData.uniqueVertices));
+            const std::size_t begin = chunk.faceOffsets[faceIndex];
+            const std::size_t end = chunk.faceOffsets[faceIndex + 1u];
+            for (std::size_t slotIndex = begin; slotIndex < end; ++slotIndex)
+                outData.faceVertexIndices.push_back(localToGlobal[chunk.faceVertexIndices[slotIndex]]);
             outData.faceOffsets.push_back(outData.faceVertexIndices.size());
         }
     }

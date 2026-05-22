@@ -484,6 +484,18 @@
   leaf classification trace/candidate 计数一致，100 个 raw OBJ SHA256 完全一致；
   平均 `export_ms` 从 69.227ms 降到 66.575ms，`end_to_end_ms` 从
   247.759ms 降到 245.732ms。
+- raw trusted OBJ 导出在 `resultFragmentChunks()` 粒度先做局部齐次顶点去重，
+  再按 chunk 顺序合并到全局 flat hash：每个 worker 只扫描本 chunk 的
+  fragment，生成局部唯一顶点、紧凑 face index 和 face offset；全局阶段只对
+  chunk 内唯一点做一次 `primitiveHomPoint()`/flat hash 插入，然后把局部 index
+  remap 回原 face 槽位顺序。该改动保持全局首次出现顺序、face 顺序和 raw OBJ
+  文本完全不变，但把全局去重调用从所有 face slot 缩到每个 chunk 的局部唯一点。
+  `ctest --test-dir build\tests --output-on-failure --timeout 120` 通过；
+  `run_20260522_081603` 对 34 个 small 样本做 `-VerifyWithOracle` 全部通过。
+  `run_20260522_081436` 的 100 组 NoTracy 与保留基线 `run_20260522_075742`
+  的结构计数、result/exported face 数和 leaf classification trace 次数一致，
+  100 个 raw OBJ SHA256 完全一致；平均 `export_ms` 从 66.575ms 降到
+  49.571ms，`end_to_end_ms` 从 245.732ms 降到 228.397ms。
 
 ## 已测但不保留的局部实验
 
