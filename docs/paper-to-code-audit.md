@@ -1106,5 +1106,10 @@
   除法后 Debug 构建和 ctest 通过。100 组论文样本 `run_20260522_085256`
   与 `run_20260522_082933` 结构计数一致，但 `solve_ms` 退化（111.859ms ->
   112.218ms），`end_to_end_ms` 退化到 207.543ms。命中率或额外分支成本不划算，不保留。
+- 并行 sibling spawn 门槛从 `leafPolygonThreshold / 2` 提到完整 `leafPolygonThreshold`，
+  目标是减少 TBB 任务放大；Debug 构建和 ctest 通过，100 组论文样本
+  `run_20260522_085541` 中 `parallel_sibling_spawn_count` 从 227.43 降到 183.99，
+  但 `solve_ms` 退化（111.859ms -> 113.794ms），`end_to_end_ms` 退化（206.473ms ->
+  209.016ms）。当前 workload 仍受益于更早分叉并行，不保留该门槛上调。
 
 这些结论只用于避免近期重复试错；若 workload、算法边界或 profile 证据变化，可以重新评估。
