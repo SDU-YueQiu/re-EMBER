@@ -4,6 +4,7 @@
  */
 #include "io.h"
 
+#include "core/perf_tracing.h"
 #include "geometry/plane_geometry256.h"
 #include "geometry/polygon_ops.h"
 #include "math/math256.h"
@@ -672,6 +673,8 @@ public:
         const PlanePoint3i &vertex,
         std::vector<PlanePoint3i> &uniqueVertices)
     {
+        REEMBER_PROFILE_ZONE("RawVertexIndexBuilder::insertPrimitive");
+
         const std::size_t bucketIndex = hashHomogeneousPrimitivePoint(key) & (bucketHeads_.size() - 1u);
         for (std::size_t entry = bucketHeads_[bucketIndex]; entry != kNoEntry; entry = nextEntries_[entry])
         {
@@ -1040,6 +1043,14 @@ struct LocalRawRecoveredChunk
     std::vector<std::size_t> faceOffsets;
 };
 
+struct RawRecoveryChunkGroup
+{
+    std::size_t beginChunk = 0;
+    std::size_t endChunk = 0;
+    std::size_t fragmentOffset = 0;
+    std::size_t vertexSlotCount = 0;
+};
+
 struct RecoveredPolygonBuildResult
 {
     std::vector<PlanePoint3i> orderedVertices;
@@ -1064,6 +1075,8 @@ bool recoverRawTrustedPolygonSoupDataCompact(
     RawRecoveredPolygonSoupData &outData,
     std::string &outError)
 {
+    REEMBER_PROFILE_ZONE("recoverRawTrustedPolygonSoupDataCompact");
+
     outData.uniqueVertices.clear();
     outData.faceVertexIndices.clear();
     outData.faceOffsets.clear();
@@ -1072,6 +1085,8 @@ bool recoverRawTrustedPolygonSoupDataCompact(
     std::atomic<std::size_t> firstInvalidPolygon{kNoInvalidPolygon};
     parallelForStatic(fragments.size(), [&](std::size_t polygonIndex)
     {
+        REEMBER_PROFILE_ZONE("recoverRawTrustedPolygonSoupDataCompact::validateVertices");
+
         if (polygonIndex >= firstInvalidPolygon.load(std::memory_order_relaxed))
             return;
 
@@ -1107,6 +1122,8 @@ bool recoverRawTrustedPolygonSoupDataCompact(
     RawVertexIndexBuilder vertexIndexBuilder(totalVertexSlotCount);
     for (const Polygon256 &fragment : fragments)
     {
+        REEMBER_PROFILE_ZONE("recoverRawTrustedPolygonSoupDataCompact::globalInsertFace");
+
         const std::vector<PlanePoint3i> &vertices = fragment.vertices();
         for (const PlanePoint3i &vertex : vertices)
             outData.faceVertexIndices.push_back(vertexIndexBuilder.insert(vertex, outData.uniqueVertices));
@@ -1116,11 +1133,77 @@ bool recoverRawTrustedPolygonSoupDataCompact(
     return true;
 }
 
+std::vector<RawRecoveryChunkGroup> buildRawRecoveryChunkGroups(
+    const std::vector<std::vector<Polygon256>> &fragmentChunks,
+    const std::vector<std::size_t> &chunkFragmentOffsets,
+    const std::vector<std::size_t> &chunkVertexSlotCounts,
+    std::size_t totalFragmentCount)
+{
+    constexpr std::size_t kMinimumGroupedFragments = 10000u;
+    constexpr std::size_t kTargetGroupVertexSlots = 4096u;
+
+    std::vector<RawRecoveryChunkGroup> groups;
+    groups.reserve(fragmentChunks.size());
+
+    // 小输出保留原始 chunk 粒度，避免分组降低并行度；大输出再合并以摊薄局部恢复开销。
+    if (totalFragmentCount < kMinimumGroupedFragments)
+    {
+        for (std::size_t chunkIndex = 0; chunkIndex < fragmentChunks.size(); ++chunkIndex)
+        {
+            groups.push_back(RawRecoveryChunkGroup{
+                chunkIndex,
+                chunkIndex + 1u,
+                chunkFragmentOffsets[chunkIndex],
+                chunkVertexSlotCounts[chunkIndex]});
+        }
+        return groups;
+    }
+
+    RawRecoveryChunkGroup current;
+    bool hasCurrent = false;
+    for (std::size_t chunkIndex = 0; chunkIndex < fragmentChunks.size(); ++chunkIndex)
+    {
+        const std::size_t chunkVertexSlots = chunkVertexSlotCounts[chunkIndex];
+        if (!hasCurrent)
+        {
+            current = RawRecoveryChunkGroup{
+                chunkIndex,
+                chunkIndex + 1u,
+                chunkFragmentOffsets[chunkIndex],
+                chunkVertexSlots};
+            hasCurrent = true;
+            continue;
+        }
+
+        if (current.vertexSlotCount > 0 &&
+                current.vertexSlotCount + chunkVertexSlots > kTargetGroupVertexSlots)
+        {
+            groups.push_back(current);
+            current = RawRecoveryChunkGroup{
+                chunkIndex,
+                chunkIndex + 1u,
+                chunkFragmentOffsets[chunkIndex],
+                chunkVertexSlots};
+            continue;
+        }
+
+        current.endChunk = chunkIndex + 1u;
+        current.vertexSlotCount += chunkVertexSlots;
+    }
+
+    if (hasCurrent)
+        groups.push_back(current);
+
+    return groups;
+}
+
 bool recoverRawTrustedPolygonSoupDataCompact(
     const std::vector<std::vector<Polygon256>> &fragmentChunks,
     RawRecoveredPolygonSoupData &outData,
     std::string &outError)
 {
+    REEMBER_PROFILE_ZONE("recoverRawTrustedPolygonSoupDataCompact::chunks");
+
     outData.uniqueVertices.clear();
     outData.faceVertexIndices.clear();
     outData.faceOffsets.clear();
@@ -1145,41 +1228,49 @@ bool recoverRawTrustedPolygonSoupDataCompact(
 
     constexpr std::size_t kNoInvalidPolygon = std::numeric_limits<std::size_t>::max();
     std::atomic<std::size_t> firstInvalidPolygon{kNoInvalidPolygon};
-    std::vector<LocalRawRecoveredChunk> localChunks(fragmentChunks.size());
-    parallelForStatic(fragmentChunks.size(), [&](std::size_t chunkIndex)
+    const std::vector<RawRecoveryChunkGroup> groups =
+        buildRawRecoveryChunkGroups(fragmentChunks, chunkFragmentOffsets, chunkVertexSlotCounts, totalFragmentCount);
+    std::vector<LocalRawRecoveredChunk> localChunks(groups.size());
+    parallelForStatic(groups.size(), [&](std::size_t groupIndex)
     {
-        const std::vector<Polygon256> &chunk = fragmentChunks[chunkIndex];
-        const std::size_t chunkOffset = chunkFragmentOffsets[chunkIndex];
-        if (chunkOffset >= firstInvalidPolygon.load(std::memory_order_relaxed))
+        REEMBER_PROFILE_ZONE("recoverRawTrustedPolygonSoupDataCompact::localChunk");
+
+        const RawRecoveryChunkGroup &group = groups[groupIndex];
+        if (group.fragmentOffset >= firstInvalidPolygon.load(std::memory_order_relaxed))
             return;
 
         LocalRawRecoveredChunk local;
-        local.uniqueVertices.reserve(chunkVertexSlotCounts[chunkIndex]);
-        local.faceVertexIndices.reserve(chunkVertexSlotCounts[chunkIndex]);
-        local.faceOffsets.reserve(chunk.size() + 1u);
+        local.uniqueVertices.reserve(group.vertexSlotCount);
+        local.faceVertexIndices.reserve(group.vertexSlotCount);
+        local.faceOffsets.reserve(chunkFragmentOffsets[group.endChunk] - group.fragmentOffset + 1u);
         local.faceOffsets.push_back(0u);
-        RawVertexIndexBuilder localVertexIndexBuilder(chunkVertexSlotCounts[chunkIndex]);
-        for (std::size_t localIndex = 0; localIndex < chunk.size(); ++localIndex)
+        RawVertexIndexBuilder localVertexIndexBuilder(group.vertexSlotCount);
+        for (std::size_t chunkIndex = group.beginChunk; chunkIndex < group.endChunk; ++chunkIndex)
         {
-            const std::size_t polygonIndex = chunkOffset + localIndex;
-            if (polygonIndex >= firstInvalidPolygon.load(std::memory_order_relaxed))
-                return;
-
-            const std::vector<PlanePoint3i> &vertices = chunk[localIndex].vertices();
-            for (const PlanePoint3i &vertex : vertices)
+            const std::vector<Polygon256> &chunk = fragmentChunks[chunkIndex];
+            const std::size_t chunkOffset = chunkFragmentOffsets[chunkIndex];
+            for (std::size_t localIndex = 0; localIndex < chunk.size(); ++localIndex)
             {
-                if (!vertex.hasUniqueIntersection() || isZero(vertex.x.w))
-                {
-                    storeMinimumIndex(firstInvalidPolygon, polygonIndex);
+                const std::size_t polygonIndex = chunkOffset + localIndex;
+                if (polygonIndex >= firstInvalidPolygon.load(std::memory_order_relaxed))
                     return;
-                }
 
-                local.faceVertexIndices.push_back(localVertexIndexBuilder.insert(vertex, local.uniqueVertices));
+                const std::vector<PlanePoint3i> &vertices = chunk[localIndex].vertices();
+                for (const PlanePoint3i &vertex : vertices)
+                {
+                    if (!vertex.hasUniqueIntersection() || isZero(vertex.x.w))
+                    {
+                        storeMinimumIndex(firstInvalidPolygon, polygonIndex);
+                        return;
+                    }
+
+                    local.faceVertexIndices.push_back(localVertexIndexBuilder.insert(vertex, local.uniqueVertices));
+                }
+                local.faceOffsets.push_back(local.faceVertexIndices.size());
             }
-            local.faceOffsets.push_back(local.faceVertexIndices.size());
         }
         local.primitiveVertexKeys = std::move(localVertexIndexBuilder).releaseKeys();
-        localChunks[chunkIndex] = std::move(local);
+        localChunks[groupIndex] = std::move(local);
     });
 
     const std::size_t invalidPolygon = firstInvalidPolygon.load(std::memory_order_relaxed);
@@ -1200,6 +1291,8 @@ bool recoverRawTrustedPolygonSoupDataCompact(
     std::vector<std::size_t> localToGlobal;
     for (const LocalRawRecoveredChunk &chunk : localChunks)
     {
+        REEMBER_PROFILE_ZONE("recoverRawTrustedPolygonSoupDataCompact::mergeChunk");
+
         localToGlobal.clear();
         localToGlobal.reserve(chunk.uniqueVertices.size());
         for (std::size_t vertexIndex = 0; vertexIndex < chunk.uniqueVertices.size(); ++vertexIndex)
@@ -2135,6 +2228,8 @@ bool writeObjVertexLinesToStream(
     const std::vector<PlanePoint3i> &vertices,
     std::uint64_t coordinateScale)
 {
+    REEMBER_PROFILE_ZONE("writeObjVertexLinesToStream");
+
     constexpr std::size_t kParallelThreshold = 8192u;
     constexpr std::size_t kChunkSize = 4096u;
     if (vertices.size() < kParallelThreshold)
@@ -2150,6 +2245,8 @@ bool writeObjVertexLinesToStream(
     std::vector<std::string> chunks(chunkCount);
     parallelForStatic(chunkCount, [&](std::size_t chunkIndex)
     {
+        REEMBER_PROFILE_ZONE("writeObjVertexLinesToStream::buildChunk");
+
         const std::size_t begin = chunkIndex * kChunkSize;
         const std::size_t end = std::min(vertices.size(), begin + kChunkSize);
         std::string chunk;
@@ -2171,6 +2268,8 @@ bool writeObjFaceLinesToStream(
     std::ostream &output,
     const std::vector<std::vector<std::size_t>> &faces)
 {
+    REEMBER_PROFILE_ZONE("writeObjFaceLinesToStream::faces");
+
     constexpr std::size_t kParallelThreshold = 8192u;
     constexpr std::size_t kChunkSize = 4096u;
     if (faces.size() < kParallelThreshold)
@@ -2216,6 +2315,8 @@ bool writeObjFaceLinesToStream(
     const std::vector<std::size_t> &faceVertexIndices,
     const std::vector<std::size_t> &faceOffsets)
 {
+    REEMBER_PROFILE_ZONE("writeObjFaceLinesToStream::compact");
+
     constexpr std::size_t kParallelThreshold = 8192u;
     constexpr std::size_t kChunkSize = 4096u;
     const std::size_t faceCount = faceOffsets.empty() ? 0u : faceOffsets.size() - 1u;
@@ -2238,6 +2339,8 @@ bool writeObjFaceLinesToStream(
     std::vector<std::string> chunks(chunkCount);
     parallelForStatic(chunkCount, [&](std::size_t chunkIndex)
     {
+        REEMBER_PROFILE_ZONE("writeObjFaceLinesToStream::compactBuildChunk");
+
         const std::size_t begin = chunkIndex * kChunkSize;
         const std::size_t end = std::min(faceCount, begin + kChunkSize);
         const std::size_t faceVertexSlots = faceOffsets[end] - faceOffsets[begin];
@@ -2310,6 +2413,8 @@ bool writeRawTrustedPolygonSoupObj(
     std::string &outError,
     const PolygonSoupExportOptions &options)
 {
+    REEMBER_PROFILE_ZONE("writeRawTrustedPolygonSoupObj");
+
     RawRecoveredPolygonSoupData recovered;
     if (!recoverRawTrustedPolygonSoupDataCompact(fragments, recovered, outError))
     {
@@ -2347,6 +2452,8 @@ bool writeRawTrustedPolygonSoupObj(
     std::string &outError,
     const PolygonSoupExportOptions &options)
 {
+    REEMBER_PROFILE_ZONE("writeRawTrustedPolygonSoupObj::chunks");
+
     RawRecoveredPolygonSoupData recovered;
     if (!recoverRawTrustedPolygonSoupDataCompact(fragmentChunks, recovered, outError))
     {
