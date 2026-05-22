@@ -525,6 +525,13 @@
   的结构计数和 100 个 raw OBJ SHA256 完全一致；但平均 `export_ms` 从
   66.575ms 退到 67.421ms。额外 token 构造和字符串拼接成本超过重复
   `to_chars` 节省，源码不保留。
+- Release 叶片分类候选不再做 path signature 去重：平均 duplicate skip 只有
+  10.61，因此尝试省掉每个候选的齐次端点 signature 构造和历史路径比较。`ctest
+  --test-dir build\tests --output-on-failure --timeout 120` 通过，
+  `run_20260522_081027` 与保留基线 `run_20260522_075742` 的结构计数和
+  100 个 raw OBJ SHA256 完全一致；但 `leaf_classification_trace_attempt_count`
+  从 13882.31 增到 13892.92，平均 `end_to_end_ms` 从 245.732ms 退到
+  245.962ms，进程耗时也退化。源码不保留。
 - CLI 默认路径关闭 `BoolProblem::leafSummaries()` 收集：为 `BoolProblem` 增加
   `setCollectLeafSummaries(false)` 并把该开关传入 `SubdivisionSolver`，尝试避免每个
   叶子摘要在子树合并时向上搬运；公开默认仍收集 leaf summaries。`ctest --test-dir build\tests --output-on-failure --timeout 120`
