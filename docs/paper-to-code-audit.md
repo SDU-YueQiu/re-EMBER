@@ -1111,5 +1111,10 @@
   `run_20260522_085541` 中 `parallel_sibling_spawn_count` 从 227.43 降到 183.99，
   但 `solve_ms` 退化（111.859ms -> 113.794ms），`end_to_end_ms` 退化（206.473ms ->
   209.016ms）。当前 workload 仍受益于更早分叉并行，不保留该门槛上调。
+- 流式叶片分类开始前按 `polygonCount_` 预留 `resultFragments_` 容量，目标是减少每叶输出
+  片段追加时的 vector 扩容；Debug 构建和 ctest 通过，100 组论文样本
+  `run_20260522_090018` 与保留基线结构计数完全一致，但 `solve_ms` 退化（111.859ms ->
+  112.620ms），`end_to_end_ms` 退化（206.473ms -> 207.590ms）。当前输出追加成本不是
+  solve 主导项，不保留。
 
 这些结论只用于避免近期重复试错；若 workload、算法边界或 profile 证据变化，可以重新评估。
