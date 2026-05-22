@@ -505,6 +505,15 @@
   `run_20260522_081436`（75）为 `115.558ms / 49.571ms / 228.397ms`。
   复跑 `run_20260522_082153`（50）为 `111.781ms / 52.769ms / 227.946ms`，
   说明 50 对 `solve_ms` 的收益稳定，端到端也略优于 75；显式传入的阈值仍覆盖默认值。
+- raw trusted OBJ 导出的 chunk 局部去重结果保留 primitive 齐次 key，顺序合并到
+  全局 flat hash 时直接复用该 key，不再对每个 chunk 局部唯一点重复调用
+  `primitiveHomPoint()`；局部和全局首次出现顺序、face index 序列和 raw OBJ 文本不变。
+  `ctest --test-dir build\tests --output-on-failure --timeout 120` 通过；
+  `run_20260522_083036` 对 34 个 small 样本做 `-VerifyWithOracle` 全部通过。
+  `run_20260522_082933` 的 100 组 NoTracy 与 50 阈值保留基线
+  `run_20260522_082153` 结构计数完全一致，100 个 raw OBJ SHA256 完全一致；
+  平均 `export_ms` 从约 52.6ms 降到 31.542ms，`end_to_end_ms` 从约
+  227.9ms 降到 206.473ms。
 
 ## 已测但不保留的局部实验
 
