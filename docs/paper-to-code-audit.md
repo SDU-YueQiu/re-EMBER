@@ -1132,5 +1132,12 @@
   13419.48），但 `node_count` 上升（781.07 -> 789.93），`solve_ms` 退化（111.859ms ->
   113.282ms），`end_to_end_ms` 退化到 208.493ms。减少局部片段的收益抵不过更深/更多节点
   和额外候选评估成本，不保留。
+- `reversePolygonOrientation()` 增加 rvalue overload 并在可移动输出片段时移动
+  `edgePlanes` / `edgeProvenances` / `WNTV`，目标是在反向输出片段构造时少一次 vector
+  拷贝；Debug 构建、ctest 和 34 个小样本 oracle 通过，100 组论文样本
+  `run_20260522_091505`、`run_20260522_091612` 与保留基线 `run_20260522_090947`
+  的 raw OBJ SHA 全部一致、结构计数一致。但两次重复的端到端均退化（205.426ms ->
+  206.015ms / 206.832ms），`solve_ms` 信号也不稳定（110.929ms -> 110.805ms /
+  111.312ms）。移动路径没有形成稳定收益，不保留。
 
 这些结论只用于避免近期重复试错；若 workload、算法边界或 profile 证据变化，可以重新评估。
