@@ -1139,5 +1139,11 @@
   的 raw OBJ SHA 全部一致、结构计数一致。但两次重复的端到端均退化（205.426ms ->
   206.015ms / 206.832ms），`solve_ms` 信号也不稳定（110.929ms -> 110.805ms /
   111.312ms）。移动路径没有形成稳定收益，不保留。
+- `buildLeafArrangement()` 的 pair adjacency 阶段预先缓存每个 polygon AABB，并在外层
+  `i,j` 顺序中先做 AABB 重叠预筛，再只对重叠 pair 进入 carrier/coplanar 判定。该实验
+  保持原 pair 顺序，Debug 构建和 ctest 通过，100 组论文样本 `run_20260522_092450`
+  与保留基线 `run_20260522_090947` 结构计数一致，raw OBJ SHA mismatch=0。但
+  `solve_ms` 小退（110.929ms -> 111.100ms），`end_to_end_ms` 小退（205.426ms ->
+  207.133ms）。额外 AABB vector 和外层分支没有抵消原函数内预筛成本，不保留。
 
 这些结论只用于避免近期重复试错；若 workload、算法边界或 profile 证据变化，可以重新评估。
