@@ -6,14 +6,14 @@
 ## 当前基线
 
 - 最近 100 组端到端性能基线：
-  `build/performance/run_20260522_101320/timings.csv`，Release NoTracy，论文实验集
+  `build/performance/run_20260522_105521/timings.csv`，Release NoTracy，论文实验集
   `34 small / 33 medium / 33 large`，`--leaf-threshold 50`，`--threads 20`。
-- 该基线的总体平均阶段耗时为：`read_ms=16.540`、`prepare_ms=47.283`、
-  `solve_ms=111.626`、`export_ms=31.918`、`end_to_end_ms=207.368`。
+- 该基线的总体平均阶段耗时为：`read_ms=15.208`、`prepare_ms=46.946`、
+  `solve_ms=111.015`、`export_ms=28.302`、`end_to_end_ms=201.472`。
 - 按规模聚合的端到端总量为：
-  small `1594.89ms`、medium `4725.99ms`、large `14415.93ms`。
-  large 上 `prepare_ms + export_ms = 5723.89ms`，已接近 `solve_ms=7466.18ms`
-  的 77%，后续不能只按 solver 口径判断优化价值。
+  small `1581.03ms`、medium `4633.47ms`、large `13932.70ms`。
+  large 上 `prepare_ms + export_ms = 5441.13ms`，仍接近 `solve_ms=7367.67ms`
+  的 74%，后续不能只按 solver 口径判断优化价值。
 - 最近 Tracy 归因：`build/performance/run_20260521_072920/`，单个 large
   workload，RelWithDebInfo，Tracy 和 math Tracy 开启。
 - 当前流水线仍是 `OBJ/STL -> Polygon256 soup -> BoolProblem ->
@@ -1214,5 +1214,25 @@ export 改动也应按端到端 pipeline 收益独立保留或回滚。
   同样稳定，相对 `102925` 为 `48.725ms` / `60.842ms`，相对 `102820` 为
   `31.700ms` / `43.817ms`。`solve_ms`、`export_ms` 和 `end_to_end_ms` 在两轮间
   没有同向稳定信号，因此该提交只声明为读入阶段收益。
+- `ObjMeshData::faces` 的元素类型从逐面 `std::vector<std::size_t>` 改为
+  `ObjMeshFace = boost::container::small_vector<std::size_t, 3>`；常见三角面不再为
+  面索引单独分配堆内存，n 边面仍可扩容，face 顺序、索引语义、量化和求解输入不变。
+  内联容量 4 的版本在 100 组测试中虽然改善 `read_ms`，但 overall `prepare_ms`
+  退化约 1.0% 到 1.4%，不保留。
+- 验证：`cmake --build --preset tests`、`ctest --preset default --timeout 120`、
+  `cmake --preset verify` / `cmake --build --preset verify`、`cmake --preset visual-test`
+  / `cmake --build --preset visual-test`、`cmake --build --preset default-app`、默认 smoke
+  均通过；small 34 组 oracle 在
+  `build/performance/run_20260522_105806/verification.csv` 中 `passed=True` 共 34 项。
+- 100 组性能对比：OBJ face 预留后的两轮保留基线为
+  `run_20260522_104200` / `run_20260522_104315`，inline-3 两次实验为
+  `run_20260522_105412` / `run_20260522_105521`。第二轮相对 `104200`，overall
+  `read_ms` 下降 `65.753ms`（-4.14%），`prepare_ms` 小幅上升 `4.363ms`
+  （+0.09%），`end_to_end_ms` 下降 `252.710ms`；相对 `104315`，overall
+  `read_ms` 下降 `52.126ms`（-3.31%），`prepare_ms` 下降 `12.025ms`
+  （-0.26%），`end_to_end_ms` 下降 `205.398ms`。两轮 inline-3 之间
+  `read_ms` 差异仅 `5.392ms`（+0.36%），因此该提交只稳定声明为减少 I/O
+  边界逐面堆分配带来的读入阶段收益；`solve_ms` / `export_ms` 的下降不作为
+  solver 或导出优化结论。
 
 这些结论只用于避免近期重复试错；若 workload、算法边界或 profile 证据变化，可以重新评估。
