@@ -322,6 +322,7 @@ bool writePolygonSoupObj(
  *
  * @note `Raw + validateFragments=false` 可直接顺序扫描分块结果；其它模式会在 I/O
  *       边界物化为单个片段数组后复用普通公开导出路径。
+ *       raw 快路径允许 OBJ 顶点按面角重复写出，不保证全局顶点索引去重。
  */
 bool writePolygonSoupObj(
     const std::vector<std::vector<Polygon256>> &fragmentChunks,

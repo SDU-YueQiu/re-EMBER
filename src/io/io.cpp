@@ -2090,6 +2090,20 @@ void appendObjFaceLine(
     buffer.push_back('\n');
 }
 
+void appendSequentialObjFaceLine(
+    std::string &buffer,
+    std::size_t firstVertexIndex,
+    std::size_t vertexCount)
+{
+    buffer.push_back('f');
+    for (std::size_t vertexOffset = 0; vertexOffset < vertexCount; ++vertexOffset)
+    {
+        buffer.push_back(' ');
+        appendIndex(buffer, firstVertexIndex + vertexOffset + 1u);
+    }
+    buffer.push_back('\n');
+}
+
 std::size_t estimateObjTextSize(const RecoveredPolygonSoupData &recovered) noexcept
 {
     std::size_t faceVertexSlots = 0;
@@ -2366,6 +2380,207 @@ bool writeObjFaceLinesToStream(
     return true;
 }
 
+bool appendRawTrustedSequentialObjFragment(
+    std::string &buffer,
+    const Polygon256 &fragment,
+    std::size_t &nextVertexIndex,
+    std::uint64_t coordinateScale)
+{
+    const std::vector<PlanePoint3i> &vertices = fragment.vertices();
+    for (const PlanePoint3i &vertex : vertices)
+    {
+        if (!vertex.hasUniqueIntersection() || isZero(vertex.x.w))
+            return false;
+        appendObjVertexLine(buffer, vertex, coordinateScale);
+    }
+
+    appendSequentialObjFaceLine(buffer, nextVertexIndex, vertices.size());
+    nextVertexIndex += vertices.size();
+    return true;
+}
+
+struct RawSequentialObjRange
+{
+    std::size_t fragmentBegin = 0;
+    std::size_t fragmentEnd = 0;
+    std::size_t firstVertexIndex = 0;
+    std::size_t vertexSlotCount = 0;
+};
+
+bool writeRawTrustedSequentialObjFragments(
+    const std::vector<Polygon256> &fragments,
+    const std::string &path,
+    std::size_t &outFaceCount,
+    std::string &outError,
+    const PolygonSoupExportOptions &options)
+{
+    REEMBER_PROFILE_ZONE("writeRawTrustedSequentialObjFragments");
+
+    constexpr std::size_t kChunkSize = 4096u;
+    const std::size_t chunkCount = (fragments.size() + kChunkSize - 1u) / kChunkSize;
+    std::vector<RawSequentialObjRange> ranges;
+    ranges.reserve(chunkCount);
+
+    std::size_t nextVertexIndex = 0;
+    for (std::size_t chunkIndex = 0; chunkIndex < chunkCount; ++chunkIndex)
+    {
+        const std::size_t begin = chunkIndex * kChunkSize;
+        const std::size_t end = std::min(fragments.size(), begin + kChunkSize);
+        std::size_t vertexSlotCount = 0;
+        for (std::size_t fragmentIndex = begin; fragmentIndex < end; ++fragmentIndex)
+            vertexSlotCount += fragments[fragmentIndex].edgeCount();
+
+        ranges.push_back(RawSequentialObjRange{begin, end, nextVertexIndex, vertexSlotCount});
+        nextVertexIndex += vertexSlotCount;
+    }
+
+    constexpr std::size_t kNoInvalidPolygon = std::numeric_limits<std::size_t>::max();
+    std::atomic<std::size_t> firstInvalidPolygon{kNoInvalidPolygon};
+    std::vector<std::string> chunks(ranges.size());
+    parallelForStatic(ranges.size(), [&](std::size_t rangeIndex)
+    {
+        REEMBER_PROFILE_ZONE("writeRawTrustedSequentialObjFragments::buildChunk");
+
+        const RawSequentialObjRange &range = ranges[rangeIndex];
+        std::string chunk;
+        chunk.reserve(range.vertexSlotCount * 108u + (range.fragmentEnd - range.fragmentBegin) * 4u);
+        std::size_t localNextVertexIndex = range.firstVertexIndex;
+        for (std::size_t fragmentIndex = range.fragmentBegin; fragmentIndex < range.fragmentEnd; ++fragmentIndex)
+        {
+            if (fragmentIndex >= firstInvalidPolygon.load(std::memory_order_relaxed))
+                return;
+
+            if (!appendRawTrustedSequentialObjFragment(
+                    chunk,
+                    fragments[fragmentIndex],
+                    localNextVertexIndex,
+                    options.coordinateScale))
+            {
+                storeMinimumIndex(firstInvalidPolygon, fragmentIndex);
+                return;
+            }
+        }
+        chunks[rangeIndex] = std::move(chunk);
+    });
+
+    const std::size_t invalidPolygon = firstInvalidPolygon.load(std::memory_order_relaxed);
+    if (invalidPolygon != kNoInvalidPolygon)
+    {
+        return failIo(
+            outError,
+            "Failed to recover polygon " + std::to_string(invalidPolygon) +
+            ": Failed to recover an ordered polygon vertex with a unique finite homogeneous point.");
+    }
+
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    if (!output)
+        return failIo(outError, "Failed to open OBJ output file for writing: " + path);
+
+    const std::string header = "# Ember exact polygon soup export\n";
+    if (!writeTextChunk(output, header))
+        return failIo(outError, "Failed to finish writing OBJ output file: " + path);
+    for (const std::string &chunk : chunks)
+    {
+        if (!writeTextChunk(output, chunk))
+            return failIo(outError, "Failed to finish writing OBJ output file: " + path);
+    }
+    if (!output)
+        return failIo(outError, "Failed to finish writing OBJ output file: " + path);
+
+    outFaceCount = fragments.size();
+    return true;
+}
+
+bool writeRawTrustedSequentialObjFragments(
+    const std::vector<std::vector<Polygon256>> &fragmentChunks,
+    const std::string &path,
+    std::size_t &outFaceCount,
+    std::string &outError,
+    const PolygonSoupExportOptions &options)
+{
+    REEMBER_PROFILE_ZONE("writeRawTrustedSequentialObjFragments::chunks");
+
+    std::vector<std::size_t> chunkFirstFragment;
+    std::vector<std::size_t> chunkFirstVertex;
+    std::vector<std::size_t> chunkVertexSlotCounts;
+    chunkFirstFragment.reserve(fragmentChunks.size());
+    chunkFirstVertex.reserve(fragmentChunks.size());
+    chunkVertexSlotCounts.reserve(fragmentChunks.size());
+
+    std::size_t totalFragmentCount = 0;
+    std::size_t totalVertexSlotCount = 0;
+    for (const std::vector<Polygon256> &chunk : fragmentChunks)
+    {
+        chunkFirstFragment.push_back(totalFragmentCount);
+        chunkFirstVertex.push_back(totalVertexSlotCount);
+
+        std::size_t chunkVertexSlotCount = 0;
+        for (const Polygon256 &fragment : chunk)
+            chunkVertexSlotCount += fragment.edgeCount();
+        chunkVertexSlotCounts.push_back(chunkVertexSlotCount);
+
+        totalFragmentCount += chunk.size();
+        totalVertexSlotCount += chunkVertexSlotCount;
+    }
+
+    constexpr std::size_t kNoInvalidPolygon = std::numeric_limits<std::size_t>::max();
+    std::atomic<std::size_t> firstInvalidPolygon{kNoInvalidPolygon};
+    std::vector<std::string> chunks(fragmentChunks.size());
+    parallelForStatic(fragmentChunks.size(), [&](std::size_t chunkIndex)
+    {
+        REEMBER_PROFILE_ZONE("writeRawTrustedSequentialObjFragments::buildChunk");
+
+        const std::vector<Polygon256> &fragments = fragmentChunks[chunkIndex];
+        std::string chunk;
+        chunk.reserve(chunkVertexSlotCounts[chunkIndex] * 108u + fragments.size() * 4u);
+        std::size_t localNextVertexIndex = chunkFirstVertex[chunkIndex];
+        for (std::size_t localFragmentIndex = 0; localFragmentIndex < fragments.size(); ++localFragmentIndex)
+        {
+            const std::size_t fragmentIndex = chunkFirstFragment[chunkIndex] + localFragmentIndex;
+            if (fragmentIndex >= firstInvalidPolygon.load(std::memory_order_relaxed))
+                return;
+
+            if (!appendRawTrustedSequentialObjFragment(
+                    chunk,
+                    fragments[localFragmentIndex],
+                    localNextVertexIndex,
+                    options.coordinateScale))
+            {
+                storeMinimumIndex(firstInvalidPolygon, fragmentIndex);
+                return;
+            }
+        }
+        chunks[chunkIndex] = std::move(chunk);
+    });
+
+    const std::size_t invalidPolygon = firstInvalidPolygon.load(std::memory_order_relaxed);
+    if (invalidPolygon != kNoInvalidPolygon)
+    {
+        return failIo(
+            outError,
+            "Failed to recover polygon " + std::to_string(invalidPolygon) +
+            ": Failed to recover an ordered polygon vertex with a unique finite homogeneous point.");
+    }
+
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    if (!output)
+        return failIo(outError, "Failed to open OBJ output file for writing: " + path);
+
+    const std::string header = "# Ember exact polygon soup export\n";
+    if (!writeTextChunk(output, header))
+        return failIo(outError, "Failed to finish writing OBJ output file: " + path);
+    for (const std::string &chunk : chunks)
+    {
+        if (!writeTextChunk(output, chunk))
+            return failIo(outError, "Failed to finish writing OBJ output file: " + path);
+    }
+    if (!output)
+        return failIo(outError, "Failed to finish writing OBJ output file: " + path);
+
+    outFaceCount = totalFragmentCount;
+    return true;
+}
+
 bool buildStlTrianglesFromRecoveredData(
     const RecoveredPolygonSoupData &recovered,
     std::uint64_t coordinateScale,
@@ -2415,34 +2630,7 @@ bool writeRawTrustedPolygonSoupObj(
 {
     REEMBER_PROFILE_ZONE("writeRawTrustedPolygonSoupObj");
 
-    RawRecoveredPolygonSoupData recovered;
-    if (!recoverRawTrustedPolygonSoupDataCompact(fragments, recovered, outError))
-    {
-        outError = "Failed to prepare polygon soup OBJ export: " + outError;
-        return false;
-    }
-
-    std::ofstream output(path, std::ios::binary | std::ios::trunc);
-    if (!output)
-    {
-        return failIo(
-                   outError,
-                   "Failed to open OBJ output file for writing: " + path);
-    }
-
-    // raw 可信路径只需要顶点表和面索引，按块写出避免再拼接一份全量 OBJ 文本。
-    const std::string header = "# Ember exact polygon soup export\n";
-    if (!writeTextChunk(output, header) ||
-        !writeObjVertexLinesToStream(output, recovered.uniqueVertices, options.coordinateScale) ||
-        !writeObjFaceLinesToStream(output, recovered.faceVertexIndices, recovered.faceOffsets))
-    {
-        return failIo(outError, "Failed to finish writing OBJ output file: " + path);
-    }
-    if (!output)
-        return failIo(outError, "Failed to finish writing OBJ output file: " + path);
-
-    outFaceCount = recovered.faceOffsets.empty() ? 0u : recovered.faceOffsets.size() - 1u;
-    return true;
+    return writeRawTrustedSequentialObjFragments(fragments, path, outFaceCount, outError, options);
 }
 
 bool writeRawTrustedPolygonSoupObj(
@@ -2454,34 +2642,7 @@ bool writeRawTrustedPolygonSoupObj(
 {
     REEMBER_PROFILE_ZONE("writeRawTrustedPolygonSoupObj::chunks");
 
-    RawRecoveredPolygonSoupData recovered;
-    if (!recoverRawTrustedPolygonSoupDataCompact(fragmentChunks, recovered, outError))
-    {
-        outError = "Failed to prepare polygon soup OBJ export: " + outError;
-        return false;
-    }
-
-    std::ofstream output(path, std::ios::binary | std::ios::trunc);
-    if (!output)
-    {
-        return failIo(
-                   outError,
-                   "Failed to open OBJ output file for writing: " + path);
-    }
-
-    // 分块 raw 路径保持片段顺序，但避免先把全部 Polygon256 搬进一个大 vector。
-    const std::string header = "# Ember exact polygon soup export\n";
-    if (!writeTextChunk(output, header) ||
-        !writeObjVertexLinesToStream(output, recovered.uniqueVertices, options.coordinateScale) ||
-        !writeObjFaceLinesToStream(output, recovered.faceVertexIndices, recovered.faceOffsets))
-    {
-        return failIo(outError, "Failed to finish writing OBJ output file: " + path);
-    }
-    if (!output)
-        return failIo(outError, "Failed to finish writing OBJ output file: " + path);
-
-    outFaceCount = recovered.faceOffsets.empty() ? 0u : recovered.faceOffsets.size() - 1u;
-    return true;
+    return writeRawTrustedSequentialObjFragments(fragmentChunks, path, outFaceCount, outError, options);
 }
 }
 
