@@ -50,6 +50,35 @@ bool failIo(std::string &outError, const std::string &message)
 // 论文中给出的输入整数坐标安全范围：每个笛卡尔坐标使用 26-bit 有符号整数。
 long long kInputCoordinateLimit = (1LL << 25) - 1;
 
+void accumulateMaxAbsCoordinate(const ObjMeshData &mesh, long double &maxAbsCoordinate) noexcept
+{
+    for (const ObjVertex &vertex : mesh.vertices)
+    {
+        maxAbsCoordinate = std::max(maxAbsCoordinate, std::fabs(static_cast<long double>(vertex.x)));
+        maxAbsCoordinate = std::max(maxAbsCoordinate, std::fabs(static_cast<long double>(vertex.y)));
+        maxAbsCoordinate = std::max(maxAbsCoordinate, std::fabs(static_cast<long double>(vertex.z)));
+    }
+}
+
+std::uint64_t chooseLargestInputSafeScale(long double maxAbsCoordinate) noexcept
+{
+    if (maxAbsCoordinate == 0.0L)
+        return 1;
+
+    const long double upperBound =
+        static_cast<long double>(kInputCoordinateLimit) / maxAbsCoordinate;
+    const long double maxScale =
+        static_cast<long double>(std::numeric_limits<std::uint64_t>::max());
+    if (upperBound >= maxScale)
+        return std::numeric_limits<std::uint64_t>::max();
+
+    const long double scale = std::floor(upperBound);
+    if (scale < 1.0L)
+        return 1;
+
+    return static_cast<std::uint64_t>(scale);
+}
+
 enum class MeshFileFormat
 {
     Obj,
@@ -2864,17 +2893,10 @@ bool chooseSharedScale(
 
     }
 
-    // 自动模式下，为全部输入挑选同一个 10^k，使量化后所有坐标仍落在安全范围内。
+    // 自动模式下，为全部输入挑选 26-bit 坐标预算内尽可能大的共享整数 scale。
     long double maxAbsCoordinate = 0.0L;
     for (const ObjMeshData &mesh : meshes)
-    {
-        for (const ObjVertex &vertex : mesh.vertices)
-        {
-            maxAbsCoordinate = std::max(maxAbsCoordinate, std::fabs(static_cast<long double>(vertex.x)));
-            maxAbsCoordinate = std::max(maxAbsCoordinate, std::fabs(static_cast<long double>(vertex.y)));
-            maxAbsCoordinate = std::max(maxAbsCoordinate, std::fabs(static_cast<long double>(vertex.z)));
-        }
-    }
+        accumulateMaxAbsCoordinate(mesh, maxAbsCoordinate);
 
     if (maxAbsCoordinate == 0.0L)
     {
@@ -2889,13 +2911,7 @@ bool chooseSharedScale(
                    "Mesh coordinates exceed the 26-bit signed input bound even at scale 1.");
     }
 
-    const long double upperBound = static_cast<long double>(kInputCoordinateLimit) / maxAbsCoordinate;
-    std::uint64_t scale = 1;
-    while (scale <= (std::numeric_limits<std::uint64_t>::max() / 10ULL) &&
-            static_cast<long double>(scale * 10ULL) <= upperBound)
-        scale *= 10ULL;
-
-    outScale = scale;
+    outScale = chooseLargestInputSafeScale(maxAbsCoordinate);
     return true;
 
 }
@@ -2923,14 +2939,7 @@ bool chooseSharedScale(
     long double maxAbsCoordinate = 0.0L;
     const ObjMeshData *meshes[2] = {&lhs, &rhs};
     for (const ObjMeshData *mesh : meshes)
-    {
-        for (const ObjVertex &vertex : mesh->vertices)
-        {
-            maxAbsCoordinate = std::max(maxAbsCoordinate, std::fabs(static_cast<long double>(vertex.x)));
-            maxAbsCoordinate = std::max(maxAbsCoordinate, std::fabs(static_cast<long double>(vertex.y)));
-            maxAbsCoordinate = std::max(maxAbsCoordinate, std::fabs(static_cast<long double>(vertex.z)));
-        }
-    }
+        accumulateMaxAbsCoordinate(*mesh, maxAbsCoordinate);
 
     if (maxAbsCoordinate == 0.0L)
     {
@@ -2945,13 +2954,7 @@ bool chooseSharedScale(
                    "Mesh coordinates exceed the 26-bit signed input bound even at scale 1.");
     }
 
-    const long double upperBound = static_cast<long double>(kInputCoordinateLimit) / maxAbsCoordinate;
-    std::uint64_t scale = 1;
-    while (scale <= (std::numeric_limits<std::uint64_t>::max() / 10ULL) &&
-            static_cast<long double>(scale * 10ULL) <= upperBound)
-        scale *= 10ULL;
-
-    outScale = scale;
+    outScale = chooseLargestInputSafeScale(maxAbsCoordinate);
     return true;
 }
 

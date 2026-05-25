@@ -610,7 +610,36 @@ void runIoTests()
         std::string error;
         const std::vector<ObjMeshData> meshes{lhs, rhs};
         assert(ember::chooseSharedScale(meshes, options, scale, error));
-        assert(scale == 1000000u);
+        assert(scale == 2684354u);
+    }
+
+    {
+        ObjMeshData bounds;
+        bounds.vertices = {
+            ObjVertex{0.51943102, 0.0, 0.0}
+        };
+
+        ObjMeshData skinny;
+        skinny.vertices = {
+            ObjVertex{-0.22154721, -0.10158020, -0.07140332},
+            ObjVertex{-0.22154682, -0.10158133, -0.07140101},
+            ObjVertex{-0.22154758, -0.10157912, -0.07140556}
+        };
+        skinny.faces = {{0, 1, 2}};
+
+        ember::QuantizeOptions options;
+        std::uint64_t scale = 0;
+        std::string error;
+        assert(ember::chooseSharedScale({bounds, skinny}, options, scale, error));
+        assert(scale == 64598435u);
+
+        std::vector<Polygon256> polygons;
+        assert(!ember::buildPolygonSoup(skinny, 10000000u, polygons, error));
+        assert(error.find("degenerates to a collinear or point set") != std::string::npos);
+
+        polygons.clear();
+        assert(ember::buildPolygonSoup(skinny, scale, polygons, error));
+        assert(polygons.size() == 1u);
     }
 
     {
@@ -658,7 +687,7 @@ void runIoTests()
         std::uint64_t scale = 0;
         std::string error;
         assert(ember::chooseSharedScale({lhs, rhs}, options, scale, error));
-        assert(scale == 10000000u);
+        assert(scale == 33554431u);
 
         std::vector<Polygon256> lhsPolygons;
         std::vector<Polygon256> rhsPolygons;
@@ -820,7 +849,7 @@ void runIoTests()
         std::uint64_t scale = 0;
         std::string error;
         assert(ember::chooseSharedScale({lhs, rhs}, options, scale, error));
-        assert(scale == 10000000u);
+        assert(scale == 27098817u);
 
         std::vector<Polygon256> lhsPolygons;
         std::vector<Polygon256> rhsPolygons;
