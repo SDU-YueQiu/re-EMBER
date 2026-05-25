@@ -6,6 +6,7 @@
 
 #include "math/math256.h"
 
+#include <CGAL/Polygon_mesh_processing/manifoldness.h>
 #include <CGAL/Polygon_mesh_processing/orientation.h>
 #include <CGAL/Polygon_mesh_processing/polygon_soup_to_polygon_mesh.h>
 #include <CGAL/boost/graph/convert_nef_polyhedron_to_polygon_mesh.h>
@@ -279,6 +280,9 @@ NefPolyhedron makeNefFromExactMesh(
 
     SurfaceMesh surfaceMesh;
     CGAL::Polygon_mesh_processing::polygon_soup_to_polygon_mesh(points, triangles, surfaceMesh);
+    // CGAL Nef 构造器对非流形顶点很脆弱；验证/后处理入口先拆分
+    // vertex umbrella，保持几何点位不变但避免候选网格在局部接触边崩溃。
+    CGAL::Polygon_mesh_processing::duplicate_non_manifold_vertices(surfaceMesh);
     if (surfaceMesh.number_of_faces() == 0)
     {
         if (options.rejectEmptyRegularizedResult)
