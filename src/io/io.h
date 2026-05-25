@@ -64,7 +64,8 @@ struct ExactMeshData
 /**
  * @brief 浮点 OBJ 量化到整数域时的配置。
  *
- * 若 `explicitScale` 为空，则导入器会为一组输入网格自动选择共享的十进制缩放因子。
+ * 若 `explicitScale` 为空，则导入器会为一组输入网格自动选择 26-bit 输入预算内
+ * 尽可能大的共享整数缩放因子。
  */
 struct QuantizeOptions
 {
