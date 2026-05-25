@@ -1255,7 +1255,7 @@ void writeInputPolygonDiagnostics(
     if (!output)
         throw std::runtime_error("Failed to open input polygon diagnostics: " + path.string());
 
-    output << "operand,polygon_index,wntv0,wntv1,edge_count,valid,"
+    output << "operand,polygon_index,wntv0,wntv1,edge_count,valid,vertices,"
            << "plane_a,plane_b,plane_c,plane_d,"
            << "aabb_x_min,aabb_x_max,aabb_y_min,aabb_y_max,aabb_z_min,aabb_z_max\n";
 
@@ -1265,12 +1265,21 @@ void writeInputPolygonDiagnostics(
         {
             const ember::Polygon256 &polygon = polygons[polygonIndex];
             const ember::AABB3i &box = polygon.aabb();
+            std::string vertices;
+            const std::vector<ember::PlanePoint3i> &polygonVertices = polygon.vertices();
+            for (std::size_t vertexIndex = 0; vertexIndex < polygonVertices.size(); ++vertexIndex)
+            {
+                if (vertexIndex != 0)
+                    vertices.push_back(';');
+                vertices += homPointKey(polygonVertices[vertexIndex].x);
+            }
             output << operand << ','
                    << polygonIndex << ','
                    << (polygon.WNTV.size() > 0 ? polygon.WNTV[0] : 0) << ','
                    << (polygon.WNTV.size() > 1 ? polygon.WNTV[1] : 0) << ','
                    << polygon.edgeCount() << ','
                    << (polygon.isValid() ? 1 : 0) << ','
+                   << vertices << ','
                    << ember::integerToString(polygon.plane.a) << ','
                    << ember::integerToString(polygon.plane.b) << ','
                    << ember::integerToString(polygon.plane.c) << ','
