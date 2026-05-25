@@ -282,7 +282,7 @@ if(REEMBER_BUILD_TESTS)
 
   set(REEMBER_PAPER_EXPERIMENT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests/paper_experiments")
 
-  # 论文 10% 实验 small oracle-success 样本，统一走批量 profiling 脚本并输出汇总报告。
+  # 论文 benchmark 分层样本中的 small 子集，统一走批量 profiling 脚本并输出汇总报告。
   add_test(
     NAME re-EMBER_paper_small_batch
     COMMAND "${REEMBER_POWERSHELL_EXECUTABLE}"
