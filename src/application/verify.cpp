@@ -74,6 +74,7 @@ struct VerifyOptions
     bool disableSurfaceCompare = false;
     NefCompareOp nefCompareOp = NefCompareOp::Xor;
     std::filesystem::path reportPath;
+    std::filesystem::path diffOutPath;
 };
 
 struct PreparedProblem
@@ -123,7 +124,7 @@ void printUsage()
             << "[--oracle-cache-dir <dir>] [--refresh-oracle] "
             << "[--diagnose-nef] [--nef-compare-op xor|equal|candidate-minus-oracle|oracle-minus-candidate|skip] "
             << "[--disable-surface-compare] "
-            << "[--report-out <file>]"
+            << "[--report-out <file>] [--diff-out <file.obj|file.stl>]"
             << std::endl;
 }
 
@@ -278,7 +279,7 @@ bool parseArgs(int argc, char **argv, VerifyOptions &outOptions)
         if (arg == "--lhs" || arg == "--rhs" || arg == "--op" ||
                 arg == "--scale" || arg == "--leaf-threshold" || arg == "--threads" ||
                 arg == "--candidate-mode" || arg == "--oracle-cache-dir" ||
-                arg == "--nef-compare-op" || arg == "--report-out")
+                arg == "--nef-compare-op" || arg == "--report-out" || arg == "--diff-out")
         {
             if (i + 1 >= argc)
             {
@@ -350,6 +351,8 @@ bool parseArgs(int argc, char **argv, VerifyOptions &outOptions)
             }
             else if (arg == "--report-out")
                 outOptions.reportPath = value;
+            else if (arg == "--diff-out")
+                outOptions.diffOutPath = value;
 
             continue;
         }
@@ -922,6 +925,46 @@ bool runNefCompare(
     return false;
 }
 
+NefPolyhedron buildNefDifferenceForOp(
+    const NefPolyhedron &candidate,
+    const NefPolyhedron &oracle,
+    NefCompareOp op)
+{
+    switch (op)
+    {
+    case NefCompareOp::Xor:
+        return (candidate ^ oracle).regularization();
+    case NefCompareOp::Equal:
+        return (candidate ^ oracle).regularization();
+    case NefCompareOp::CandidateMinusOracle:
+        return (candidate - oracle).regularization();
+    case NefCompareOp::OracleMinusCandidate:
+        return (oracle - candidate).regularization();
+    case NefCompareOp::Skip:
+        return NefPolyhedron(NefPolyhedron::EMPTY);
+    }
+
+    return NefPolyhedron(NefPolyhedron::EMPTY);
+}
+
+void writeNefDifferenceMesh(
+    const std::filesystem::path &path,
+    const NefPolyhedron &candidate,
+    const NefPolyhedron &oracle,
+    NefCompareOp op,
+    std::uint64_t coordinateScale)
+{
+    if (path.empty())
+        return;
+
+    const NefPolyhedron diff = buildNefDifferenceForOp(candidate, oracle, op);
+    const ember::ObjMeshData mesh = ember::app::makeObjMeshData(diff, coordinateScale);
+    std::size_t faceCount = 0;
+    std::string error;
+    if (!ember::writeMesh(mesh, path.string(), faceCount, error))
+        throw std::runtime_error("Failed to write verifier Nef diff mesh: " + error);
+}
+
 void feedSha1(boost::uuids::detail::sha1 &sha, const std::string &value)
 {
     sha.process_bytes(value.data(), value.size());
@@ -1293,6 +1336,12 @@ int main(int argc, char **argv)
         }
         if (!equal && options.nefCompareOp != NefCompareOp::Skip)
             equal = runNefCompare(candidate, oracle, options.nefCompareOp);
+        writeNefDifferenceMesh(
+            options.diffOutPath,
+            candidate,
+            oracle,
+            options.nefCompareOp,
+            prepared.sharedScale);
         if (options.diagnoseNef)
             std::cerr << "[nef-diagnose] compare_end op=" << toString(options.nefCompareOp)
                       << " empty=" << (equal ? 1 : 0) << std::endl;
