@@ -1,12 +1,12 @@
 # 论文实验测试
 
-当前仓库把论文 10% 实验中的 100 个 oracle-success pair 复制到 `tests/paper_experiments/`：34 个 small、33 个 medium、33 个 large。默认 CTest 只跑快速 small 子集；全量性能和正确性回归通过 `tools/profile-re-ember.ps1` 显式选择完整计数运行。它们不是已知失败的 expected-fail 测试；进入当前测试集合的样本只要当前流水线不能成功完成，就应该让对应批量运行失败。
+当前仓库把 EMBER 论文 `benchmark-cases.json` 中分层抽样得到的 100 个 pair 复制到 `tests/paper_experiments/`：22 个 small、43 个 medium、35 个 large。默认 CTest 只跑 small 子集；全量性能和正确性回归通过 `tools/profile-re-ember.ps1` 显式选择完整计数运行。它们不是已知失败的 expected-fail 测试；进入当前测试集合的样本只要当前流水线不能成功完成，就应该让对应批量运行失败。
 
 ## 默认样本和参数
 
-默认纳入 `small_001` 到 `small_010` 共 10 个 small pair。CTest 会固定调用 `profile-re-ember.ps1 -InputRoot tests/paper_experiments/inputs/small -Op difference -NoTracy -Iterations 1 -LeafThreshold 50`，并通过 `-ExecutablePath` 复用当前 CTest 构建树里的 CLI；普通手动 `-NoTracy` 运行在未显式传 `-Configuration` 时默认使用 `Release`。线程数默认取当前构建机的逻辑处理器数 `REEMBER_CTEST_THREADS`，并继续启用论文实验使用的四个输入假设。只有在专门排查串行分支时才应把 `REEMBER_CTEST_THREADS` 显式设为 `1`。`inputs/medium` 和 `inputs/large` 与 small 使用同一目录约定，但不默认进入 120 秒 CTest。
+默认纳入当前 `inputs/small` 下的 22 个 small pair。CTest 会固定调用 `profile-re-ember.ps1 -InputRoot tests/paper_experiments/inputs/small -Op difference -NoTracy -Iterations 1 -LeafThreshold 50`，并通过 `-ExecutablePath` 复用当前 CTest 构建树里的 CLI；普通手动 `-NoTracy` 运行在未显式传 `-Configuration` 时默认使用 `Release`。线程数默认取当前构建机的逻辑处理器数 `REEMBER_CTEST_THREADS`，并继续启用论文实验使用的四个输入假设。只有在专门排查串行分支时才应把 `REEMBER_CTEST_THREADS` 显式设为 `1`。`inputs/medium` 和 `inputs/large` 与 small 使用同一目录约定，但不默认进入 120 秒 CTest。
 
-面向优化阶段的混合批量入口是 `-UsePaperExperimentSet`。它会读取 `tests/paper_experiments/manifest.csv`，在当前 `build/performance/run_<timestamp>/` 下生成只含 `lhs.obj` / `rhs.obj` 链接或副本的临时输入根目录，并按 manifest 顺序选择样本；默认就是 10 个 small、10 个 medium 和 2 个 large，可用 `-PaperSmallCount`、`-PaperMediumCount`、`-PaperLargeCount` 调整。全量 100 组使用 `-PaperSmallCount 34 -PaperMediumCount 33 -PaperLargeCount 33`。这个入口适合和 `-NoTracy -VerifyWithOracle` 组合，用于每个优化阶段的同集性能和正确性验证。
+面向优化阶段的混合批量入口是 `-UsePaperExperimentSet`。它会读取 `tests/paper_experiments/manifest.csv`，在当前 `build/performance/run_<timestamp>/` 下生成只含 `lhs.obj` / `rhs.obj` 链接或副本的临时输入根目录，并按 manifest 顺序选择样本；默认就是 10 个 small、10 个 medium 和 2 个 large，可用 `-PaperSmallCount`、`-PaperMediumCount`、`-PaperLargeCount` 调整。当前全量 100 组使用 `-PaperSmallCount 22 -PaperMediumCount 43 -PaperLargeCount 35`。这个入口适合和 `-NoTracy -VerifyWithOracle` 组合，用于每个优化阶段的同集性能和正确性验证。
 
 这些样本是当前代码的端到端回归集合，不在本文档固化某次历史通过率；修复算法时以最新 `ctest` 和对应 `build/performance/run_<timestamp>/timings.csv`、`summary.txt`、`report.md` 为准。多 workload 批量运行时，`summary.txt` 会额外给出 `overall_avg_*` 总平均时间，`report.md` 会给出 `Overall Average Timings` 表，方便先比较整批负载的平均耗时。其中 `end_to_end_ms` / `avg_end_to_end_ms` 表示 CLI 流水线从开始读输入到完成导出输出的墙钟时间；`process_elapsed_ms` / `avg_process_elapsed_ms` 表示整个 `re-EMBER.exe` 进程的墙钟时间，包含阶段外开销。`tests/paper_experiments/manifest.csv` 中的 `current_status` / `current_failure_category` 只记录本工作树上次刷新后的状态，不能替代重新运行 CTest。
 
