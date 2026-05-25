@@ -75,6 +75,7 @@ struct VerifyOptions
     NefCompareOp nefCompareOp = NefCompareOp::Xor;
     std::filesystem::path reportPath;
     std::filesystem::path diffOutPath;
+    std::filesystem::path inputDumpPath;
     std::filesystem::path chunkDumpPath;
     std::filesystem::path fragmentDumpPath;
 };
@@ -127,6 +128,7 @@ void printUsage()
             << "[--diagnose-nef] [--nef-compare-op xor|equal|candidate-minus-oracle|oracle-minus-candidate|skip] "
             << "[--disable-surface-compare] "
             << "[--report-out <file>] [--diff-out <file.obj|file.stl>] "
+            << "[--input-dump-out <file.csv>] "
             << "[--chunk-dump-out <file.csv>] [--fragment-dump-out <file.csv>]"
             << std::endl;
 }
@@ -283,7 +285,7 @@ bool parseArgs(int argc, char **argv, VerifyOptions &outOptions)
                 arg == "--scale" || arg == "--leaf-threshold" || arg == "--threads" ||
                 arg == "--candidate-mode" || arg == "--oracle-cache-dir" ||
                 arg == "--nef-compare-op" || arg == "--report-out" || arg == "--diff-out" ||
-                arg == "--chunk-dump-out" || arg == "--fragment-dump-out")
+                arg == "--input-dump-out" || arg == "--chunk-dump-out" || arg == "--fragment-dump-out")
         {
             if (i + 1 >= argc)
             {
@@ -357,6 +359,8 @@ bool parseArgs(int argc, char **argv, VerifyOptions &outOptions)
                 outOptions.reportPath = value;
             else if (arg == "--diff-out")
                 outOptions.diffOutPath = value;
+            else if (arg == "--input-dump-out")
+                outOptions.inputDumpPath = value;
             else if (arg == "--chunk-dump-out")
                 outOptions.chunkDumpPath = value;
             else if (arg == "--fragment-dump-out")
@@ -1237,6 +1241,53 @@ void writeReport(const std::filesystem::path &path, const VerificationReport &re
            << "compare_ms=" << report.compareMs << '\n';
 }
 
+void writeInputPolygonDiagnostics(
+    const std::filesystem::path &path,
+    const std::vector<ember::Polygon256> &lhsPolygons,
+    const std::vector<ember::Polygon256> &rhsPolygons)
+{
+    if (path.empty())
+        return;
+
+    if (!path.parent_path().empty())
+        std::filesystem::create_directories(path.parent_path());
+    std::ofstream output(path, std::ios::trunc);
+    if (!output)
+        throw std::runtime_error("Failed to open input polygon diagnostics: " + path.string());
+
+    output << "operand,polygon_index,wntv0,wntv1,edge_count,valid,"
+           << "plane_a,plane_b,plane_c,plane_d,"
+           << "aabb_x_min,aabb_x_max,aabb_y_min,aabb_y_max,aabb_z_min,aabb_z_max\n";
+
+    auto writePolygons = [&](const char *operand, const std::vector<ember::Polygon256> &polygons)
+    {
+        for (std::size_t polygonIndex = 0; polygonIndex < polygons.size(); ++polygonIndex)
+        {
+            const ember::Polygon256 &polygon = polygons[polygonIndex];
+            const ember::AABB3i &box = polygon.aabb();
+            output << operand << ','
+                   << polygonIndex << ','
+                   << (polygon.WNTV.size() > 0 ? polygon.WNTV[0] : 0) << ','
+                   << (polygon.WNTV.size() > 1 ? polygon.WNTV[1] : 0) << ','
+                   << polygon.edgeCount() << ','
+                   << (polygon.isValid() ? 1 : 0) << ','
+                   << ember::integerToString(polygon.plane.a) << ','
+                   << ember::integerToString(polygon.plane.b) << ','
+                   << ember::integerToString(polygon.plane.c) << ','
+                   << ember::integerToString(polygon.plane.d) << ','
+                   << ember::integerToString(box.xMin) << ','
+                   << ember::integerToString(box.xMax) << ','
+                   << ember::integerToString(box.yMin) << ','
+                   << ember::integerToString(box.yMax) << ','
+                   << ember::integerToString(box.zMin) << ','
+                   << ember::integerToString(box.zMax) << '\n';
+        }
+    };
+
+    writePolygons("lhs", lhsPolygons);
+    writePolygons("rhs", rhsPolygons);
+}
+
 void writeResultChunkDiagnostics(const std::filesystem::path &path, const ember::BoolProblem &problem)
 {
     if (path.empty())
@@ -1402,6 +1453,7 @@ int main(int argc, char **argv)
         report.sharedScale = prepared.sharedScale;
         report.lhsPolygons = prepared.lhsPolygons.size();
         report.rhsPolygons = prepared.rhsPolygons.size();
+        writeInputPolygonDiagnostics(options.inputDumpPath, prepared.lhsPolygons, prepared.rhsPolygons);
 
         const Clock::time_point solveStart = Clock::now();
         ember::BoolProblem problem = solveCandidate(options, prepared);
