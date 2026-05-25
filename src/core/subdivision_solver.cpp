@@ -1353,7 +1353,7 @@ void SubdivisionSolver::finalizeLeafNode()
 {
     leafSummaries_.clear();
     if (!discarded_)
-        leafSummaries_.push_back(BoolLeafSummary{depth_, polygonCount_, aabb_, false});
+        leafSummaries_.push_back(BoolLeafSummary{depth_, polygonCount_, aabb_, false, resultFragments_.size()});
 
     resultFragmentChunks_.clear();
     resultFragmentCount_ = resultFragments_.size();

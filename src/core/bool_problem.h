@@ -41,6 +41,7 @@ struct BoolLeafSummary
     std::size_t polygonCount = 0; ///< 叶子局部多边形集合的大小。
     AABB3i aabb;                 ///< 叶子局部 AABB。
     bool discarded = false;      ///< 该叶子是否被求解流程丢弃。
+    std::size_t resultFragmentCount = 0; ///< 该叶子贡献的最终结果片段数。
 };
 
 /**
