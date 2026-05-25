@@ -75,6 +75,8 @@ struct VerifyOptions
     NefCompareOp nefCompareOp = NefCompareOp::Xor;
     std::filesystem::path reportPath;
     std::filesystem::path diffOutPath;
+    std::filesystem::path chunkDumpPath;
+    std::filesystem::path fragmentDumpPath;
 };
 
 struct PreparedProblem
@@ -124,7 +126,8 @@ void printUsage()
             << "[--oracle-cache-dir <dir>] [--refresh-oracle] "
             << "[--diagnose-nef] [--nef-compare-op xor|equal|candidate-minus-oracle|oracle-minus-candidate|skip] "
             << "[--disable-surface-compare] "
-            << "[--report-out <file>] [--diff-out <file.obj|file.stl>]"
+            << "[--report-out <file>] [--diff-out <file.obj|file.stl>] "
+            << "[--chunk-dump-out <file.csv>] [--fragment-dump-out <file.csv>]"
             << std::endl;
 }
 
@@ -279,7 +282,8 @@ bool parseArgs(int argc, char **argv, VerifyOptions &outOptions)
         if (arg == "--lhs" || arg == "--rhs" || arg == "--op" ||
                 arg == "--scale" || arg == "--leaf-threshold" || arg == "--threads" ||
                 arg == "--candidate-mode" || arg == "--oracle-cache-dir" ||
-                arg == "--nef-compare-op" || arg == "--report-out" || arg == "--diff-out")
+                arg == "--nef-compare-op" || arg == "--report-out" || arg == "--diff-out" ||
+                arg == "--chunk-dump-out" || arg == "--fragment-dump-out")
         {
             if (i + 1 >= argc)
             {
@@ -353,6 +357,10 @@ bool parseArgs(int argc, char **argv, VerifyOptions &outOptions)
                 outOptions.reportPath = value;
             else if (arg == "--diff-out")
                 outOptions.diffOutPath = value;
+            else if (arg == "--chunk-dump-out")
+                outOptions.chunkDumpPath = value;
+            else if (arg == "--fragment-dump-out")
+                outOptions.fragmentDumpPath = value;
 
             continue;
         }
@@ -1229,6 +1237,124 @@ void writeReport(const std::filesystem::path &path, const VerificationReport &re
            << "compare_ms=" << report.compareMs << '\n';
 }
 
+void writeResultChunkDiagnostics(const std::filesystem::path &path, const ember::BoolProblem &problem)
+{
+    if (path.empty())
+        return;
+
+    if (!path.parent_path().empty())
+        std::filesystem::create_directories(path.parent_path());
+    std::ofstream output(path, std::ios::trunc);
+    if (!output)
+        throw std::runtime_error("Failed to open chunk diagnostics: " + path.string());
+
+    const std::vector<std::vector<ember::Polygon256>> &chunks = problem.resultFragmentChunks();
+    const std::vector<ember::BoolLeafSummary> &leaves = problem.leafSummaries();
+
+    output << "leaf_index,chunk_index,first_fragment,chunk_fragment_count,leaf_result_fragment_count,"
+           << "invalid_fragment_count,"
+           << "depth,polygon_count,discarded,"
+           << "aabb_x_min,aabb_x_max,aabb_y_min,aabb_y_max,aabb_z_min,aabb_z_max\n";
+
+    std::size_t chunkIndex = 0;
+    std::size_t firstFragment = 0;
+    for (std::size_t leafIndex = 0; leafIndex < leaves.size(); ++leafIndex)
+    {
+        const ember::BoolLeafSummary &leaf = leaves[leafIndex];
+        const bool hasChunk = leaf.resultFragmentCount > 0 && chunkIndex < chunks.size();
+        const std::size_t chunkFragmentCount = hasChunk ? chunks[chunkIndex].size() : 0;
+        std::size_t invalidFragmentCount = 0;
+        if (hasChunk)
+        {
+            for (const ember::Polygon256 &fragment : chunks[chunkIndex])
+            {
+                if (!fragment.isValid())
+                    ++invalidFragmentCount;
+            }
+        }
+
+        output << leafIndex << ','
+               << (hasChunk ? std::to_string(chunkIndex) : std::string()) << ','
+               << (hasChunk ? std::to_string(firstFragment) : std::string()) << ','
+               << chunkFragmentCount << ','
+               << leaf.resultFragmentCount << ','
+               << invalidFragmentCount << ','
+               << leaf.depth << ','
+               << leaf.polygonCount << ','
+               << (leaf.discarded ? 1 : 0) << ','
+               << ember::integerToString(leaf.aabb.xMin) << ','
+               << ember::integerToString(leaf.aabb.xMax) << ','
+               << ember::integerToString(leaf.aabb.yMin) << ','
+               << ember::integerToString(leaf.aabb.yMax) << ','
+               << ember::integerToString(leaf.aabb.zMin) << ','
+               << ember::integerToString(leaf.aabb.zMax) << '\n';
+
+        if (hasChunk)
+        {
+            firstFragment += chunkFragmentCount;
+            ++chunkIndex;
+        }
+    }
+
+    while (chunkIndex < chunks.size())
+    {
+        const std::size_t chunkFragmentCount = chunks[chunkIndex].size();
+        output << ","
+               << chunkIndex << ','
+               << firstFragment << ','
+               << chunkFragmentCount
+               << ",0,0,,,,,,,,\n";
+        firstFragment += chunkFragmentCount;
+        ++chunkIndex;
+    }
+}
+
+void writeResultFragmentDiagnostics(const std::filesystem::path &path, const ember::BoolProblem &problem)
+{
+    if (path.empty())
+        return;
+
+    if (!path.parent_path().empty())
+        std::filesystem::create_directories(path.parent_path());
+    std::ofstream output(path, std::ios::trunc);
+    if (!output)
+        throw std::runtime_error("Failed to open fragment diagnostics: " + path.string());
+
+    output << "fragment_index,chunk_index,chunk_offset,wntv0,wntv1,edge_count,valid,"
+           << "plane_a,plane_b,plane_c,plane_d,"
+           << "aabb_x_min,aabb_x_max,aabb_y_min,aabb_y_max,aabb_z_min,aabb_z_max\n";
+
+    const std::vector<std::vector<ember::Polygon256>> &chunks = problem.resultFragmentChunks();
+    std::size_t fragmentIndex = 0;
+    for (std::size_t chunkIndex = 0; chunkIndex < chunks.size(); ++chunkIndex)
+    {
+        const std::vector<ember::Polygon256> &chunk = chunks[chunkIndex];
+        for (std::size_t chunkOffset = 0; chunkOffset < chunk.size(); ++chunkOffset)
+        {
+            const ember::Polygon256 &fragment = chunk[chunkOffset];
+            const ember::AABB3i &box = fragment.aabb();
+            output << fragmentIndex << ','
+                   << chunkIndex << ','
+                   << chunkOffset << ','
+                   << (fragment.WNTV.size() > 0 ? fragment.WNTV[0] : 0) << ','
+                   << (fragment.WNTV.size() > 1 ? fragment.WNTV[1] : 0) << ','
+                   << fragment.edgeCount() << ','
+                   << (fragment.isValid() ? 1 : 0) << ','
+                   << ember::integerToString(fragment.plane.a) << ','
+                   << ember::integerToString(fragment.plane.b) << ','
+                   << ember::integerToString(fragment.plane.c) << ','
+                   << ember::integerToString(fragment.plane.d) << ','
+                   << ember::integerToString(box.xMin) << ','
+                   << ember::integerToString(box.xMax) << ','
+                   << ember::integerToString(box.yMin) << ','
+                   << ember::integerToString(box.yMax) << ','
+                   << ember::integerToString(box.zMin) << ','
+                   << ember::integerToString(box.zMax) << '\n';
+            ++fragmentIndex;
+        }
+    }
+}
+
 std::string sanitizeReportValue(std::string value)
 {
     for (char &ch : value)
@@ -1281,9 +1407,11 @@ int main(int argc, char **argv)
         ember::BoolProblem problem = solveCandidate(options, prepared);
         const Clock::time_point solveEnd = Clock::now();
         report.solveMs = elapsedMilliseconds(solveStart, solveEnd);
-        report.resultFragments = problem.resultFragments().size();
+        report.resultFragments = problem.resultFragmentCount();
         report.candidateMode = toString(options.candidateMode);
         report.nefCompareOp = toString(options.nefCompareOp);
+        writeResultChunkDiagnostics(options.chunkDumpPath, problem);
+        writeResultFragmentDiagnostics(options.fragmentDumpPath, problem);
 
         if (options.diagnoseNef)
         {
@@ -1291,6 +1419,28 @@ int main(int argc, char **argv)
             diagnosePolygonSoup("rhs_raw", prepared.rhsPolygons, ember::PolygonSoupTopologyMode::Raw);
             diagnosePolygonSoup("candidate_raw", problem.resultFragments(), ember::PolygonSoupTopologyMode::Raw);
             diagnosePolygonSoup("candidate_conforming", problem.resultFragments(), ember::PolygonSoupTopologyMode::Conforming);
+        }
+
+        if (options.nefCompareOp == NefCompareOp::Skip && options.diffOutPath.empty())
+        {
+            report.passed = false;
+            writeReport(options.reportPath, report);
+            std::cout << "verification=skip"
+                      << " operation=" << toString(options.operation)
+                      << " scale=" << report.sharedScale
+                      << " lhs_polygons=" << report.lhsPolygons
+                      << " rhs_polygons=" << report.rhsPolygons
+                      << " result_fragments=" << report.resultFragments
+                      << " candidate_mode=" << report.candidateMode
+                      << " nef_compare_op=" << toString(options.nefCompareOp)
+                      << " surface_compare_used=0"
+                      << " cache_hit=0"
+                      << " prepare_ms=" << std::fixed << std::setprecision(6) << report.prepareMs
+                      << " solve_ms=" << report.solveMs
+                      << " oracle_ms=0.000000"
+                      << " compare_ms=0.000000"
+                      << std::endl;
+            return 2;
         }
 
         report.oracleKey = computeOracleKey(prepared, options.operation);
