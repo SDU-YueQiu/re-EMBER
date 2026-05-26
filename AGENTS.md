@@ -70,7 +70,7 @@ cmake --preset visual-test
 cmake --build --preset visual-test
 ```
 
-`re-EMBER_tests` 会依赖并生成同一构建树中的 `re-EMBER.exe`。默认 CTest 还会运行 paper small 聚合测试，并通过 `-ExecutablePath` 复用 `build/tests/re-EMBER.exe`。
+`re-EMBER_tests` 会依赖并生成同一构建树中的 `re-EMBER.exe`。默认 CTest 还会运行 paper small 聚合测试，并通过 `-ExecutablePath` 复用 `build/tests/re-EMBER.exe`。当前 paper experiment manifest 共 100 组：23 small、43 medium、34 large；默认 CTest 覆盖当前 `tests/paper_experiments/inputs/small` 下的 23 个 small pair，不再是旧的 10 个 small 子集。
 
 ## Verifier
 
@@ -119,7 +119,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\profile-re-ember.ps1 `
-  -UsePaperExperimentSet -PaperSmallCount 34 -PaperMediumCount 33 -PaperLargeCount 33 `
+  -UsePaperExperimentSet -PaperSmallCount 23 -PaperMediumCount 43 -PaperLargeCount 34 `
   -NoTracy -Configuration Release -Iterations 1 -LeafThreshold 50
 ```
 
