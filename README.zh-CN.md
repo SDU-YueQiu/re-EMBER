@@ -82,6 +82,15 @@ build\verify\re-EMBER_verify.exe --lhs assets\models\workpiece_block.obj --rhs a
 
 oracle 的精确性边界是 re-EMBER 已经量化后的 `Polygon256` 输入；它不声明验证原始浮点 OBJ/STL 在 CAD 语义上的真实布尔结果。默认缓存目录是 `build\oracle_cache\nef\`；需要强制重算时传 `--refresh-oracle`。`--candidate-mode fragments-nef|export-conforming|export-nef` 可选择用原始结果片段或 verifier 内部诊断候选构造候选结果；这些模式不代表应用层输出后处理已经启用，也不改变 oracle cache key。
 
+校验工具也支持独立于性能脚本的批处理模式：
+
+```powershell
+build\verify\re-EMBER_verify.exe --batch-input-root tests\paper_experiments\inputs\small --op difference --batch-out-dir build\verify_batch_small
+build\verify\re-EMBER_verify.exe --batch-manifest tests\paper_experiments\manifest.csv --batch-out-dir build\verify_batch_manifest
+```
+
+`--batch-input-root` 会扫描子目录，每个 case 必须有且只有一个 `lhs.obj|stl` 和一个 `rhs.obj|stl`，布尔运算使用全局 `--op`。`--batch-manifest` 支持 `name,lhs,rhs,op`，也兼容论文 manifest 的 `pair_id,lhs_path,rhs_path,operation`。批处理输出包含 `verification.csv`、`batch_report.txt`、`cache/*.candidate.txt` 和 `reports/*.report.txt`。`--batch-size` 默认等于 CPU 逻辑线程数，有效范围是 `1..CPU 逻辑线程数`，超过上限会直接报错。每个 batch 内 solve/cache 阶段按 workload 顺序串行执行，但单个 workload 内部仍按 `--threads` 最大并行；候选缓存写完后，同一 batch 的 CGAL compare 阶段按 workload 并行。
+
 ## CLI 参数
 
 - `--lhs <file.obj|file.stl>` 和 `--rhs <file.obj|file.stl>` 分别指定左右操作数。
@@ -102,7 +111,7 @@ oracle 的精确性边界是 re-EMBER 已经量化后的 `Polygon256` 输入；�
 
 - `-Lhs` / `-Rhs` 和 `-Op` 用于跑一个明确的布尔任务。
 - `-InputRoot` 用于从目录树批量跑多个 case。
-- `-UsePaperExperimentSet` 会按 manifest 在当前 run 目录下生成论文实验批量输入。当前纳入仓库的论文 corpus 共 100 个 workload：34 个 small、33 个 medium、33 个 large。默认快速批量仍选择 10 个 small、10 个 medium 和 2 个 large；全量运行使用 `-PaperSmallCount 34 -PaperMediumCount 33 -PaperLargeCount 33`。
+- `-UsePaperExperimentSet` 会按 manifest 在当前 run 目录下生成论文实验批量输入。当前纳入仓库的论文 corpus 共 100 个 workload：23 个 small、43 个 medium、34 个 large。默认快速批量仍选择 10 个 small、10 个 medium 和 2 个 large；全量运行使用 `-PaperSmallCount 23 -PaperMediumCount 43 -PaperLargeCount 34`。
 - `-Out` 指定单个任务的输出文件。
 - `-ExecutablePath` 直接复用已有的 `re-EMBER.exe`，不重新构建。
 - `-Configuration` 选择 profiling 构建类型。只计时的 `-NoTracy` 默认使用 `Release`；Tracy 采样默认使用 `RelWithDebInfo`。
@@ -112,10 +121,9 @@ oracle 的精确性边界是 re-EMBER 已经量化后的 `Polygon256` 输入；�
 - `-EnableMathTracy` 额外打开底层 `math256` Tracy 区间，并使用 `build\profile_clang_tracy_math\`。
 - `-SkipBuild` 复用已有的 profiling 构建树。
 - `-UnwrapZoneFilter` 会导出指定热点 zone 的逐事件 CSV。
-- `-VerifyWithOracle` 会在计时迭代结束后对每个 workload 跑一次 `re-EMBER_verify` 并写出 `verification.csv`；校验耗时不计入 `timings.csv`。
 - `-WorkloadPriority`、`-UsePCores` 和 `-WorkloadAffinityMask` 控制被计时进程的调度方式。
 
-脚本会在 `build\performance\run_<timestamp>\` 下生成 `summary.txt`、`timings.csv`、`manifest.json`、`profile.log`、`report.md`、`tracy_zones.csv`、`tracy_zones_self.csv`，以及可选的 `verification.csv` 和 `tracy_unwrap\*.csv`。
+性能脚本只负责计时和 profiling；oracle 校验请直接调用 `re-EMBER_verify`。脚本会在 `build\performance\run_<timestamp>\` 下生成 `summary.txt`、`timings.csv`、`manifest.json`、`profile.log`、`report.md`、`tracy_zones.csv`、`tracy_zones_self.csv`，以及可选的 `tracy_unwrap\*.csv`。
 
 ## 备注
 
