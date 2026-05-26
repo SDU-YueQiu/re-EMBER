@@ -80,7 +80,7 @@ cmake --build --preset verify
 build\verify\re-EMBER_verify.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --leaf-threshold 50 --oracle-cache-dir build\oracle_cache\nef
 ```
 
-oracle 的精确性边界是 re-EMBER 已经量化后的 `Polygon256` 输入；它不声明验证原始浮点 OBJ/STL 在 CAD 语义上的真实布尔结果。默认缓存目录是 `build\oracle_cache\nef\`；需要强制重算时传 `--refresh-oracle`。`--candidate-mode fragments-nef|export-conforming|export-nef` 可选择用原始结果片段或 verifier 内部诊断候选构造候选结果；这些模式不代表应用层输出后处理已经启用，也不改变 oracle cache key。
+oracle 的精确性边界是 re-EMBER 已经量化后的 `Polygon256` 输入；它不声明验证原始浮点 OBJ/STL 在 CAD 语义上的真实布尔结果。默认缓存目录是 `build\oracle_cache\nef\`，缓存 verifier 私有的 `*.surface.txt` 精确表面；需要强制重算时传 `--refresh-oracle`。`--candidate-mode fragments-nef|export-conforming|export-nef` 可选择用原始结果片段或 verifier 内部诊断候选构造候选结果；这些模式不代表应用层输出后处理已经启用，也不改变 oracle cache key。surface fast path 无法证明相等时，fallback 会从缓存的精确表面重新构造 oracle Nef，而不是读取缓存的 Nef。
 
 校验工具也支持独立于性能脚本的批处理模式：
 

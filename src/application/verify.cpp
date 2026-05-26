@@ -10,15 +10,20 @@
 #include <CGAL/boost/graph/convert_nef_polyhedron_to_polygon_mesh.h>
 #include <CGAL/boost/graph/iterator.h>
 #include <CGAL/IO/Nef_polyhedron_iostream_3.h>
+#include <CGAL/number_utils.h>
+#include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
 #include <CGAL/version.h>
 
 #include <boost/uuid/detail/sha1.hpp>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cctype>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <exception>
 #include <future>
 #include <iomanip>
@@ -34,6 +39,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -44,7 +50,7 @@ using ember::BoolOperandAssumptions;
 using Clock = std::chrono::steady_clock;
 using NefPolyhedron = ember::app::NefPolyhedron;
 
-constexpr const char *kOracleSchema = "re-EMBER-nef-oracle-v1";
+constexpr const char *kOracleSchema = "re-EMBER-surface-oracle-v2";
 constexpr const char *kCandidateCacheSchema = "re-EMBER-verify-candidate-cache-v1";
 
 enum class CandidateMode
@@ -869,6 +875,50 @@ ember::app::ExactKernel::FT parseExactKernelInteger(const std::string &text)
     return negative ? -value : value;
 }
 
+ember::app::ExactKernel::FT parseExactKernelFTToken(const std::string &text)
+{
+    const std::size_t slash = text.find('/');
+    if (slash == std::string::npos)
+        return parseExactKernelInteger(text);
+
+    const std::string numerator = text.substr(0, slash);
+    const std::string denominator = text.substr(slash + 1u);
+    if (denominator.empty())
+        throw std::runtime_error("Invalid rational text in oracle surface cache.");
+
+    const ember::app::ExactKernel::FT den = parseExactKernelInteger(denominator);
+    if (den == ember::app::ExactKernel::FT(0))
+        throw std::runtime_error("Zero denominator in oracle surface cache.");
+    return parseExactKernelInteger(numerator) / den;
+}
+
+std::string exactKernelFTToString(const ember::app::ExactKernel::FT &value)
+{
+    std::ostringstream output;
+    output << CGAL::exact(value);
+    return output.str();
+}
+
+void writeExactKernelPoint(std::ostream &output, const ember::app::ExactKernel::Point_3 &point)
+{
+    output << exactKernelFTToString(point.x()) << ' '
+           << exactKernelFTToString(point.y()) << ' '
+           << exactKernelFTToString(point.z());
+}
+
+ember::app::ExactKernel::Point_3 readExactKernelPoint(std::istream &input)
+{
+    std::string x;
+    std::string y;
+    std::string z;
+    if (!(input >> x >> y >> z))
+        throw std::runtime_error("Oracle surface cache ended while reading a point.");
+    return ember::app::ExactKernel::Point_3(
+               parseExactKernelFTToken(x),
+               parseExactKernelFTToken(y),
+               parseExactKernelFTToken(z));
+}
+
 ember::app::ExactKernel::FT toExactKernelFT(
     const ember::Integer &numerator,
     const ember::Integer &denominator)
@@ -884,6 +934,34 @@ std::string homPointKey(const ember::HomPoint4i &point)
            ember::integerToString(primitive.y) + "/" +
            ember::integerToString(primitive.z) + "/" +
            ember::integerToString(primitive.w);
+}
+
+std::string rationalCoordinateKey(ember::Integer numerator, ember::Integer denominator)
+{
+    if (ember::isZero(denominator))
+        throw std::runtime_error("Cannot build an exact point key for a point at infinity.");
+    if (ember::isZero(numerator))
+        return "0";
+    if (denominator < 0)
+    {
+        numerator = -numerator;
+        denominator = -denominator;
+    }
+
+    const ember::Integer divisor = ember::gcdMagnitude(numerator, denominator);
+    numerator /= divisor;
+    denominator /= divisor;
+    if (denominator == ember::Integer(1))
+        return ember::integerToString(numerator);
+    return ember::integerToString(numerator) + "/" + ember::integerToString(denominator);
+}
+
+std::string homPointCoordinateKey(const ember::HomPoint4i &point)
+{
+    const ember::HomPoint4i primitive = ember::primitiveHomPoint(point);
+    return rationalCoordinateKey(primitive.x, primitive.w) + "|" +
+           rationalCoordinateKey(primitive.y, primitive.w) + "|" +
+           rationalCoordinateKey(primitive.z, primitive.w);
 }
 
 ember::Integer parseIntegerToken(const std::string &text)
@@ -975,6 +1053,7 @@ struct IndexedExactMesh
 {
     std::size_t sourceVertexCount = 0;
     std::vector<ember::app::ExactKernel::Point_3> points;
+    std::vector<std::string> pointKeys;
     std::vector<std::vector<std::size_t>> faces;
 };
 
@@ -1107,6 +1186,7 @@ IndexedExactMesh makeIndexedExactMesh(const ember::ExactMeshData &mesh)
         indexByPoint.emplace(key, pointIndex);
         remap[vertexIndex] = pointIndex;
         indexed.points.push_back(toExactKernelPoint(mesh.vertices[vertexIndex]));
+        indexed.pointKeys.push_back(homPointCoordinateKey(mesh.vertices[vertexIndex].x));
     }
 
     for (const std::vector<std::size_t> &sourceFace : mesh.faces)
@@ -1243,13 +1323,20 @@ void diagnosePolygonSoup(
     printMeshDiagnostics(label, computeMeshDiagnostics(makeIndexedExactMesh(mesh)));
 }
 
+std::string exactPointKey(const ember::app::ExactKernel::Point_3 &point);
+
 IndexedExactMesh makeIndexedSurfaceMesh(const ember::app::SurfaceMesh &surfaceMesh)
 {
     IndexedExactMesh indexed;
     indexed.sourceVertexCount = surfaceMesh.number_of_vertices();
     indexed.points.resize(surfaceMesh.number_of_vertices());
+    indexed.pointKeys.resize(surfaceMesh.number_of_vertices());
     for (const auto vertex : surfaceMesh.vertices())
-        indexed.points[static_cast<std::size_t>(vertex.idx())] = surfaceMesh.point(vertex);
+    {
+        const std::size_t index = static_cast<std::size_t>(vertex.idx());
+        indexed.points[index] = surfaceMesh.point(vertex);
+        indexed.pointKeys[index] = exactPointKey(indexed.points[index]);
+    }
 
     indexed.faces.reserve(surfaceMesh.number_of_faces());
     for (const auto faceDescriptor : surfaceMesh.faces())
@@ -1272,6 +1359,17 @@ std::optional<IndexedExactMesh> extractSimpleNefSurface(const NefPolyhedron &nef
     NefPolyhedron copy = nef;
     CGAL::convert_nef_polyhedron_to_polygon_mesh(copy, surfaceMesh, false);
     return makeIndexedSurfaceMesh(surfaceMesh);
+}
+
+IndexedExactMesh extractNefSurfaceOrEmpty(const NefPolyhedron &nef)
+{
+    if (nef.is_empty())
+        return IndexedExactMesh();
+
+    std::optional<IndexedExactMesh> surface = extractSimpleNefSurface(nef);
+    if (!surface)
+        throw std::runtime_error("CGAL Nef oracle is non-empty but not simple; cannot cache an exact surface.");
+    return *surface;
 }
 
 std::optional<IndexedExactMesh> diagnoseNef(const char *label, const NefPolyhedron &nef)
@@ -1306,6 +1404,110 @@ std::map<std::string, std::size_t> makeFaceCycleMultiset(
     return multiset;
 }
 
+int compareExactPoints(
+    const ember::app::ExactKernel::Point_3 &lhs,
+    const ember::app::ExactKernel::Point_3 &rhs)
+{
+    if (lhs.x() < rhs.x())
+        return -1;
+    if (rhs.x() < lhs.x())
+        return 1;
+    if (lhs.y() < rhs.y())
+        return -1;
+    if (rhs.y() < lhs.y())
+        return 1;
+    if (lhs.z() < rhs.z())
+        return -1;
+    if (rhs.z() < lhs.z())
+        return 1;
+    return 0;
+}
+
+struct PointKeyIndex
+{
+    std::string key;
+    std::size_t index = 0;
+};
+
+std::string exactPointKey(const ember::app::ExactKernel::Point_3 &point)
+{
+    return exactKernelFTToString(point.x()) + "|" +
+           exactKernelFTToString(point.y()) + "|" +
+           exactKernelFTToString(point.z());
+}
+
+std::vector<PointKeyIndex> sortedPointKeyIndices(const IndexedExactMesh &mesh)
+{
+    std::vector<PointKeyIndex> entries;
+    entries.reserve(mesh.points.size());
+    for (std::size_t i = 0; i < mesh.points.size(); ++i)
+        entries.push_back(PointKeyIndex{exactPointKey(mesh.points[i]), i});
+    std::sort(entries.begin(), entries.end(), [](const PointKeyIndex &lhs, const PointKeyIndex &rhs)
+    {
+        if (lhs.key != rhs.key)
+            return lhs.key < rhs.key;
+        return lhs.index < rhs.index;
+    });
+    return entries;
+}
+
+bool buildCandidateToOraclePointMap(
+    const IndexedExactMesh &candidate,
+    const IndexedExactMesh &oracle,
+    std::vector<std::size_t> &outCandidateToOracle,
+    std::string &outReason)
+{
+    outCandidateToOracle.assign(candidate.points.size(), 0u);
+    if (candidate.pointKeys.size() != candidate.points.size() ||
+            oracle.pointKeys.size() != oracle.points.size())
+    {
+        outReason = "surface mesh is missing exact point keys";
+        return false;
+    }
+
+    std::unordered_map<std::string, std::vector<std::size_t>> oracleBuckets;
+    oracleBuckets.reserve(oracle.points.size() * 2u + 1u);
+    for (std::size_t oracleIndex = 0; oracleIndex < oracle.points.size(); ++oracleIndex)
+        oracleBuckets[oracle.pointKeys[oracleIndex]].push_back(oracleIndex);
+
+    std::vector<bool> oracleUsed(oracle.points.size(), false);
+    for (std::size_t candidateIndex = 0; candidateIndex < candidate.points.size(); ++candidateIndex)
+    {
+        const auto bucket = oracleBuckets.find(candidate.pointKeys[candidateIndex]);
+        if (bucket == oracleBuckets.end())
+        {
+            outReason = "candidate vertex has no exact oracle key";
+            return false;
+        }
+
+        bool found = false;
+        for (std::size_t oracleIndex : bucket->second)
+        {
+            if (oracleUsed[oracleIndex])
+                continue;
+            if (candidate.pointKeys[candidateIndex] == oracle.pointKeys[oracleIndex])
+            {
+                outCandidateToOracle[candidateIndex] = oracleIndex;
+                oracleUsed[oracleIndex] = true;
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+        {
+            outReason = "candidate vertex has no unused exact oracle key match";
+            return false;
+        }
+    }
+
+    if (std::find(oracleUsed.begin(), oracleUsed.end(), false) != oracleUsed.end())
+    {
+        outReason = "oracle vertex has no exact candidate match";
+        return false;
+    }
+    return true;
+}
+
 bool equivalentSurfaceMeshes(
     const IndexedExactMesh &candidate,
     const IndexedExactMesh &oracle,
@@ -1322,29 +1524,9 @@ bool equivalentSurfaceMeshes(
         return false;
     }
 
-    std::vector<std::size_t> candidateToOracle(candidate.points.size(), 0u);
-    std::vector<bool> oracleUsed(oracle.points.size(), false);
-    for (std::size_t candidateIndex = 0; candidateIndex < candidate.points.size(); ++candidateIndex)
-    {
-        bool found = false;
-        for (std::size_t oracleIndex = 0; oracleIndex < oracle.points.size(); ++oracleIndex)
-        {
-            if (oracleUsed[oracleIndex])
-                continue;
-            if (candidate.points[candidateIndex] == oracle.points[oracleIndex])
-            {
-                candidateToOracle[candidateIndex] = oracleIndex;
-                oracleUsed[oracleIndex] = true;
-                found = true;
-                break;
-            }
-        }
-        if (!found)
-        {
-            outReason = "candidate vertex has no exact oracle match";
-            return false;
-        }
-    }
+    std::vector<std::size_t> candidateToOracle;
+    if (!buildCandidateToOraclePointMap(candidate, oracle, candidateToOracle, outReason))
+        return false;
 
     const std::map<std::string, std::size_t> candidateFaces =
         makeFaceCycleMultiset(candidate, &candidateToOracle);
@@ -1496,20 +1678,13 @@ std::string computeOracleKey(
     return digestToHex(digest);
 }
 
-void saveNef(const NefPolyhedron &nef, const std::filesystem::path &path)
-{
-    std::filesystem::create_directories(path.parent_path());
-    const std::filesystem::path tmpPath = path.string() + ".tmp";
-    NefPolyhedron copy = nef;
-    {
-        std::ofstream output(tmpPath, std::ios::trunc);
-        if (!output)
-            throw std::runtime_error("Failed to open oracle cache for writing: " + tmpPath.string());
-        output << copy;
-        if (!output)
-            throw std::runtime_error("Failed to write oracle cache: " + tmpPath.string());
-    }
+std::string readExpectedKey(std::istream &input, const char *expected);
+std::string readStringValue(std::istream &input, const char *key);
+std::string readTokenValue(std::istream &input, const char *key);
+std::size_t readSizeValue(std::istream &input, const char *key);
 
+void replaceFile(const std::filesystem::path &tmpPath, const std::filesystem::path &path)
+{
     std::error_code ec;
     std::filesystem::rename(tmpPath, path, ec);
     if (ec)
@@ -1518,21 +1693,140 @@ void saveNef(const NefPolyhedron &nef, const std::filesystem::path &path)
         ec.clear();
         std::filesystem::rename(tmpPath, path, ec);
         if (ec)
-            throw std::runtime_error("Failed to replace oracle cache: " + path.string());
+            throw std::runtime_error("Failed to replace cache file: " + path.string());
     }
 }
 
-NefPolyhedron loadNef(const std::filesystem::path &path)
+void saveIndexedSurface(
+    const IndexedExactMesh &surface,
+    const std::filesystem::path &path,
+    const std::string &key,
+    const PreparedProblem &prepared,
+    BoolOp operation)
+{
+    std::filesystem::create_directories(path.parent_path());
+    const std::filesystem::path tmpPath = path.string() + ".tmp";
+    {
+        std::ofstream output(tmpPath, std::ios::trunc);
+        if (!output)
+            throw std::runtime_error("Failed to open oracle surface cache for writing: " + tmpPath.string());
+
+        output << "schema " << kOracleSchema << '\n'
+               << "key " << key << '\n'
+               << "cgal_version " << std::quoted(std::string(CGAL_VERSION_STR)) << '\n'
+               << "operation " << toString(operation) << '\n'
+               << "shared_scale " << prepared.sharedScale << '\n'
+               << "lhs_polygons " << prepared.lhsPolygons.size() << '\n'
+               << "rhs_polygons " << prepared.rhsPolygons.size() << '\n'
+               << "source_vertices " << surface.sourceVertexCount << '\n'
+               << "points " << surface.points.size() << '\n';
+        if (surface.pointKeys.size() != surface.points.size())
+            throw std::runtime_error("Oracle surface cache received points without exact keys.");
+        for (std::size_t pointIndex = 0; pointIndex < surface.points.size(); ++pointIndex)
+        {
+            output << "p " << std::quoted(surface.pointKeys[pointIndex]) << ' ';
+            writeExactKernelPoint(output, surface.points[pointIndex]);
+            output << '\n';
+        }
+
+        output << "faces " << surface.faces.size() << '\n';
+        for (const std::vector<std::size_t> &face : surface.faces)
+        {
+            output << "f " << face.size();
+            for (std::size_t index : face)
+                output << ' ' << index;
+            output << '\n';
+        }
+        if (!output)
+            throw std::runtime_error("Failed to write oracle surface cache: " + tmpPath.string());
+    }
+    replaceFile(tmpPath, path);
+}
+
+IndexedExactMesh loadIndexedSurface(const std::filesystem::path &path)
 {
     std::ifstream input(path);
     if (!input)
-        throw std::runtime_error("Failed to open oracle cache for reading: " + path.string());
+        throw std::runtime_error("Failed to open oracle surface cache for reading: " + path.string());
 
-    NefPolyhedron nef;
-    input >> nef;
-    if (!input)
-        throw std::runtime_error("Failed to read oracle cache: " + path.string());
-    return nef;
+    const std::string schema = readTokenValue(input, "schema");
+    if (schema != kOracleSchema)
+        throw std::runtime_error("Unsupported oracle surface cache schema: " + schema);
+    (void)readTokenValue(input, "key");
+    (void)readStringValue(input, "cgal_version");
+    (void)readTokenValue(input, "operation");
+    (void)readTokenValue(input, "shared_scale");
+    (void)readSizeValue(input, "lhs_polygons");
+    (void)readSizeValue(input, "rhs_polygons");
+
+    IndexedExactMesh surface;
+    surface.sourceVertexCount = readSizeValue(input, "source_vertices");
+    const std::size_t pointCount = readSizeValue(input, "points");
+    surface.points.reserve(pointCount);
+    surface.pointKeys.reserve(pointCount);
+    for (std::size_t i = 0; i < pointCount; ++i)
+    {
+        readExpectedKey(input, "p");
+        std::string key;
+        if (!(input >> std::quoted(key)))
+            throw std::runtime_error("Oracle surface cache ended while reading a point key.");
+        surface.pointKeys.push_back(std::move(key));
+        surface.points.push_back(readExactKernelPoint(input));
+    }
+
+    const std::size_t faceCount = readSizeValue(input, "faces");
+    surface.faces.reserve(faceCount);
+    for (std::size_t i = 0; i < faceCount; ++i)
+    {
+        readExpectedKey(input, "f");
+        std::size_t faceSize = 0;
+        if (!(input >> faceSize))
+            throw std::runtime_error("Oracle surface cache ended while reading face size.");
+        std::vector<std::size_t> face;
+        face.reserve(faceSize);
+        for (std::size_t j = 0; j < faceSize; ++j)
+        {
+            std::size_t index = 0;
+            if (!(input >> index))
+                throw std::runtime_error("Oracle surface cache ended while reading face index.");
+            if (index >= pointCount)
+                throw std::runtime_error("Oracle surface cache face index is out of range.");
+            face.push_back(index);
+        }
+        surface.faces.push_back(std::move(face));
+    }
+    return surface;
+}
+
+NefPolyhedron buildNefFromIndexedSurface(const IndexedExactMesh &surface, const char *label)
+{
+    if (surface.faces.empty())
+        return NefPolyhedron(NefPolyhedron::EMPTY);
+
+    ember::app::SurfaceMesh surfaceMesh;
+    std::vector<ember::app::SurfaceMesh::Vertex_index> vertices;
+    vertices.reserve(surface.points.size());
+    for (const ember::app::ExactKernel::Point_3 &point : surface.points)
+        vertices.push_back(surfaceMesh.add_vertex(point));
+
+    for (const std::vector<std::size_t> &sourceFace : surface.faces)
+    {
+        if (sourceFace.size() < 3u)
+            throw std::runtime_error(std::string("Oracle surface cache contains a short face for ") + label + ".");
+        std::vector<ember::app::SurfaceMesh::Vertex_index> face;
+        face.reserve(sourceFace.size());
+        for (std::size_t index : sourceFace)
+        {
+            if (index >= vertices.size())
+                throw std::runtime_error(std::string("Oracle surface cache contains an out-of-range face index for ") + label + ".");
+            face.push_back(vertices[index]);
+        }
+        if (surfaceMesh.add_face(face) == ember::app::SurfaceMesh::null_face())
+            throw std::runtime_error(std::string("Failed to rebuild oracle surface face for ") + label + ".");
+    }
+
+    CGAL::Polygon_mesh_processing::triangulate_faces(surfaceMesh);
+    return NefPolyhedron(surfaceMesh).regularization();
 }
 
 void writeMetadata(
@@ -1585,7 +1879,7 @@ bool shouldRefreshOracleForKey(const std::string &key, bool requested)
     return inserted.second;
 }
 
-NefPolyhedron loadOrBuildOracle(
+IndexedExactMesh loadOrBuildOracleSurface(
     const VerifyOptions &options,
     const PreparedProblem &prepared,
     const std::string &key,
@@ -1595,24 +1889,25 @@ NefPolyhedron loadOrBuildOracle(
     std::lock_guard<std::mutex> keyGuard(*keyMutex);
 
     std::filesystem::create_directories(options.oracleCacheDir);
-    const std::filesystem::path nefPath = options.oracleCacheDir / (key + ".nef3");
+    const std::filesystem::path surfacePath = options.oracleCacheDir / (key + ".surface.txt");
     const std::filesystem::path metadataPath = options.oracleCacheDir / (key + ".json");
-    report.oraclePath = nefPath;
+    report.oraclePath = surfacePath;
 
     const bool refreshThisKey = shouldRefreshOracleForKey(key, options.refreshOracle);
-    if (!refreshThisKey && std::filesystem::exists(nefPath))
+    if (!refreshThisKey && std::filesystem::exists(surfacePath))
     {
         report.cacheHit = true;
-        return loadNef(nefPath);
+        return loadIndexedSurface(surfacePath);
     }
 
     report.cacheHit = false;
     const NefPolyhedron lhs = ember::app::makeNefFromPolygons(prepared.lhsPolygons, "lhs");
     const NefPolyhedron rhs = ember::app::makeNefFromPolygons(prepared.rhsPolygons, "rhs");
     const NefPolyhedron oracle = ember::app::applyBoolean(lhs, rhs, options.operation);
-    saveNef(oracle, nefPath);
+    const IndexedExactMesh surface = extractNefSurfaceOrEmpty(oracle);
+    saveIndexedSurface(surface, surfacePath, key, prepared, options.operation);
     writeMetadata(metadataPath, key, prepared, options.operation);
-    return oracle;
+    return surface;
 }
 
 ember::BoolProblem solveCandidate(const VerifyOptions &options, const PreparedProblem &prepared)
@@ -2174,53 +2469,56 @@ bool compareCandidateExactMesh(
 {
     report.oracleKey = computeOracleKey(prepared, options.operation);
     const Clock::time_point oracleStart = Clock::now();
-    const NefPolyhedron oracle = loadOrBuildOracle(options, prepared, report.oracleKey, report);
+    const IndexedExactMesh oracleSurface = loadOrBuildOracleSurface(options, prepared, report.oracleKey, report);
     const Clock::time_point oracleEnd = Clock::now();
     report.oracleMs = elapsedMilliseconds(oracleStart, oracleEnd);
-    std::optional<IndexedExactMesh> oracleSurface;
     if (options.diagnoseNef)
-        oracleSurface = diagnoseNef("oracle", oracle);
-    else if (!options.disableSurfaceCompare)
-        oracleSurface = extractSimpleNefSurface(oracle);
+        printMeshDiagnostics("oracle_surface", computeMeshDiagnostics(oracleSurface));
 
     const Clock::time_point compareStart = Clock::now();
-    const NefPolyhedron candidate = buildCandidateNefFromExactMesh(options, candidateMesh, resultFragmentCount);
-    std::optional<IndexedExactMesh> candidateSurface;
-    if (options.diagnoseNef)
-    {
-        candidateSurface = diagnoseNef("candidate", candidate);
-        if (candidateSurface && oracleSurface)
-        {
-            std::string surfaceReason;
-            const bool surfacesEqual = equivalentSurfaceMeshes(*candidateSurface, *oracleSurface, surfaceReason);
-            std::cerr << "[nef-diagnose] exact_surface_equal=" << (surfacesEqual ? 1 : 0)
-                      << " reason=\"" << surfaceReason << "\"" << std::endl;
-        }
-        std::cerr << "[nef-diagnose] compare_begin op=" << toString(options.nefCompareOp) << std::endl;
-    }
-    else if (!options.disableSurfaceCompare)
-    {
-        candidateSurface = extractSimpleNefSurface(candidate);
-    }
-
     bool equal = false;
-    if (!options.disableSurfaceCompare && candidateSurface && oracleSurface)
+
+    std::optional<NefPolyhedron> candidate;
+    std::optional<NefPolyhedron> oracle;
+    if (!options.disableSurfaceCompare)
     {
+        candidate.emplace(buildCandidateNefFromExactMesh(options, candidateMesh, resultFragmentCount));
+        const IndexedExactMesh regularizedCandidateSurface = extractNefSurfaceOrEmpty(*candidate);
         std::string surfaceReason;
-        if (equivalentSurfaceMeshes(*candidateSurface, *oracleSurface, surfaceReason))
+        if (equivalentSurfaceMeshes(regularizedCandidateSurface, oracleSurface, surfaceReason))
         {
             equal = true;
             report.surfaceCompareUsed = true;
         }
+        if (options.diagnoseNef)
+            std::cerr << "[nef-diagnose] regularized_exact_surface_equal=" << (equal ? 1 : 0)
+                      << " reason=\"" << surfaceReason << "\"" << std::endl;
     }
     if (!equal && options.nefCompareOp != NefCompareOp::Skip)
-        equal = runNefCompare(candidate, oracle, options.nefCompareOp);
-    writeNefDifferenceMesh(
-        options.diffOutPath,
-        candidate,
-        oracle,
-        options.nefCompareOp,
-        prepared.sharedScale);
+    {
+        if (!candidate)
+            candidate.emplace(buildCandidateNefFromExactMesh(options, candidateMesh, resultFragmentCount));
+        if (options.diagnoseNef)
+        {
+            (void)diagnoseNef("candidate", *candidate);
+            std::cerr << "[nef-diagnose] compare_begin op=" << toString(options.nefCompareOp) << std::endl;
+        }
+        oracle.emplace(buildNefFromIndexedSurface(oracleSurface, "oracle"));
+        equal = runNefCompare(*candidate, *oracle, options.nefCompareOp);
+    }
+    if (!options.diffOutPath.empty())
+    {
+        if (!candidate)
+            candidate.emplace(buildCandidateNefFromExactMesh(options, candidateMesh, resultFragmentCount));
+        if (!oracle)
+            oracle.emplace(buildNefFromIndexedSurface(oracleSurface, "oracle"));
+        writeNefDifferenceMesh(
+            options.diffOutPath,
+            *candidate,
+            *oracle,
+            options.nefCompareOp,
+            prepared.sharedScale);
+    }
     if (options.diagnoseNef)
         std::cerr << "[nef-diagnose] compare_end op=" << toString(options.nefCompareOp)
                   << " empty=" << (equal ? 1 : 0) << std::endl;
