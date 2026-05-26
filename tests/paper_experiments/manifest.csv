@@ -23,8 +23,6 @@ small_022_88614_minus_1384321,small,difference,inputs/small/small_022_88614_minu
 small_023_1223674_minus_107007,small,difference,inputs/small/small_023_1223674_minus_107007/lhs.obj,inputs/small/small_023_1223674_minus_107007/rhs.obj,1189,2382,1244,2484,not_used,,not_run,not_run
 medium_001_1320334_minus_372602,medium,difference,inputs/medium/medium_001_1320334_minus_372602/lhs.obj,inputs/medium/medium_001_1320334_minus_372602/rhs.obj,3582,7240,656,1308,not_used,,not_run,not_run
 medium_002_97474_minus_101636,medium,difference,inputs/medium/medium_002_97474_minus_101636/lhs.obj,inputs/medium/medium_002_97474_minus_101636/rhs.obj,572,1152,8972,17940,not_used,,not_run,not_run
-medium_003_59126_minus_834449,medium,difference,inputs/medium/medium_003_59126_minus_834449/lhs.obj,inputs/medium/medium_003_59126_minus_834449/rhs.obj,5023,10042,5643,11352,not_used,,not_run,not_run
-medium_004_815475_minus_116870,medium,difference,inputs/medium/medium_004_815475_minus_116870/lhs.obj,inputs/medium/medium_004_815475_minus_116870/rhs.obj,3112,6228,2353,4694,not_used,,not_run,not_run
 medium_005_276936_minus_471993,medium,difference,inputs/medium/medium_005_276936_minus_471993/lhs.obj,inputs/medium/medium_005_276936_minus_471993/rhs.obj,3234,6488,7613,15234,not_used,,not_run,not_run
 medium_006_669966_minus_126284,medium,difference,inputs/medium/medium_006_669966_minus_126284/lhs.obj,inputs/medium/medium_006_669966_minus_126284/rhs.obj,3567,7174,3511,7026,not_used,,not_run,not_run
 medium_007_958475_minus_762605,medium,difference,inputs/medium/medium_007_958475_minus_762605/lhs.obj,inputs/medium/medium_007_958475_minus_762605/rhs.obj,867,1730,4901,9806,not_used,,not_run,not_run
@@ -99,3 +97,5 @@ large_032_116067_minus_159695,large,difference,inputs/large/large_032_116067_min
 large_033_914490_minus_667995,large,difference,inputs/large/large_033_914490_minus_667995/lhs.obj,inputs/large/large_033_914490_minus_667995/rhs.obj,16354,32712,25077,50150,not_used,,not_run,not_run
 large_034_548872_minus_76755,large,difference,inputs/large/large_034_548872_minus_76755/lhs.obj,inputs/large/large_034_548872_minus_76755/rhs.obj,11415,22842,4517,9030,not_used,,not_run,not_run
 large_035_248185_minus_80557,large,difference,inputs/large/large_035_248185_minus_80557/lhs.obj,inputs/large/large_035_248185_minus_80557/rhs.obj,4510,9016,29626,59256,not_used,,not_run,not_run
+medium_044_591248_minus_500109,medium,difference,inputs/medium/medium_044_591248_minus_500109/lhs.obj,inputs/medium/medium_044_591248_minus_500109/rhs.obj,4800,9600,4334,8664,not_used,,not_run,not_run
+medium_045_816584_minus_814665,medium,difference,inputs/medium/medium_045_816584_minus_814665/lhs.obj,inputs/medium/medium_045_816584_minus_814665/rhs.obj,5163,10322,3288,6596,not_used,,not_run,not_run
