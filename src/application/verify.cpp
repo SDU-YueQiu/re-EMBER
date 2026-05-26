@@ -138,7 +138,6 @@ struct BatchVerificationRow
     double solveMs = 0.0;
     double oracleMs = 0.0;
     double compareMs = 0.0;
-    bool directSurfaceCompareUsed = false;
     bool surfaceCompareUsed = false;
 };
 
@@ -168,7 +167,6 @@ struct VerificationReport
     double solveMs = 0.0;
     double oracleMs = 0.0;
     double compareMs = 0.0;
-    bool directSurfaceCompareUsed = false;
     bool surfaceCompareUsed = false;
 };
 
@@ -2189,7 +2187,6 @@ void writeReport(const std::filesystem::path &path, const VerificationReport &re
            << "result_fragments=" << report.resultFragments << '\n'
            << "candidate_mode=" << report.candidateMode << '\n'
            << "nef_compare_op=" << report.nefCompareOp << '\n'
-           << "direct_surface_compare_used=" << (report.directSurfaceCompareUsed ? 1 : 0) << '\n'
            << "surface_compare_used=" << (report.surfaceCompareUsed ? 1 : 0) << '\n'
            << std::fixed << std::setprecision(6)
            << "prepare_ms=" << report.prepareMs << '\n'
@@ -2480,24 +2477,10 @@ bool compareCandidateExactMesh(
 
     const Clock::time_point compareStart = Clock::now();
     bool equal = false;
-    if (!options.disableSurfaceCompare)
-    {
-        const IndexedExactMesh directCandidateSurface = makeIndexedExactMesh(candidateMesh);
-        std::string surfaceReason;
-        if (equivalentSurfaceMeshes(directCandidateSurface, oracleSurface, surfaceReason))
-        {
-            equal = true;
-            report.directSurfaceCompareUsed = true;
-            report.surfaceCompareUsed = true;
-        }
-        if (options.diagnoseNef)
-            std::cerr << "[nef-diagnose] direct_exact_surface_equal=" << (equal ? 1 : 0)
-                      << " reason=\"" << surfaceReason << "\"" << std::endl;
-    }
 
     std::optional<NefPolyhedron> candidate;
     std::optional<NefPolyhedron> oracle;
-    if (!equal && !options.disableSurfaceCompare)
+    if (!options.disableSurfaceCompare)
     {
         candidate.emplace(buildCandidateNefFromExactMesh(options, candidateMesh, resultFragmentCount));
         const IndexedExactMesh regularizedCandidateSurface = extractNefSurfaceOrEmpty(*candidate);
@@ -2590,7 +2573,6 @@ BatchVerificationRow compareCachedCandidate(
     row.solveMs = report.solveMs;
     row.oracleMs = report.oracleMs;
     row.compareMs = report.compareMs;
-    row.directSurfaceCompareUsed = report.directSurfaceCompareUsed;
     row.surfaceCompareUsed = report.surfaceCompareUsed;
     return row;
 }
@@ -2623,7 +2605,7 @@ void writeBatchVerificationCsv(
 
     output << "workload,passed,error,cache_path,report_path,oracle_key,oracle_path,cache_hit,"
            << "shared_scale,lhs_polygons,rhs_polygons,result_fragments,prepare_ms,solve_ms,"
-           << "oracle_ms,compare_ms,direct_surface_compare_used,surface_compare_used\n";
+           << "oracle_ms,compare_ms,surface_compare_used\n";
     output << std::fixed << std::setprecision(6);
     for (const BatchVerificationRow &row : rows)
     {
@@ -2643,7 +2625,6 @@ void writeBatchVerificationCsv(
                << row.solveMs << ','
                << row.oracleMs << ','
                << row.compareMs << ','
-               << (row.directSurfaceCompareUsed ? 1 : 0) << ','
                << (row.surfaceCompareUsed ? 1 : 0) << '\n';
     }
 }
@@ -2659,16 +2640,10 @@ void writeBatchReport(
         throw std::runtime_error("Failed to open batch report: " + path.string());
 
     std::size_t passed = 0;
-    std::size_t directSurfaceCompareUsed = 0;
-    std::size_t surfaceCompareUsed = 0;
     for (const BatchVerificationRow &row : rows)
     {
         if (row.passed)
             ++passed;
-        if (row.directSurfaceCompareUsed)
-            ++directSurfaceCompareUsed;
-        if (row.surfaceCompareUsed)
-            ++surfaceCompareUsed;
     }
 
     output << "schema=re-EMBER-verify-batch-report-v1\n"
@@ -2677,8 +2652,6 @@ void writeBatchReport(
            << "failed=" << (rows.size() - passed) << '\n'
            << "batch_size=" << batchSize << '\n'
            << "cpu_threads=" << cpuThreads << '\n'
-           << "direct_surface_compare_used=" << directSurfaceCompareUsed << '\n'
-           << "surface_compare_used=" << surfaceCompareUsed << '\n'
            << "verification_csv=" << (path.parent_path() / "verification.csv").string() << '\n';
 
     for (const BatchVerificationRow &row : rows)
@@ -2829,7 +2802,6 @@ int runSingle(const VerifyOptions &options)
                   << " result_fragments=" << report.resultFragments
                   << " candidate_mode=" << report.candidateMode
                   << " nef_compare_op=" << toString(options.nefCompareOp)
-                  << " direct_surface_compare_used=0"
                   << " surface_compare_used=0"
                   << " cache_hit=0"
                   << " prepare_ms=" << std::fixed << std::setprecision(6) << report.prepareMs
@@ -2855,7 +2827,6 @@ int runSingle(const VerifyOptions &options)
               << " result_fragments=" << report.resultFragments
               << " candidate_mode=" << report.candidateMode
               << " nef_compare_op=" << report.nefCompareOp
-              << " direct_surface_compare_used=" << (report.directSurfaceCompareUsed ? 1 : 0)
               << " surface_compare_used=" << (report.surfaceCompareUsed ? 1 : 0)
               << " cache_hit=" << (report.cacheHit ? 1 : 0)
               << " oracle_key=" << report.oracleKey
