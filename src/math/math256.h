@@ -7,6 +7,7 @@
 #include "core/perf_tracing.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <ostream>
@@ -126,6 +127,290 @@ inline unsigned countTrailingZeroBits(UnsignedInteger value) noexcept
     return count + countTrailingZeroBits64(static_cast<std::uint64_t>(value));
 }
 
+namespace detail
+{
+using UInt128 = unsigned _BitInt(128);
+
+struct DivRemUnsignedInteger
+{
+    UnsignedInteger quotient = 0;
+    UnsignedInteger remainder = 0;
+};
+
+inline std::uint64_t limb64(UnsignedInteger value, unsigned index) noexcept
+{
+    return static_cast<std::uint64_t>(value >> (index * 64u));
+}
+
+inline UnsignedInteger composeUnsignedInteger(const std::array<std::uint64_t, 4>& limbs) noexcept
+{
+    return UnsignedInteger(limbs[0]) |
+           (UnsignedInteger(limbs[1]) << 64u) |
+           (UnsignedInteger(limbs[2]) << 128u) |
+           (UnsignedInteger(limbs[3]) << 192u);
+}
+
+inline unsigned countLeadingZeroBits64(std::uint64_t value) noexcept
+{
+#if defined(__clang__) || defined(__GNUC__)
+    return static_cast<unsigned>(__builtin_clzll(value));
+#else
+    unsigned count = 0;
+    for (std::uint64_t bit = std::uint64_t(1) << 63u; (value & bit) == 0; bit >>= 1u)
+        ++count;
+    return count;
+#endif
+}
+
+inline unsigned usedLimbCount(const std::array<std::uint64_t, 4>& limbs) noexcept
+{
+    for (unsigned count = 4; count > 0; --count)
+    {
+        if (limbs[count - 1] != 0)
+            return count;
+    }
+    return 0;
+}
+
+inline bool lessUnsignedLimbs(
+    const std::array<std::uint64_t, 4>& lhs,
+    const std::array<std::uint64_t, 4>& rhs) noexcept
+{
+    for (unsigned i = 4; i > 0; --i)
+    {
+        const unsigned index = i - 1;
+        if (lhs[index] != rhs[index])
+            return lhs[index] < rhs[index];
+    }
+    return false;
+}
+
+inline std::array<std::uint64_t, 4> decomposeUnsignedInteger(UnsignedInteger value) noexcept
+{
+    return {limb64(value, 0), limb64(value, 1), limb64(value, 2), limb64(value, 3)};
+}
+
+inline std::uint64_t divRemU128ByU64(
+    std::uint64_t high,
+    std::uint64_t low,
+    std::uint64_t denominator,
+    std::uint64_t& outRemainder) noexcept
+{
+    UInt128 remainder = high;
+    std::uint64_t quotient = 0;
+    for (unsigned i = 64; i > 0; --i)
+    {
+        const unsigned bit = i - 1u;
+        remainder = (remainder << 1u) | UInt128((low >> bit) & 1u);
+        if (remainder >= denominator)
+        {
+            remainder -= denominator;
+            quotient |= std::uint64_t(1) << bit;
+        }
+    }
+    outRemainder = static_cast<std::uint64_t>(remainder);
+    return quotient;
+}
+
+inline DivRemUnsignedInteger divRemUnsignedByU64(UnsignedInteger numerator, std::uint64_t denominator) noexcept
+{
+    std::array<std::uint64_t, 4> quotient{};
+    std::uint64_t remainder = 0;
+    for (unsigned i = 4; i > 0; --i)
+    {
+        const unsigned index = i - 1;
+        quotient[index] = divRemU128ByU64(remainder, limb64(numerator, index), denominator, remainder);
+    }
+    return {composeUnsignedInteger(quotient), UnsignedInteger(remainder)};
+}
+
+inline DivRemUnsignedInteger divRemUnsignedKnuth(
+    const std::array<std::uint64_t, 4>& numerator,
+    const std::array<std::uint64_t, 4>& denominator,
+    unsigned numeratorCount,
+    unsigned denominatorCount) noexcept
+{
+    const unsigned quotientCount = numeratorCount - denominatorCount + 1u;
+    const unsigned shift = countLeadingZeroBits64(denominator[denominatorCount - 1]);
+    std::array<std::uint64_t, 4> normalizedDenominator{};
+    std::array<std::uint64_t, 5> normalizedNumerator{};
+
+    if (shift == 0)
+    {
+        for (unsigned i = 0; i < denominatorCount; ++i)
+            normalizedDenominator[i] = denominator[i];
+        for (unsigned i = 0; i < numeratorCount; ++i)
+            normalizedNumerator[i] = numerator[i];
+    }
+    else
+    {
+        std::uint64_t carry = 0;
+        for (unsigned i = 0; i < denominatorCount; ++i)
+        {
+            normalizedDenominator[i] = (denominator[i] << shift) | carry;
+            carry = denominator[i] >> (64u - shift);
+        }
+
+        carry = 0;
+        for (unsigned i = 0; i < numeratorCount; ++i)
+        {
+            normalizedNumerator[i] = (numerator[i] << shift) | carry;
+            carry = numerator[i] >> (64u - shift);
+        }
+        normalizedNumerator[numeratorCount] = carry;
+    }
+
+    std::array<std::uint64_t, 4> quotient{};
+    for (unsigned jStep = quotientCount; jStep > 0; --jStep)
+    {
+        const unsigned j = jStep - 1u;
+        const std::uint64_t topHigh = normalizedNumerator[j + denominatorCount];
+        const std::uint64_t topLow = normalizedNumerator[j + denominatorCount - 1u];
+        UInt128 rhat = 0;
+        std::uint64_t qhat = 0;
+        if (topHigh >= normalizedDenominator[denominatorCount - 1u])
+        {
+            qhat = std::numeric_limits<std::uint64_t>::max();
+            rhat = UInt128(topLow) + normalizedDenominator[denominatorCount - 1u];
+        }
+        else
+        {
+            std::uint64_t rhatLow = 0;
+            qhat = divRemU128ByU64(
+                topHigh,
+                topLow,
+                normalizedDenominator[denominatorCount - 1u],
+                rhatLow);
+            rhat = rhatLow;
+        }
+        if (denominatorCount > 1)
+        {
+            while (true)
+            {
+                const UInt128 lhs = UInt128(qhat) * normalizedDenominator[denominatorCount - 2u];
+                if (rhat > UInt128(std::numeric_limits<std::uint64_t>::max()))
+                    break;
+                const UInt128 rhs =
+                    (rhat << 64u) | UInt128(normalizedNumerator[j + denominatorCount - 2u]);
+                if (lhs <= rhs)
+                    break;
+                --qhat;
+                rhat += normalizedDenominator[denominatorCount - 1u];
+            }
+        }
+
+        UInt128 borrowCarry = 0;
+        for (unsigned i = 0; i < denominatorCount; ++i)
+        {
+            const UInt128 product = UInt128(qhat) * normalizedDenominator[i] + borrowCarry;
+            const std::uint64_t productLow = static_cast<std::uint64_t>(product);
+            borrowCarry = product >> 64u;
+
+            const std::uint64_t before = normalizedNumerator[j + i];
+            const std::uint64_t next = before - productLow;
+            const std::uint64_t borrow = next > before ? 1u : 0u;
+            normalizedNumerator[j + i] = next;
+            borrowCarry += borrow;
+        }
+
+        bool negative = UInt128(normalizedNumerator[j + denominatorCount]) < borrowCarry;
+        normalizedNumerator[j + denominatorCount] =
+            static_cast<std::uint64_t>(UInt128(normalizedNumerator[j + denominatorCount]) - borrowCarry);
+
+        if (negative)
+        {
+            --qhat;
+            UInt128 carry = 0;
+            for (unsigned i = 0; i < denominatorCount; ++i)
+            {
+                const UInt128 sum =
+                    UInt128(normalizedNumerator[j + i]) + normalizedDenominator[i] + carry;
+                normalizedNumerator[j + i] = static_cast<std::uint64_t>(sum);
+                carry = sum >> 64u;
+            }
+            normalizedNumerator[j + denominatorCount] =
+                static_cast<std::uint64_t>(
+                    UInt128(normalizedNumerator[j + denominatorCount]) + carry);
+        }
+
+        quotient[j] = qhat;
+    }
+
+    std::array<std::uint64_t, 4> remainder{};
+    if (shift == 0)
+    {
+        for (unsigned i = 0; i < denominatorCount; ++i)
+            remainder[i] = normalizedNumerator[i];
+    }
+    else
+    {
+        for (unsigned i = 0; i < denominatorCount; ++i)
+        {
+            const std::uint64_t high = i + 1u < normalizedNumerator.size()
+                ? normalizedNumerator[i + 1u]
+                : 0u;
+            remainder[i] = (normalizedNumerator[i] >> shift) | (high << (64u - shift));
+        }
+    }
+
+    return {composeUnsignedInteger(quotient), composeUnsignedInteger(remainder)};
+}
+
+inline DivRemUnsignedInteger divRemUnsignedInteger(
+    UnsignedInteger numerator,
+    UnsignedInteger denominator) noexcept
+{
+    const std::array<std::uint64_t, 4> numeratorLimbs = decomposeUnsignedInteger(numerator);
+    const std::array<std::uint64_t, 4> denominatorLimbs = decomposeUnsignedInteger(denominator);
+    const unsigned denominatorCount = usedLimbCount(denominatorLimbs);
+    if (denominatorCount == 0)
+        return {};
+
+    const unsigned numeratorCount = usedLimbCount(numeratorLimbs);
+    if (numeratorCount == 0 || lessUnsignedLimbs(numeratorLimbs, denominatorLimbs))
+        return {0, numerator};
+    if (denominatorCount == 1)
+        return divRemUnsignedByU64(numerator, denominatorLimbs[0]);
+
+    return divRemUnsignedKnuth(numeratorLimbs, denominatorLimbs, numeratorCount, denominatorCount);
+}
+
+inline DivRemUnsignedInteger divRemMagnitude(Integer numerator, Integer denominator) noexcept
+{
+    const UnsignedInteger numeratorMagnitude = unsignedMagnitude(numerator);
+    const UnsignedInteger denominatorMagnitude = unsignedMagnitude(denominator);
+    return divRemUnsignedInteger(numeratorMagnitude, denominatorMagnitude);
+}
+
+inline Integer applySignedQuotient(
+    UnsignedInteger quotientMagnitude,
+    bool negative) noexcept
+{
+    const Integer quotient = static_cast<Integer>(quotientMagnitude);
+    return negative && quotient != 0 ? -quotient : quotient;
+}
+
+inline Integer applySignedRemainder(
+    UnsignedInteger remainderMagnitude,
+    bool negative) noexcept
+{
+    const Integer remainder = static_cast<Integer>(remainderMagnitude);
+    return negative && remainder != 0 ? -remainder : remainder;
+}
+}
+
+inline Integer divInteger(Integer numerator, Integer denominator) noexcept
+{
+    const detail::DivRemUnsignedInteger divRem = detail::divRemMagnitude(numerator, denominator);
+    return detail::applySignedQuotient(divRem.quotient, (numerator < 0) != (denominator < 0));
+}
+
+inline Integer remInteger(Integer numerator, Integer denominator) noexcept
+{
+    const detail::DivRemUnsignedInteger divRem = detail::divRemMagnitude(numerator, denominator);
+    return detail::applySignedRemainder(divRem.remainder, numerator < 0);
+}
+
 /**
  * @brief 计算两个整数幅值的最大公约数。
  */
@@ -209,9 +494,9 @@ inline Integer floorDiv(const Integer& a, const Integer& b) noexcept
     }
 
     if (num >= 0)
-        return num / den;
+        return divInteger(num, den);
 
-    return (num - den + 1) / den;
+    return divInteger(num - den + 1, den);
 }
 
 inline Integer ceilDiv(const Integer& a, const Integer& b) noexcept
@@ -226,9 +511,9 @@ inline Integer ceilDiv(const Integer& a, const Integer& b) noexcept
     }
 
     if (num >= 0)
-        return (num + den - 1) / den;
+        return divInteger(num + den - 1, den);
 
-    return num / den;
+    return divInteger(num, den);
 }
 
 /**
@@ -239,11 +524,13 @@ inline bool tryExactDiv(const Integer& numerator, const Integer& denominator, In
     if (isZero(denominator))
         return false;
 
-    const Integer quotient = numerator / denominator;
-    if (quotient * denominator != numerator)
+    const detail::DivRemUnsignedInteger divRem = detail::divRemMagnitude(numerator, denominator);
+    if (divRem.remainder != 0)
         return false;
 
-    outQuotient = quotient;
+    outQuotient = detail::applySignedQuotient(
+        divRem.quotient,
+        (numerator < 0) != (denominator < 0));
     return true;
 }
 
@@ -258,8 +545,9 @@ inline void floorCeilDiv(const Integer& a, const Integer& b, Integer& outFloor, 
         den = -den;
     }
 
-    const Integer quotient = num / den;
-    if (quotient * den == num)
+    const detail::DivRemUnsignedInteger divRem = detail::divRemMagnitude(num, den);
+    const Integer quotient = detail::applySignedQuotient(divRem.quotient, num < 0);
+    if (divRem.remainder == 0)
     {
         outFloor = quotient;
         outCeil = quotient;
@@ -363,10 +651,10 @@ inline HomPoint4i primitiveHomPoint(const HomPoint4i& point) noexcept
     const Integer divisor = gcdMagnitude(x, y, z, w);
     if (divisor > 1)
     {
-        x /= divisor;
-        y /= divisor;
-        z /= divisor;
-        w /= divisor;
+        x = divInteger(x, divisor);
+        y = divInteger(y, divisor);
+        z = divInteger(z, divisor);
+        w = divInteger(w, divisor);
     }
     return HomPoint4i(x, y, z, w);
 }
@@ -458,9 +746,9 @@ struct Vec3i
 
     Vec3i& operator/=(const Integer& k) noexcept
     {
-        x /= k;
-        y /= k;
-        z /= k;
+        x = divInteger(x, k);
+        y = divInteger(y, k);
+        z = divInteger(z, k);
         return *this;
     }
 
