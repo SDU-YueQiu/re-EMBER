@@ -29,7 +29,7 @@ inline bool canMultiplyIntegerWithinRange(const Integer &lhs, const Integer &rhs
     if (isZero(lhs) || isZero(rhs))
         return true;
 
-    return absMagnitude(lhs) <= integerMaxMagnitude() / absMagnitude(rhs);
+    return absMagnitude(lhs) <= divInteger(integerMaxMagnitude(), absMagnitude(rhs));
 }
 
 inline bool tryMultiplyInteger(const Integer &lhs, const Integer &rhs, Integer &out) noexcept

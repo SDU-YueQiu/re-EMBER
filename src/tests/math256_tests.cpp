@@ -75,6 +75,31 @@ void assertSamePolygonPayload(const ember::Polygon256 &lhs, const ember::Polygon
     }
     assert(lhs.WNTV == rhs.WNTV);
 }
+
+void assertFastDivRemMatchesNative(Integer numerator, Integer denominator)
+{
+    assert(denominator != Integer(0));
+    const Integer expectedQuotient = numerator / denominator;
+    const Integer expectedRemainder = numerator % denominator;
+    assert(ember::divInteger(numerator, denominator) == expectedQuotient);
+    assert(ember::remInteger(numerator, denominator) == expectedRemainder);
+}
+
+Integer makeDivisionTestValue(
+    std::uint64_t lo,
+    std::uint64_t mid0,
+    std::uint64_t mid1,
+    std::uint64_t hi,
+    bool negative)
+{
+    ember::UnsignedInteger magnitude =
+        ember::UnsignedInteger(lo) |
+        (ember::UnsignedInteger(mid0) << 64u) |
+        (ember::UnsignedInteger(mid1) << 128u) |
+        (ember::UnsignedInteger(hi & 0x03ffffffffffffffull) << 192u);
+    Integer value = static_cast<Integer>(magnitude);
+    return negative && value != Integer(0) ? -value : value;
+}
 }
 
 void runMath256Tests()
@@ -218,6 +243,44 @@ void runMath256Tests()
         assert(ember::absMagnitude(Integer(-7)) == Integer(7));
         assert(ember::gcdMagnitude(Integer(-18), Integer(24)) == Integer(6));
         assert(ember::gcdMagnitude(Integer(6), Integer(9), Integer(12), Integer(15)) == Integer(3));
+
+        assertFastDivRemMatchesNative(Integer(7), Integer(3));
+        assertFastDivRemMatchesNative(Integer(-7), Integer(3));
+        assertFastDivRemMatchesNative(Integer(7), Integer(-3));
+        assertFastDivRemMatchesNative(Integer(-7), Integer(-3));
+        assertFastDivRemMatchesNative((Integer(1) << 250) + (Integer(1) << 129) + 12345, Integer(17));
+        assertFastDivRemMatchesNative(
+            (Integer(1) << 250) + (Integer(1) << 200) + (Integer(1) << 64) + 77,
+            (Integer(1) << 128) + 3);
+        assertFastDivRemMatchesNative(
+            (Integer(1) << 250) + (Integer(1) << 192) + (Integer(1) << 70) + 11,
+            (Integer(1) << 190) + 123456789);
+        assertFastDivRemMatchesNative(
+            -((Integer(1) << 249) + (Integer(1) << 130) + 123),
+            (Integer(1) << 127) + 19);
+        std::uint64_t state = 0x9e3779b97f4a7c15ull;
+        for (unsigned i = 0; i < 96; ++i)
+        {
+            state = state * 6364136223846793005ull + 1442695040888963407ull;
+            const std::uint64_t a = state;
+            state = state * 6364136223846793005ull + 1442695040888963407ull;
+            const std::uint64_t b = state;
+            state = state * 6364136223846793005ull + 1442695040888963407ull;
+            const std::uint64_t c = state;
+            state = state * 6364136223846793005ull + 1442695040888963407ull;
+            const std::uint64_t d = state;
+
+            Integer numerator = makeDivisionTestValue(a, b, c, d, (i & 1u) != 0);
+            Integer denominator = makeDivisionTestValue(
+                d | 1ull,
+                c ^ 0x517cc1b727220a95ull,
+                b ^ 0x6a09e667f3bcc909ull,
+                a >> (i % 17u),
+                (i & 2u) != 0);
+            if (denominator == Integer(0))
+                denominator = Integer(1);
+            assertFastDivRemMatchesNative(numerator, denominator);
+        }
 
         Integer divFloor = 0;
         Integer divCeil = 0;

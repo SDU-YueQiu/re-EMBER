@@ -17,10 +17,10 @@ inline void reducePlaneCoefficients(Integer &a, Integer &b, Integer &c, Integer 
     if (divisor <= 1)
         return;
 
-    a /= divisor;
-    b /= divisor;
-    c /= divisor;
-    d /= divisor;
+    a = divInteger(a, divisor);
+    b = divInteger(b, divisor);
+    c = divInteger(c, divisor);
+    d = divInteger(d, divisor);
 }
 
 struct Plane3i
@@ -126,19 +126,19 @@ inline bool tryExtractUnitCoordinatePlaneForPoint(
     if (hasUnitMagnitude(plane.a) && isZero(plane.b) && isZero(plane.c))
     {
         outAxis = 0;
-        outCoordinate = -plane.d / plane.a;
+        outCoordinate = divInteger(-plane.d, plane.a);
         return true;
     }
     if (isZero(plane.a) && hasUnitMagnitude(plane.b) && isZero(plane.c))
     {
         outAxis = 1;
-        outCoordinate = -plane.d / plane.b;
+        outCoordinate = divInteger(-plane.d, plane.b);
         return true;
     }
     if (isZero(plane.a) && isZero(plane.b) && hasUnitMagnitude(plane.c))
     {
         outAxis = 2;
-        outCoordinate = -plane.d / plane.c;
+        outCoordinate = divInteger(-plane.d, plane.c);
         return true;
     }
 
