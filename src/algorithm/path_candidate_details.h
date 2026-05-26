@@ -76,19 +76,19 @@ inline bool tryExtractUnitCoordinatePlane(
     if (hasUnitMagnitude(plane.a) && isZero(plane.b) && isZero(plane.c))
     {
         outAxis = SplitAxis3i::X;
-        outCoordinate = divInteger(-plane.d, plane.a);
+        outCoordinate = -plane.d / plane.a;
         return true;
     }
     if (isZero(plane.a) && hasUnitMagnitude(plane.b) && isZero(plane.c))
     {
         outAxis = SplitAxis3i::Y;
-        outCoordinate = divInteger(-plane.d, plane.b);
+        outCoordinate = -plane.d / plane.b;
         return true;
     }
     if (isZero(plane.a) && isZero(plane.b) && hasUnitMagnitude(plane.c))
     {
         outAxis = SplitAxis3i::Z;
-        outCoordinate = divInteger(-plane.d, plane.c);
+        outCoordinate = -plane.d / plane.c;
         return true;
     }
 
