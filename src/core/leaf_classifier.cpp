@@ -1538,12 +1538,18 @@ void SubdivisionSolver::classifyLeafFragmentsAndCollectResults()
 bool SubdivisionSolver::trySolveSingleOperandAssumptionLeaf()
 {
     REEMBER_PROFILE_ZONE("SubdivisionSolver::trySolveSingleOperandAssumptionLeaf");
-    if (!singleOperandPolicy_.mayProbeEarlyLeaf)
+    if (!polygonScan_.isSingleOperand && !singleOperandPolicy_.mayProbeEarlyLeaf)
         return false;
 
+    // 进入单操作数子树后继续按 AABB midpoint 切分只会制造 raw fragment
+    // 拓扑碎片；把该子树直接交给 leaf arrangement/classifier，避免重新把
+    // 多边形齐次顶点投成整数 AABB 来服务切分启发式。是否跳过局部 BSP 或复用
+    // 分类结果仍由 singleOperandPolicy_ 中的输入假设单独控制。
+    const bool countAsAssumptionStop = singleOperandPolicy_.mayProbeEarlyLeaf;
     isLeaf_ = true;
     solveLeafArrangementAndClassifyFragments();
-    ++solveMetrics_.singleOperandAssumptionStopCount;
+    if (countAsAssumptionStop)
+        ++solveMetrics_.singleOperandAssumptionStopCount;
     finalizeLeafNode();
     return true;
 }

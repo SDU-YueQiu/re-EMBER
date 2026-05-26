@@ -310,7 +310,9 @@ bool throwsRuntimeError(const std::function<void()> &fn, const std::string &need
     {                                                                                  \
         if (!(expr))                                                                   \
         {                                                                              \
-            throw std::runtime_error("bool_problem_tests assertion failed: " #expr);   \
+            throw std::runtime_error(                                                  \
+                std::string("bool_problem_tests assertion failed at line ") +          \
+                std::to_string(__LINE__) + ": " #expr);                                \
         }                                                                              \
     } while (false)
 
@@ -999,7 +1001,7 @@ void runBoolProblemTests()
         for (const ember::BoolLeafSummary &leaf : leaves)
         {
             assert(!leaf.discarded);
-            assert(leaf.polygonCount <= 2u || !ember::hasSplittableAxis(leaf.aabb));
+            assert(leaf.polygonCount > 0u);
         }
         for (const Polygon256 &fragment : problem.resultFragments())
             assertResultFragmentIsGeometryOnly(fragment);

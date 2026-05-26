@@ -565,22 +565,31 @@ void finalizeSplitCostEstimate(SplitCostEstimate &cost) noexcept
     cost.imbalance = cost.maxChildCount - std::min(cost.leftCount, cost.rightCount);
 }
 
-void appendSplitCostEstimate(SplitCostEstimate &cost, const AABB3i &polygonBox, const AABBSplit3i &split) noexcept
+void appendSplitCostEstimate(SplitCostEstimate &cost, const Polygon256 &polygon, const AABBSplit3i &split)
 {
-    if (isValidAABB(polygonBox))
+    bool hasPositive = false;
+    bool hasNegative = false;
+    const std::size_t edgeCount = polygon.edgeCount();
+    for (std::size_t edgeIndex = 0; edgeIndex < edgeCount; ++edgeIndex)
     {
-        if (axisMaximum(polygonBox, split.axis) <= split.coordinate)
-        {
-            ++cost.leftCount;
-            return;
-        }
-        if (axisMinimum(polygonBox, split.axis) >= split.coordinate)
-        {
-            ++cost.rightCount;
-            return;
-        }
+        const PlanePoint3i &vertex = getPolygonVertex(polygon, edgeIndex);
+        const int side = vertex.classify(split.splitPlane);
+        if (side > 0)
+            hasPositive = true;
+        else if (side < 0)
+            hasNegative = true;
     }
 
+    if (!hasPositive)
+    {
+        ++cost.leftCount;
+        return;
+    }
+    if (!hasNegative)
+    {
+        ++cost.rightCount;
+        return;
+    }
     ++cost.leftCount;
     ++cost.rightCount;
     ++cost.splitCount;
@@ -596,9 +605,8 @@ void estimateSplitCostsFromPolygons(
 
     for (const Polygon256 &polygon : polygons)
     {
-        const AABB3i &polygonBox = polygon.aabb();
         for (std::size_t splitIndex = 0; splitIndex < splitCount; ++splitIndex)
-            appendSplitCostEstimate(outCosts[splitIndex], polygonBox, splits[splitIndex]);
+            appendSplitCostEstimate(outCosts[splitIndex], polygon, splits[splitIndex]);
     }
 
     for (std::size_t splitIndex = 0; splitIndex < splitCount; ++splitIndex)
@@ -618,6 +626,66 @@ bool isBetterSplitCost(
     if (candidateCost.imbalance != bestCost.imbalance)
         return candidateCost.imbalance < bestCost.imbalance;
     return candidateTieBreaker > bestTieBreaker;
+}
+
+bool chooseMidpointCostSplit(
+    const std::vector<Polygon256> &polygons,
+    const AABB3i &box,
+    AABBSplit3i &outSplit)
+{
+    REEMBER_PROFILE_ZONE("chooseMidpointCostSplit");
+
+    if (!isValidAABB(box))
+        return false;
+
+    bool hasCandidate = false;
+    AABBSplit3i bestSplit;
+    SplitCostEstimate bestCost;
+    Integer bestSpan = 0;
+    std::array<AABBSplit3i, 3> candidateSplits{};
+    std::array<Integer, 3> candidateSpans{};
+    std::size_t candidateCount = 0;
+    for (const SplitAxis3i axis : {
+                SplitAxis3i::X, SplitAxis3i::Y, SplitAxis3i::Z
+            })
+    {
+        const Integer span = detail::axisSpan(box, axis);
+        if (span <= 1)
+            continue;
+
+        AABBSplit3i candidate;
+        if (!splitAABBAtCoordinate(box, axis, axisMidpoint(box, axis), candidate))
+            continue;
+
+        candidateSplits[candidateCount] = candidate;
+        candidateSpans[candidateCount] = span;
+        ++candidateCount;
+    }
+
+    if (candidateCount == 0)
+        return false;
+
+    std::array<SplitCostEstimate, 3> candidateCosts{};
+    estimateSplitCostsFromPolygons(polygons, candidateSplits, candidateCount, candidateCosts);
+    for (std::size_t candidateIndex = 0; candidateIndex < candidateCount; ++candidateIndex)
+    {
+        const SplitCostEstimate &candidateCost = candidateCosts[candidateIndex];
+        const Integer &span = candidateSpans[candidateIndex];
+        if (!hasCandidate ||
+            isBetterSplitCost(candidateCost, span, bestCost, bestSpan))
+        {
+            hasCandidate = true;
+            bestCost = candidateCost;
+            bestSpan = span;
+            bestSplit = candidateSplits[candidateIndex];
+        }
+    }
+
+    if (!hasCandidate)
+        return false;
+
+    outSplit = bestSplit;
+    return true;
 }
 
 // 论文 4.5.3 策略：优先选能把某个 WNTV 类整体隔到单侧的轴向切分面。
@@ -810,22 +878,13 @@ bool chooseSubdivisionSplit(
 {
     REEMBER_PROFILE_ZONE("chooseSubdivisionSplit");
 
-    SubdivisionSplitStats splitStats;
-    const bool collectWntvGroups = !polygonScan.isSingleOperand;
-    const bool hasSplitStats = buildSubdivisionSplitStats(polygons, collectWntvGroups, splitStats);
+    // BSP/EMBER 的核心递归应尽量留在齐次符号域内。旧的 WNTV/center
+    // 启发式会为每个多边形 materialize 整数 AABB，并在热路径触发大量除法；
+    // 这里先只从当前节点整数 AABB 生成 midpoint 候选，再用齐次顶点符号估计
+    // 候选成本；后续再用齐次比较重建无除法的高阶启发式。
+    (void)polygonScan;
 
-    if (collectWntvGroups && hasSplitStats && chooseWntvAwareSplit(splitStats.wntvGroups, box, outSplit))
-    {
-        outStrategy = SubdivisionSplitStrategy::WntvAware;
-        return true;
-    }
-    if (hasSplitStats && chooseCenterRangeSplit(polygons, splitStats.centerStats, box, outSplit))
-    {
-        outStrategy = SubdivisionSplitStrategy::CenterRange;
-        return true;
-    }
-
-    if (splitAABBAtMidpoint(box, outSplit))
+    if (chooseMidpointCostSplit(polygons, box, outSplit))
     {
         outStrategy = SubdivisionSplitStrategy::Midpoint;
         return true;
@@ -879,26 +938,6 @@ bool classifySplitChildPolygonRoute(
     SplitPolygonRoute &route)
 {
     REEMBER_PROFILE_ZONE("appendSplitChildPolygons");
-
-    {
-        REEMBER_PROFILE_ZONE("appendSplitChildPolygons::aabbRoute");
-        const AABB3i &polygonBox = polygon.aabb();
-        if (isValidAABB(polygonBox))
-        {
-            if (axisMaximum(polygonBox, split.axis) <= split.coordinate)
-            {
-                REEMBER_PROFILE_ZONE("appendSplitChildPolygons::routeLeft");
-                route.kind = SplitPolygonRouteKind::LeftOriginal;
-                return true;
-            }
-            if (axisMinimum(polygonBox, split.axis) >= split.coordinate)
-            {
-                REEMBER_PROFILE_ZONE("appendSplitChildPolygons::routeRight");
-                route.kind = SplitPolygonRouteKind::RightOriginal;
-                return true;
-            }
-        }
-    }
 
     const Plane3i &splitPlane = split.splitPlane;
     bool hasPositive = false;
