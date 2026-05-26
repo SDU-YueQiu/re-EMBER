@@ -550,6 +550,25 @@ bool considerWntvSeparationCandidate(
     return true;
 }
 
+}
+
+enum class SplitPolygonRouteKind
+{
+    LeftOriginal,
+    RightOriginal,
+    Split
+};
+
+struct SplitPolygonRoute
+{
+    std::size_t sourceIndex = 0;
+    SplitPolygonRouteKind kind = SplitPolygonRouteKind::LeftOriginal;
+    std::vector<int> vertexSides;
+};
+
+namespace
+{
+
 struct SplitCostEstimate
 {
     std::size_t leftCount = 0;
@@ -564,6 +583,77 @@ void finalizeSplitCostEstimate(SplitCostEstimate &cost) noexcept
     cost.maxChildCount = std::max(cost.leftCount, cost.rightCount);
     cost.imbalance = cost.maxChildCount - std::min(cost.leftCount, cost.rightCount);
 }
+
+void appendSplitRouteCost(SplitCostEstimate &cost, SplitPolygonRouteKind kind) noexcept
+{
+    if (kind == SplitPolygonRouteKind::LeftOriginal)
+    {
+        ++cost.leftCount;
+        return;
+    }
+    if (kind == SplitPolygonRouteKind::RightOriginal)
+    {
+        ++cost.rightCount;
+        return;
+    }
+    ++cost.leftCount;
+    ++cost.rightCount;
+    ++cost.splitCount;
+}
+
+bool classifySplitChildPolygonRoute(
+    const Polygon256 &polygon,
+    const AABBSplit3i &split,
+    std::size_t sourceIndex,
+    SplitPolygonRoute &route)
+{
+    REEMBER_PROFILE_ZONE("appendSplitChildPolygons");
+
+    route = SplitPolygonRoute();
+    route.sourceIndex = sourceIndex;
+    bool hasPositive = false;
+    bool hasNegative = false;
+    const std::size_t edgeCount = polygon.edgeCount();
+    std::vector<int> vertexSides;
+    vertexSides.resize(edgeCount);
+    {
+        REEMBER_PROFILE_ZONE("appendSplitChildPolygons::vertexSideScan");
+        const Plane3i &splitPlane = split.splitPlane;
+        for (std::size_t edgeIndex = 0; edgeIndex < edgeCount; ++edgeIndex)
+        {
+            const PlanePoint3i &vertex = getPolygonVertex(polygon, edgeIndex);
+            const int side = vertex.classify(splitPlane);
+            vertexSides[edgeIndex] = side;
+            if (side > 0)
+                hasPositive = true;
+            else if (side < 0)
+                hasNegative = true;
+        }
+    }
+
+    if (!hasPositive)
+    {
+        REEMBER_PROFILE_ZONE("appendSplitChildPolygons::scanRouteLeft");
+        route.kind = SplitPolygonRouteKind::LeftOriginal;
+        return true;
+    }
+    if (!hasNegative)
+    {
+        REEMBER_PROFILE_ZONE("appendSplitChildPolygons::scanRouteRight");
+        route.kind = SplitPolygonRouteKind::RightOriginal;
+        return true;
+    }
+
+    route.kind = SplitPolygonRouteKind::Split;
+    route.vertexSides = std::move(vertexSides);
+    return true;
+}
+
+struct SplitEvaluation
+{
+    SplitCostEstimate cost;
+    std::vector<SplitPolygonRoute> routes;
+};
 
 void appendSplitCostEstimate(SplitCostEstimate &cost, const Polygon256 &polygon, const AABBSplit3i &split)
 {
@@ -631,7 +721,8 @@ bool isBetterSplitCost(
 bool chooseMidpointCostSplit(
     const std::vector<Polygon256> &polygons,
     const AABB3i &box,
-    AABBSplit3i &outSplit)
+    AABBSplit3i &outSplit,
+    std::vector<SplitPolygonRoute> &outRoutes)
 {
     REEMBER_PROFILE_ZONE("chooseMidpointCostSplit");
 
@@ -641,6 +732,7 @@ bool chooseMidpointCostSplit(
     bool hasCandidate = false;
     AABBSplit3i bestSplit;
     SplitCostEstimate bestCost;
+    std::vector<SplitPolygonRoute> bestRoutes;
     Integer bestSpan = 0;
     std::array<AABBSplit3i, 3> candidateSplits{};
     std::array<Integer, 3> candidateSpans{};
@@ -665,11 +757,32 @@ bool chooseMidpointCostSplit(
     if (candidateCount == 0)
         return false;
 
-    std::array<SplitCostEstimate, 3> candidateCosts{};
-    estimateSplitCostsFromPolygons(polygons, candidateSplits, candidateCount, candidateCosts);
+    std::array<SplitEvaluation, 3> candidateEvaluations;
+    for (std::size_t candidateIndex = 0; candidateIndex < candidateCount; ++candidateIndex)
+        candidateEvaluations[candidateIndex].routes.reserve(polygons.size());
+
+    for (std::size_t polygonIndex = 0; polygonIndex < polygons.size(); ++polygonIndex)
+    {
+        for (std::size_t candidateIndex = 0; candidateIndex < candidateCount; ++candidateIndex)
+        {
+            SplitPolygonRoute route;
+            if (!classifySplitChildPolygonRoute(
+                        polygons[polygonIndex],
+                        candidateSplits[candidateIndex],
+                        polygonIndex,
+                        route))
+                return false;
+            appendSplitRouteCost(candidateEvaluations[candidateIndex].cost, route.kind);
+            candidateEvaluations[candidateIndex].routes.push_back(std::move(route));
+        }
+    }
+
+    for (std::size_t candidateIndex = 0; candidateIndex < candidateCount; ++candidateIndex)
+        finalizeSplitCostEstimate(candidateEvaluations[candidateIndex].cost);
+
     for (std::size_t candidateIndex = 0; candidateIndex < candidateCount; ++candidateIndex)
     {
-        const SplitCostEstimate &candidateCost = candidateCosts[candidateIndex];
+        const SplitCostEstimate &candidateCost = candidateEvaluations[candidateIndex].cost;
         const Integer &span = candidateSpans[candidateIndex];
         if (!hasCandidate ||
             isBetterSplitCost(candidateCost, span, bestCost, bestSpan))
@@ -678,6 +791,7 @@ bool chooseMidpointCostSplit(
             bestCost = candidateCost;
             bestSpan = span;
             bestSplit = candidateSplits[candidateIndex];
+            bestRoutes = std::move(candidateEvaluations[candidateIndex].routes);
         }
     }
 
@@ -685,6 +799,7 @@ bool chooseMidpointCostSplit(
         return false;
 
     outSplit = bestSplit;
+    outRoutes = std::move(bestRoutes);
     return true;
 }
 
@@ -874,7 +989,8 @@ bool chooseSubdivisionSplit(
     const BinaryPolygonScanSummary &polygonScan,
     const AABB3i &box,
     AABBSplit3i &outSplit,
-    SubdivisionSplitStrategy &outStrategy)
+    SubdivisionSplitStrategy &outStrategy,
+    std::vector<SplitPolygonRoute> &outRoutes)
 {
     REEMBER_PROFILE_ZONE("chooseSubdivisionSplit");
 
@@ -884,7 +1000,7 @@ bool chooseSubdivisionSplit(
     // 候选成本；后续再用齐次比较重建无除法的高阶启发式。
     (void)polygonScan;
 
-    if (chooseMidpointCostSplit(polygons, box, outSplit))
+    if (chooseMidpointCostSplit(polygons, box, outSplit, outRoutes))
     {
         outStrategy = SubdivisionSplitStrategy::Midpoint;
         return true;
@@ -892,20 +1008,6 @@ bool chooseSubdivisionSplit(
 
     return false;
 }
-
-enum class SplitPolygonRouteKind
-{
-    LeftOriginal,
-    RightOriginal,
-    Split
-};
-
-struct SplitPolygonRoute
-{
-    std::size_t sourceIndex = 0;
-    SplitPolygonRouteKind kind = SplitPolygonRouteKind::LeftOriginal;
-    std::vector<int> vertexSides;
-};
 
 struct SplitChildMetadata
 {
@@ -932,54 +1034,9 @@ void appendChildMetadata(SplitChildMetadata &metadata, const Plane3i &supportPla
     appendWntvToBinaryPolygonScan(metadata.scan, wntv);
 }
 
-bool classifySplitChildPolygonRoute(
-    const Polygon256 &polygon,
-    const AABBSplit3i &split,
-    SplitPolygonRoute &route)
-{
-    REEMBER_PROFILE_ZONE("appendSplitChildPolygons");
-
-    const Plane3i &splitPlane = split.splitPlane;
-    bool hasPositive = false;
-    bool hasNegative = false;
-    const std::size_t edgeCount = polygon.edgeCount();
-    std::vector<int> vertexSides;
-    vertexSides.resize(edgeCount);
-    {
-        REEMBER_PROFILE_ZONE("appendSplitChildPolygons::vertexSideScan");
-        for (std::size_t edgeIndex = 0; edgeIndex < edgeCount; ++edgeIndex)
-        {
-            const PlanePoint3i &vertex = getPolygonVertex(polygon, edgeIndex);
-            const int side = vertex.classify(splitPlane);
-            vertexSides[edgeIndex] = side;
-            if (side > 0)
-                hasPositive = true;
-            else if (side < 0)
-                hasNegative = true;
-        }
-    }
-
-    if (!hasPositive)
-    {
-        REEMBER_PROFILE_ZONE("appendSplitChildPolygons::scanRouteLeft");
-        route.kind = SplitPolygonRouteKind::LeftOriginal;
-        return true;
-    }
-    if (!hasNegative)
-    {
-        REEMBER_PROFILE_ZONE("appendSplitChildPolygons::scanRouteRight");
-        route.kind = SplitPolygonRouteKind::RightOriginal;
-        return true;
-    }
-
-    route.kind = SplitPolygonRouteKind::Split;
-    route.vertexSides = std::move(vertexSides);
-    return true;
-}
-
 bool buildSplitChildPolygonPlan(
     const std::vector<Polygon256> &polygons,
-    const AABBSplit3i &split,
+    std::vector<SplitPolygonRoute> routes,
     SplitChildPolygonPlan &plan)
 {
     REEMBER_PROFILE_ZONE("SubdivisionSolver::buildSplitChildPolygonPlan");
@@ -991,24 +1048,25 @@ bool buildSplitChildPolygonPlan(
     plan.left.supportPlanes.reserve(polygons.size());
     plan.right.supportPlanes.reserve(polygons.size());
 
-    for (std::size_t i = 0; i < polygons.size(); ++i)
+    if (routes.size() != polygons.size())
+        return false;
+
+    for (SplitPolygonRoute &route : routes)
     {
-        SplitPolygonRoute route;
-        route.sourceIndex = i;
-        if (!classifySplitChildPolygonRoute(polygons[i], split, route))
+        if (route.sourceIndex >= polygons.size())
             return false;
 
         switch (route.kind)
         {
         case SplitPolygonRouteKind::LeftOriginal:
-            appendChildMetadata(plan.left, polygons[i]);
+            appendChildMetadata(plan.left, polygons[route.sourceIndex]);
             break;
         case SplitPolygonRouteKind::RightOriginal:
-            appendChildMetadata(plan.right, polygons[i]);
+            appendChildMetadata(plan.right, polygons[route.sourceIndex]);
             break;
         case SplitPolygonRouteKind::Split:
-            appendChildMetadata(plan.left, polygons[i].plane, polygons[i].WNTV);
-            appendChildMetadata(plan.right, polygons[i].plane, polygons[i].WNTV);
+            appendChildMetadata(plan.left, polygons[route.sourceIndex].plane, polygons[route.sourceIndex].WNTV);
+            appendChildMetadata(plan.right, polygons[route.sourceIndex].plane, polygons[route.sourceIndex].WNTV);
             break;
         }
 
@@ -1591,8 +1649,9 @@ void SubdivisionSolver::solveRecursive()
         return;
 
     AABBSplit3i split;
+    std::vector<SplitPolygonRoute> splitRoutes;
     SubdivisionSplitStrategy splitStrategy = SubdivisionSplitStrategy::Midpoint;
-    if (!chooseSubdivisionSplit(polygons_, polygonScan_, aabb_, split, splitStrategy))
+    if (!chooseSubdivisionSplit(polygons_, polygonScan_, aabb_, split, splitStrategy, splitRoutes))
     {
         REEMBER_PROFILE_ZONE("SubdivisionSolver::stopBySplitFailure");
         ++solveMetrics_.splitFailureStopCount;
@@ -1603,7 +1662,7 @@ void SubdivisionSolver::solveRecursive()
     recordSplitStrategyMetrics(solveMetrics_, splitStrategy);
 
     splitPlane_ = split.splitPlane;
-    if (!createChildrenFromSplit(split))
+    if (!createChildrenFromSplit(split, std::move(splitRoutes)))
     {
         std::ostringstream message;
         message << "Failed to create child subdivision references depth=" << depth_
@@ -1654,12 +1713,14 @@ SubdivisionSolver::SingleOperandAssumptionPolicy SubdivisionSolver::buildSingleO
 }
 
 // 裁剪当前多边形集合到左右子 AABB，并为每个非空子问题建立参考状态。
-bool SubdivisionSolver::createChildrenFromSplit(const AABBSplit3i &split)
+bool SubdivisionSolver::createChildrenFromSplit(
+    const AABBSplit3i &split,
+    std::vector<SplitPolygonRoute> splitRoutes)
 {
     REEMBER_PROFILE_ZONE("SubdivisionSolver::createChildrenFromSplit");
 
     SplitChildPolygonPlan splitPlan;
-    if (!buildSplitChildPolygonPlan(polygons_, split, splitPlan))
+    if (!buildSplitChildPolygonPlan(polygons_, std::move(splitRoutes), splitPlan))
         return false;
 
     const bool hasLeftPolygons = !splitPlan.left.supportPlanes.empty();
