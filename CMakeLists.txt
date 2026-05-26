@@ -131,6 +131,7 @@ set(REEMBER_LIBRARY_HEADERS
   "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/aabb.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/clipping.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/geometry256.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/plane_palette.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/plane_geometry256.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/geometry/polygon_ops.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/io/io.h"
