@@ -82,6 +82,15 @@ build\verify\re-EMBER_verify.exe --lhs assets\models\workpiece_block.obj --rhs a
 
 The oracle is exact over the quantized `Polygon256` input used by re-EMBER. It does not claim to validate the original floating OBJ/STL CAD intent before import and quantization. Oracle Nef files are cached under `build\oracle_cache\nef\` by default; pass `--refresh-oracle` to rebuild a cached entry. `--candidate-mode fragments-nef|export-conforming|export-nef` selects whether the candidate is compared from result fragments, from the conforming export topology, or from the Nef export topology path; this does not change the oracle cache key. The default `fragments-nef` candidate reuses the exact conforming mesh recovery before constructing CGAL Nef, avoiding the older quadratic Nef-side T-junction refinement. Before falling back to CGAL Nef overlay, the verifier first compares simple candidate/oracle Nef surfaces as exact vertices and face cycles; `surface_compare_used=1` in the report means this exact surface check proved equality without running the final overlay. Pass `--disable-surface-compare` to force the older overlay-only comparison.
 
+The verifier also has a batch mode that is independent from the performance script:
+
+```powershell
+build\verify\re-EMBER_verify.exe --batch-input-root tests\paper_experiments\inputs\small --op difference --batch-out-dir build\verify_batch_small
+build\verify\re-EMBER_verify.exe --batch-manifest tests\paper_experiments\manifest.csv --batch-out-dir build\verify_batch_manifest
+```
+
+`--batch-input-root` scans case subdirectories that each contain exactly one `lhs.obj|stl` and one `rhs.obj|stl`, using the global `--op`. `--batch-manifest` accepts either `name,lhs,rhs,op` or the paper manifest columns `pair_id,lhs_path,rhs_path,operation`. Batch output contains `verification.csv`, `batch_report.txt`, `cache/*.candidate.txt`, and `reports/*.report.txt`. `--batch-size` defaults to the CPU logical-thread count and must be in `1..CPU logical-thread count`; larger values are rejected. Within each batch, solve/cache runs workload by workload in manifest order, while each workload can still use the full `--threads` setting internally. After candidate caches are written, CGAL comparison runs in parallel across workloads in that batch.
+
 For CGAL Nef failures, `--diagnose-nef` prints exact mesh topology statistics before and after Nef construction. Pair it with `--nef-compare-op skip` to avoid the final CGAL overlay, or with `equal` / `candidate-minus-oracle` / `oracle-minus-candidate` / `xor` to isolate which Nef comparison operation stalls or fails. This diagnostic path can be slow and is intended for correctness investigation, not performance timing.
 
 ## CLI options
@@ -104,7 +113,7 @@ Application-layer parallelism uses the same `--threads` limit for coarse left/ri
 
 - `-Lhs` / `-Rhs` and `-Op` run one explicit boolean workload.
 - `-InputRoot` runs a batch of cases from a directory tree.
-- `-UsePaperExperimentSet` builds a manifest-driven paper batch under the current run directory. The checked-in paper corpus contains 100 workloads: 34 small, 33 medium, and 33 large. The default quick batch still selects 10 small, 10 medium, and 2 large workloads; pass `-PaperSmallCount 34 -PaperMediumCount 33 -PaperLargeCount 33` for a full-corpus run.
+- `-UsePaperExperimentSet` builds a manifest-driven paper batch under the current run directory. The checked-in paper corpus contains 100 workloads: 23 small, 43 medium, and 34 large. The default quick batch still selects 10 small, 10 medium, and 2 large workloads; pass `-PaperSmallCount 23 -PaperMediumCount 43 -PaperLargeCount 34` for a full-corpus run.
 - `-Out` writes a single-workload result file.
 - `-ExecutablePath` reuses an existing `re-EMBER.exe` instead of rebuilding.
 - `-Configuration` chooses the profiling build type. Timing-only `-NoTracy` runs default to `Release`; Tracy runs default to `RelWithDebInfo`.
@@ -114,10 +123,9 @@ Application-layer parallelism uses the same `--threads` limit for coarse left/ri
 - `-EnableMathTracy` also enables low-level `math256` Tracy zones and uses `build\profile_clang_tracy_math\`.
 - `-SkipBuild` reuses an already prepared profiling tree.
 - `-UnwrapZoneFilter` exports per-event CSVs for selected hotspot zones.
-- `-VerifyWithOracle` runs `re-EMBER_verify` once per workload after timed iterations and writes `verification.csv`; verifier time is not included in `timings.csv`.
 - `-WorkloadPriority`, `-UsePCores`, and `-WorkloadAffinityMask` control workload scheduling.
 
-The script writes `build\performance\run_<timestamp>\` with `summary.txt`, `timings.csv`, `manifest.json`, `profile.log`, `report.md`, `tracy_zones.csv`, `tracy_zones_self.csv`, optional `verification.csv`, and optional `tracy_unwrap\*.csv`.
+The script only measures timing/profiling; use `re-EMBER_verify` directly for oracle checks. It writes `build\performance\run_<timestamp>\` with `summary.txt`, `timings.csv`, `manifest.json`, `profile.log`, `report.md`, `tracy_zones.csv`, `tracy_zones_self.csv`, and optional `tracy_unwrap\*.csv`.
 
 ## Notes
 

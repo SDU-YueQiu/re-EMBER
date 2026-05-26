@@ -16,19 +16,24 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
-#include <map>
+#include <future>
 #include <iomanip>
 #include <iostream>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -40,6 +45,7 @@ using Clock = std::chrono::steady_clock;
 using NefPolyhedron = ember::app::NefPolyhedron;
 
 constexpr const char *kOracleSchema = "re-EMBER-nef-oracle-v1";
+constexpr const char *kCandidateCacheSchema = "re-EMBER-verify-candidate-cache-v1";
 
 enum class CandidateMode
 {
@@ -62,6 +68,7 @@ struct VerifyOptions
     std::string lhsPath;
     std::string rhsPath;
     BoolOp operation = BoolOp::Intersection;
+    bool operationExplicit = false;
     std::optional<std::uint64_t> scale;
     std::size_t leafThreshold = ember::kDefaultLeafPolygonThreshold;
     std::size_t threadCount = 0;
@@ -78,6 +85,54 @@ struct VerifyOptions
     std::filesystem::path inputDumpPath;
     std::filesystem::path chunkDumpPath;
     std::filesystem::path fragmentDumpPath;
+    std::filesystem::path batchInputRoot;
+    std::filesystem::path batchManifest;
+    std::filesystem::path batchOutDir;
+    std::size_t batchSize = 0;
+};
+
+struct BatchWorkload
+{
+    std::string name;
+    std::string lhsPath;
+    std::string rhsPath;
+    BoolOp operation = BoolOp::Intersection;
+};
+
+struct CandidateCacheData
+{
+    BatchWorkload workload;
+    CandidateMode candidateMode = CandidateMode::FragmentsNef;
+    std::optional<std::uint64_t> explicitScale;
+    std::string oracleKey;
+    std::uint64_t sharedScale = 0;
+    std::size_t lhsPolygons = 0;
+    std::size_t rhsPolygons = 0;
+    std::size_t resultFragments = 0;
+    double prepareMs = 0.0;
+    double solveMs = 0.0;
+    ember::ExactMeshData candidateMesh;
+};
+
+struct BatchVerificationRow
+{
+    std::string workload;
+    bool passed = false;
+    std::string error;
+    std::filesystem::path cachePath;
+    std::filesystem::path reportPath;
+    std::string oracleKey;
+    std::filesystem::path oraclePath;
+    bool cacheHit = false;
+    std::uint64_t sharedScale = 0;
+    std::size_t lhsPolygons = 0;
+    std::size_t rhsPolygons = 0;
+    std::size_t resultFragments = 0;
+    double prepareMs = 0.0;
+    double solveMs = 0.0;
+    double oracleMs = 0.0;
+    double compareMs = 0.0;
+    bool surfaceCompareUsed = false;
 };
 
 struct PreparedProblem
@@ -120,7 +175,7 @@ void printUsage()
             << "Usage: re-EMBER_verify --lhs <file.obj|file.stl> --rhs <file.obj|file.stl> "
             << "--op union|intersection|difference "
             << "[--scale <positive_integer>] [--leaf-threshold <positive_integer>] "
-            << "[--threads <positive_integer>] "
+            << "[--threads <nonnegative_integer>] "
             << "[--assume-lhs-nsi] [--assume-lhs-nnc] "
             << "[--assume-rhs-nsi] [--assume-rhs-nnc] "
             << "[--candidate-mode fragments-nef|export-conforming|export-nef] "
@@ -130,6 +185,9 @@ void printUsage()
             << "[--report-out <file>] [--diff-out <file.obj|file.stl>] "
             << "[--input-dump-out <file.csv>] "
             << "[--chunk-dump-out <file.csv>] [--fragment-dump-out <file.csv>]"
+            << "\n       re-EMBER_verify (--batch-input-root <dir>|--batch-manifest <csv>) "
+            << "--batch-out-dir <dir> [--op union|intersection|difference] "
+            << "[--batch-size <positive_integer>] [single-workload options except dump/diff outputs]"
             << std::endl;
 }
 
@@ -140,6 +198,24 @@ bool parsePositiveUInt64(const std::string &token, std::uint64_t &outValue)
         std::size_t consumed = 0;
         const unsigned long long parsed = std::stoull(token, &consumed, 10);
         if (consumed != token.size() || parsed == 0)
+            return false;
+
+        outValue = static_cast<std::uint64_t>(parsed);
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
+bool parseNonNegativeUInt64(const std::string &token, std::uint64_t &outValue)
+{
+    try
+    {
+        std::size_t consumed = 0;
+        const unsigned long long parsed = std::stoull(token, &consumed, 10);
+        if (consumed != token.size())
             return false;
 
         outValue = static_cast<std::uint64_t>(parsed);
@@ -285,7 +361,9 @@ bool parseArgs(int argc, char **argv, VerifyOptions &outOptions)
                 arg == "--scale" || arg == "--leaf-threshold" || arg == "--threads" ||
                 arg == "--candidate-mode" || arg == "--oracle-cache-dir" ||
                 arg == "--nef-compare-op" || arg == "--report-out" || arg == "--diff-out" ||
-                arg == "--input-dump-out" || arg == "--chunk-dump-out" || arg == "--fragment-dump-out")
+                arg == "--input-dump-out" || arg == "--chunk-dump-out" || arg == "--fragment-dump-out" ||
+                arg == "--batch-input-root" || arg == "--batch-manifest" ||
+                arg == "--batch-out-dir" || arg == "--batch-size")
         {
             if (i + 1 >= argc)
             {
@@ -306,6 +384,7 @@ bool parseArgs(int argc, char **argv, VerifyOptions &outOptions)
                     return false;
                 }
                 hasOperation = true;
+                outOptions.operationExplicit = true;
             }
             else if (arg == "--scale")
             {
@@ -330,12 +409,22 @@ bool parseArgs(int argc, char **argv, VerifyOptions &outOptions)
             else if (arg == "--threads")
             {
                 std::uint64_t threadCountValue = 0;
-                if (!parsePositiveUInt64(value, threadCountValue))
+                if (!parseNonNegativeUInt64(value, threadCountValue))
                 {
-                    std::cerr << "Thread count must be a positive integer." << std::endl;
+                    std::cerr << "Thread count must be 0 or a positive integer." << std::endl;
                     return false;
                 }
                 outOptions.threadCount = static_cast<std::size_t>(threadCountValue);
+            }
+            else if (arg == "--batch-size")
+            {
+                std::uint64_t batchSizeValue = 0;
+                if (!parsePositiveUInt64(value, batchSizeValue))
+                {
+                    std::cerr << "Batch size must be a positive integer." << std::endl;
+                    return false;
+                }
+                outOptions.batchSize = static_cast<std::size_t>(batchSizeValue);
             }
             else if (arg == "--oracle-cache-dir")
                 outOptions.oracleCacheDir = value;
@@ -365,6 +454,12 @@ bool parseArgs(int argc, char **argv, VerifyOptions &outOptions)
                 outOptions.chunkDumpPath = value;
             else if (arg == "--fragment-dump-out")
                 outOptions.fragmentDumpPath = value;
+            else if (arg == "--batch-input-root")
+                outOptions.batchInputRoot = value;
+            else if (arg == "--batch-manifest")
+                outOptions.batchManifest = value;
+            else if (arg == "--batch-out-dir")
+                outOptions.batchOutDir = value;
 
             continue;
         }
@@ -409,7 +504,38 @@ bool parseArgs(int argc, char **argv, VerifyOptions &outOptions)
         return false;
     }
 
-    if (outOptions.lhsPath.empty() || outOptions.rhsPath.empty() || !hasOperation)
+    const bool isBatchMode = !outOptions.batchInputRoot.empty() || !outOptions.batchManifest.empty();
+    if (isBatchMode)
+    {
+        if (!outOptions.lhsPath.empty() || !outOptions.rhsPath.empty())
+        {
+            std::cerr << "Batch mode cannot be combined with --lhs/--rhs." << std::endl;
+            return false;
+        }
+        if (!outOptions.reportPath.empty() || !outOptions.diffOutPath.empty() ||
+                !outOptions.inputDumpPath.empty() || !outOptions.chunkDumpPath.empty() ||
+                !outOptions.fragmentDumpPath.empty())
+        {
+            std::cerr << "Batch mode writes reports under --batch-out-dir and cannot use single-workload output paths." << std::endl;
+            return false;
+        }
+        if (!outOptions.batchInputRoot.empty() && !outOptions.batchManifest.empty())
+        {
+            std::cerr << "Use only one of --batch-input-root or --batch-manifest." << std::endl;
+            return false;
+        }
+        if (outOptions.batchOutDir.empty())
+        {
+            std::cerr << "Batch mode requires --batch-out-dir." << std::endl;
+            return false;
+        }
+        if (!outOptions.batchInputRoot.empty() && !hasOperation)
+        {
+            std::cerr << "--batch-input-root requires a global --op." << std::endl;
+            return false;
+        }
+    }
+    else if (outOptions.lhsPath.empty() || outOptions.rhsPath.empty() || !hasOperation)
     {
         std::cerr << "Missing required arguments." << std::endl;
         return false;
@@ -428,6 +554,251 @@ bool parseArgs(int argc, char **argv, VerifyOptions &outOptions)
     }
 
     return true;
+}
+
+std::size_t hardwareThreadCount()
+{
+    const unsigned int count = std::thread::hardware_concurrency();
+    return count == 0 ? 1u : static_cast<std::size_t>(count);
+}
+
+std::string trim(std::string value)
+{
+    auto isSpace = [](unsigned char ch)
+    {
+        return std::isspace(ch) != 0;
+    };
+    value.erase(value.begin(), std::find_if(value.begin(), value.end(), [&](char ch)
+    {
+        return !isSpace(static_cast<unsigned char>(ch));
+    }));
+    value.erase(std::find_if(value.rbegin(), value.rend(), [&](char ch)
+    {
+        return !isSpace(static_cast<unsigned char>(ch));
+    }).base(), value.end());
+    return value;
+}
+
+std::vector<std::string> parseCsvLine(const std::string &line)
+{
+    std::vector<std::string> fields;
+    std::string field;
+    bool inQuotes = false;
+    for (std::size_t i = 0; i < line.size(); ++i)
+    {
+        const char ch = line[i];
+        if (inQuotes)
+        {
+            if (ch == '"' && i + 1u < line.size() && line[i + 1u] == '"')
+            {
+                field.push_back('"');
+                ++i;
+            }
+            else if (ch == '"')
+            {
+                inQuotes = false;
+            }
+            else
+            {
+                field.push_back(ch);
+            }
+            continue;
+        }
+
+        if (ch == '"')
+        {
+            inQuotes = true;
+        }
+        else if (ch == ',')
+        {
+            fields.push_back(trim(field));
+            field.clear();
+        }
+        else
+        {
+            field.push_back(ch);
+        }
+    }
+    fields.push_back(trim(field));
+    return fields;
+}
+
+std::string sanitizeFileStem(const std::string &name)
+{
+    std::string result;
+    result.reserve(name.size());
+    for (char ch : name)
+    {
+        const unsigned char byte = static_cast<unsigned char>(ch);
+        if (std::isalnum(byte) || ch == '-' || ch == '_' || ch == '.')
+            result.push_back(ch);
+        else
+            result.push_back('_');
+    }
+    return result.empty() ? std::string("workload") : result;
+}
+
+std::string csvEscape(const std::string &value)
+{
+    bool needsQuotes = value.find_first_of(",\"\r\n") != std::string::npos;
+    if (!needsQuotes)
+        return value;
+
+    std::string escaped;
+    escaped.reserve(value.size() + 2u);
+    escaped.push_back('"');
+    for (char ch : value)
+    {
+        if (ch == '"')
+            escaped.push_back('"');
+        escaped.push_back(ch);
+    }
+    escaped.push_back('"');
+    return escaped;
+}
+
+std::filesystem::path resolveExistingPath(const std::filesystem::path &base, const std::string &pathText)
+{
+    std::filesystem::path path(pathText);
+    if (path.is_relative())
+        path = base / path;
+    return std::filesystem::weakly_canonical(path);
+}
+
+std::optional<std::size_t> findColumn(
+    const std::map<std::string, std::size_t> &columns,
+    const std::string &primary,
+    const std::string &fallback = std::string())
+{
+    const auto primaryIt = columns.find(primary);
+    if (primaryIt != columns.end())
+        return primaryIt->second;
+    if (!fallback.empty())
+    {
+        const auto fallbackIt = columns.find(fallback);
+        if (fallbackIt != columns.end())
+            return fallbackIt->second;
+    }
+    return std::nullopt;
+}
+
+std::string fieldAt(const std::vector<std::string> &fields, std::size_t index)
+{
+    return index < fields.size() ? fields[index] : std::string();
+}
+
+std::filesystem::path resolveBatchMeshPath(const std::filesystem::path &caseDir, const char *stem)
+{
+    std::vector<std::filesystem::path> matches;
+    for (const char *extension : {".obj", ".stl"})
+    {
+        const std::filesystem::path candidate = caseDir / (std::string(stem) + extension);
+        if (std::filesystem::exists(candidate))
+            matches.push_back(std::filesystem::weakly_canonical(candidate));
+    }
+
+    if (matches.empty())
+        throw std::runtime_error("Batch case is missing " + std::string(stem) + ".obj or " + stem + ".stl: " + caseDir.string());
+    if (matches.size() > 1u)
+        throw std::runtime_error("Batch case contains multiple " + std::string(stem) + " inputs: " + caseDir.string());
+    return matches.front();
+}
+
+std::vector<BatchWorkload> loadBatchInputRootWorkloads(const VerifyOptions &options)
+{
+    std::vector<BatchWorkload> workloads;
+    const std::filesystem::path root = std::filesystem::weakly_canonical(options.batchInputRoot);
+    if (!std::filesystem::is_directory(root))
+        throw std::runtime_error("Batch input root is not a directory: " + root.string());
+
+    std::vector<std::filesystem::path> caseDirs;
+    for (const std::filesystem::directory_entry &entry : std::filesystem::directory_iterator(root))
+    {
+        if (entry.is_directory())
+            caseDirs.push_back(entry.path());
+    }
+    std::sort(caseDirs.begin(), caseDirs.end());
+    if (caseDirs.empty())
+        throw std::runtime_error("Batch input root contains no case subdirectories: " + root.string());
+
+    for (const std::filesystem::path &caseDir : caseDirs)
+    {
+        BatchWorkload workload;
+        workload.name = caseDir.filename().string();
+        workload.lhsPath = resolveBatchMeshPath(caseDir, "lhs").string();
+        workload.rhsPath = resolveBatchMeshPath(caseDir, "rhs").string();
+        workload.operation = options.operation;
+        workloads.push_back(std::move(workload));
+    }
+    return workloads;
+}
+
+std::vector<BatchWorkload> loadBatchManifestWorkloads(const VerifyOptions &options)
+{
+    std::vector<BatchWorkload> workloads;
+    const std::filesystem::path manifestPath = std::filesystem::weakly_canonical(options.batchManifest);
+    std::ifstream input(manifestPath);
+    if (!input)
+        throw std::runtime_error("Failed to open batch manifest: " + manifestPath.string());
+
+    std::string headerLine;
+    if (!std::getline(input, headerLine))
+        throw std::runtime_error("Batch manifest is empty: " + manifestPath.string());
+    if (!headerLine.empty() && headerLine.back() == '\r')
+        headerLine.pop_back();
+
+    const std::vector<std::string> headers = parseCsvLine(headerLine);
+    std::map<std::string, std::size_t> columns;
+    for (std::size_t i = 0; i < headers.size(); ++i)
+        columns.emplace(headers[i], i);
+
+    const std::optional<std::size_t> nameColumn = findColumn(columns, "name", "pair_id");
+    const std::optional<std::size_t> lhsColumn = findColumn(columns, "lhs", "lhs_path");
+    const std::optional<std::size_t> rhsColumn = findColumn(columns, "rhs", "rhs_path");
+    const std::optional<std::size_t> opColumn = findColumn(columns, "op", "operation");
+    if (!nameColumn || !lhsColumn || !rhsColumn)
+        throw std::runtime_error("Batch manifest must contain name,lhs,rhs or pair_id,lhs_path,rhs_path columns.");
+    if (!opColumn && !options.operationExplicit)
+        throw std::runtime_error("Batch manifest must contain op/operation or be used with a global --op.");
+
+    const std::filesystem::path base = manifestPath.parent_path();
+    std::string line;
+    std::size_t rowNumber = 1;
+    while (std::getline(input, line))
+    {
+        ++rowNumber;
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        if (trim(line).empty())
+            continue;
+
+        const std::vector<std::string> fields = parseCsvLine(line);
+        BatchWorkload workload;
+        workload.name = fieldAt(fields, *nameColumn);
+        workload.lhsPath = resolveExistingPath(base, fieldAt(fields, *lhsColumn)).string();
+        workload.rhsPath = resolveExistingPath(base, fieldAt(fields, *rhsColumn)).string();
+        if (workload.name.empty() || workload.lhsPath.empty() || workload.rhsPath.empty())
+            throw std::runtime_error("Batch manifest row has an empty name/lhs/rhs field at line " + std::to_string(rowNumber));
+
+        std::string opText = opColumn ? fieldAt(fields, *opColumn) : std::string();
+        if (opText.empty())
+            workload.operation = options.operation;
+        else if (!parseBoolOp(opText, workload.operation))
+            throw std::runtime_error("Unsupported boolean operation in batch manifest at line " + std::to_string(rowNumber) + ": " + opText);
+
+        workloads.push_back(std::move(workload));
+    }
+
+    if (workloads.empty())
+        throw std::runtime_error("Batch manifest contains no workloads: " + manifestPath.string());
+    return workloads;
+}
+
+std::vector<BatchWorkload> loadBatchWorkloads(const VerifyOptions &options)
+{
+    if (!options.batchInputRoot.empty())
+        return loadBatchInputRootWorkloads(options);
+    return loadBatchManifestWorkloads(options);
 }
 
 PreparedProblem prepareProblem(const VerifyOptions &options)
@@ -513,6 +884,80 @@ std::string homPointKey(const ember::HomPoint4i &point)
            ember::integerToString(primitive.y) + "/" +
            ember::integerToString(primitive.z) + "/" +
            ember::integerToString(primitive.w);
+}
+
+ember::Integer parseIntegerToken(const std::string &text)
+{
+    if (text.empty())
+        throw std::runtime_error("Candidate cache contains an empty integer token.");
+
+    bool negative = false;
+    std::size_t offset = 0;
+    if (text[0] == '-')
+    {
+        negative = true;
+        offset = 1;
+    }
+    if (offset == text.size())
+        throw std::runtime_error("Candidate cache contains an invalid integer token.");
+
+    ember::Integer value = 0;
+    for (std::size_t i = offset; i < text.size(); ++i)
+    {
+        if (text[i] < '0' || text[i] > '9')
+            throw std::runtime_error("Candidate cache contains an invalid integer token: " + text);
+        value = value * ember::Integer(10) + ember::Integer(text[i] - '0');
+    }
+    return negative ? -value : value;
+}
+
+void writeIntegerToken(std::ostream &output, const ember::Integer &value)
+{
+    output << ember::integerToString(value);
+}
+
+void writePlaneToken(std::ostream &output, const ember::Plane3i &plane)
+{
+    writeIntegerToken(output, plane.a);
+    output << ' ';
+    writeIntegerToken(output, plane.b);
+    output << ' ';
+    writeIntegerToken(output, plane.c);
+    output << ' ';
+    writeIntegerToken(output, plane.d);
+}
+
+void writeHomPointToken(std::ostream &output, const ember::HomPoint4i &point)
+{
+    writeIntegerToken(output, point.x);
+    output << ' ';
+    writeIntegerToken(output, point.y);
+    output << ' ';
+    writeIntegerToken(output, point.z);
+    output << ' ';
+    writeIntegerToken(output, point.w);
+}
+
+ember::Plane3i readPlaneToken(std::istream &input)
+{
+    std::string a;
+    std::string b;
+    std::string c;
+    std::string d;
+    if (!(input >> a >> b >> c >> d))
+        throw std::runtime_error("Candidate cache ended while reading a plane.");
+    return ember::Plane3i(parseIntegerToken(a), parseIntegerToken(b), parseIntegerToken(c), parseIntegerToken(d));
+}
+
+ember::HomPoint4i readHomPointToken(std::istream &input)
+{
+    std::string x;
+    std::string y;
+    std::string z;
+    std::string w;
+    if (!(input >> x >> y >> z >> w))
+        throw std::runtime_error("Candidate cache ended while reading a homogeneous point.");
+    return ember::HomPoint4i(parseIntegerToken(x), parseIntegerToken(y), parseIntegerToken(z), parseIntegerToken(w));
 }
 
 ember::app::ExactKernel::Point_3 toExactKernelPoint(const ember::PlanePoint3i &point)
@@ -1112,18 +1557,50 @@ void writeMetadata(
            << "}\n";
 }
 
+std::shared_ptr<std::mutex> oracleMutexForKey(const std::string &key)
+{
+    static std::mutex mutexMapMutex;
+    static std::map<std::string, std::weak_ptr<std::mutex>> mutexMap;
+
+    std::lock_guard<std::mutex> guard(mutexMapMutex);
+    std::shared_ptr<std::mutex> keyMutex = mutexMap[key].lock();
+    if (!keyMutex)
+    {
+        keyMutex = std::make_shared<std::mutex>();
+        mutexMap[key] = keyMutex;
+    }
+    return keyMutex;
+}
+
+bool shouldRefreshOracleForKey(const std::string &key, bool requested)
+{
+    if (!requested)
+        return false;
+
+    static std::mutex refreshedKeysMutex;
+    static std::set<std::string> refreshedKeys;
+
+    std::lock_guard<std::mutex> guard(refreshedKeysMutex);
+    const auto inserted = refreshedKeys.insert(key);
+    return inserted.second;
+}
+
 NefPolyhedron loadOrBuildOracle(
     const VerifyOptions &options,
     const PreparedProblem &prepared,
     const std::string &key,
     VerificationReport &report)
 {
+    const std::shared_ptr<std::mutex> keyMutex = oracleMutexForKey(key);
+    std::lock_guard<std::mutex> keyGuard(*keyMutex);
+
     std::filesystem::create_directories(options.oracleCacheDir);
     const std::filesystem::path nefPath = options.oracleCacheDir / (key + ".nef3");
     const std::filesystem::path metadataPath = options.oracleCacheDir / (key + ".json");
     report.oraclePath = nefPath;
 
-    if (!options.refreshOracle && std::filesystem::exists(nefPath))
+    const bool refreshThisKey = shouldRefreshOracleForKey(key, options.refreshOracle);
+    if (!refreshThisKey && std::filesystem::exists(nefPath))
     {
         report.cacheHit = true;
         return loadNef(nefPath);
@@ -1149,16 +1626,15 @@ ember::BoolProblem solveCandidate(const VerifyOptions &options, const PreparedPr
     return problem;
 }
 
-NefPolyhedron buildCandidateNef(
+ember::ExactMeshData buildCandidateExactMesh(
     const VerifyOptions &options,
     const std::vector<ember::Polygon256> &fragments)
 {
+    ember::ExactMeshData exactMesh;
+    std::string error;
     switch (options.candidateMode)
     {
     case CandidateMode::FragmentsNef:
-    {
-        ember::ExactMeshData exactMesh;
-        std::string error;
         if (!ember::buildExactMeshFromPolygonSoup(
                     fragments,
                     exactMesh,
@@ -1167,15 +1643,8 @@ NefPolyhedron buildCandidateNef(
         {
             throw std::runtime_error("Failed to build conforming fragments-nef candidate mesh: " + error);
         }
-
-        ember::app::NefBuildOptions options;
-        options.refineEdgeInteriorPoints = false;
-        return ember::app::makeNefFromExactMesh(exactMesh, "candidate", options);
-    }
+        return exactMesh;
     case CandidateMode::ExportConforming:
-    {
-        ember::ExactMeshData exactMesh;
-        std::string error;
         if (!ember::buildExactMeshFromPolygonSoup(
                     fragments,
                     exactMesh,
@@ -1184,15 +1653,8 @@ NefPolyhedron buildCandidateNef(
         {
             throw std::runtime_error("Failed to build conforming candidate mesh: " + error);
         }
-
-        ember::app::NefBuildOptions options;
-        options.refineEdgeInteriorPoints = false;
-        return ember::app::makeNefFromExactMesh(exactMesh, "candidate", options);
-    }
+        return exactMesh;
     case CandidateMode::ExportNef:
-    {
-        ember::ExactMeshData exactMesh;
-        std::string error;
         if (!ember::buildExactMeshFromPolygonSoup(
                     fragments,
                     exactMesh,
@@ -1201,15 +1663,212 @@ NefPolyhedron buildCandidateNef(
         {
             throw std::runtime_error("Failed to build Nef output-topology candidate mesh: " + error);
         }
-
-        ember::app::NefBuildOptions options;
-        options.refineEdgeInteriorPoints = false;
-        options.rejectEmptyRegularizedResult = !fragments.empty();
-        return ember::app::makeNefFromExactMesh(exactMesh, "candidate", options);
-    }
+        return exactMesh;
     }
 
-    return ember::app::makeNefFromPolygons(fragments, "candidate");
+    return exactMesh;
+}
+
+NefPolyhedron buildCandidateNefFromExactMesh(
+    const VerifyOptions &options,
+    const ember::ExactMeshData &exactMesh,
+    std::size_t sourceFragmentCount)
+{
+    ember::app::NefBuildOptions nefOptions;
+    nefOptions.refineEdgeInteriorPoints = false;
+    if (options.candidateMode == CandidateMode::ExportNef)
+        nefOptions.rejectEmptyRegularizedResult = sourceFragmentCount != 0u;
+    return ember::app::makeNefFromExactMesh(exactMesh, "candidate", nefOptions);
+}
+
+NefPolyhedron buildCandidateNef(
+    const VerifyOptions &options,
+    const std::vector<ember::Polygon256> &fragments)
+{
+    const ember::ExactMeshData exactMesh = buildCandidateExactMesh(options, fragments);
+    return buildCandidateNefFromExactMesh(options, exactMesh, fragments.size());
+}
+
+void writeCandidateCache(const std::filesystem::path &path, const CandidateCacheData &cache)
+{
+    if (!path.parent_path().empty())
+        std::filesystem::create_directories(path.parent_path());
+
+    std::ofstream output(path, std::ios::trunc);
+    if (!output)
+        throw std::runtime_error("Failed to open candidate cache for writing: " + path.string());
+
+    output << "schema " << kCandidateCacheSchema << '\n'
+           << "name " << std::quoted(cache.workload.name) << '\n'
+           << "lhs " << std::quoted(cache.workload.lhsPath) << '\n'
+           << "rhs " << std::quoted(cache.workload.rhsPath) << '\n'
+           << "op " << toString(cache.workload.operation) << '\n'
+           << "explicit_scale " << (cache.explicitScale ? std::to_string(*cache.explicitScale) : std::string("auto")) << '\n'
+           << "shared_scale " << cache.sharedScale << '\n'
+           << "candidate_mode " << toString(cache.candidateMode) << '\n'
+           << "oracle_key " << cache.oracleKey << '\n'
+           << "lhs_polygons " << cache.lhsPolygons << '\n'
+           << "rhs_polygons " << cache.rhsPolygons << '\n'
+           << "result_fragments " << cache.resultFragments << '\n'
+           << std::fixed << std::setprecision(6)
+           << "prepare_ms " << cache.prepareMs << '\n'
+           << "solve_ms " << cache.solveMs << '\n'
+           << "vertices " << cache.candidateMesh.vertices.size() << '\n';
+
+    for (const ember::PlanePoint3i &vertex : cache.candidateMesh.vertices)
+    {
+        output << "v ";
+        writePlaneToken(output, vertex.p);
+        output << ' ';
+        writePlaneToken(output, vertex.q);
+        output << ' ';
+        writePlaneToken(output, vertex.r);
+        output << ' ';
+        writeHomPointToken(output, vertex.x);
+        output << '\n';
+    }
+
+    output << "faces " << cache.candidateMesh.faces.size() << '\n';
+    for (const std::vector<std::size_t> &face : cache.candidateMesh.faces)
+    {
+        output << "f " << face.size();
+        for (std::size_t index : face)
+            output << ' ' << index;
+        output << '\n';
+    }
+}
+
+std::string readExpectedKey(std::istream &input, const char *expected)
+{
+    std::string key;
+    if (!(input >> key))
+        throw std::runtime_error("Candidate cache ended before key: " + std::string(expected));
+    if (key != expected)
+        throw std::runtime_error("Candidate cache expected key '" + std::string(expected) + "' but found '" + key + "'.");
+    return key;
+}
+
+std::string readStringValue(std::istream &input, const char *key)
+{
+    readExpectedKey(input, key);
+    std::string value;
+    if (!(input >> std::quoted(value)))
+        throw std::runtime_error("Candidate cache ended while reading string key: " + std::string(key));
+    return value;
+}
+
+std::string readTokenValue(std::istream &input, const char *key)
+{
+    readExpectedKey(input, key);
+    std::string value;
+    if (!(input >> value))
+        throw std::runtime_error("Candidate cache ended while reading key: " + std::string(key));
+    return value;
+}
+
+std::size_t readSizeValue(std::istream &input, const char *key)
+{
+    const std::string value = readTokenValue(input, key);
+    std::uint64_t parsed = 0;
+    if (!parseNonNegativeUInt64(value, parsed))
+        throw std::runtime_error("Candidate cache has invalid size for key: " + std::string(key));
+    return static_cast<std::size_t>(parsed);
+}
+
+double readDoubleValue(std::istream &input, const char *key)
+{
+    const std::string value = readTokenValue(input, key);
+    try
+    {
+        std::size_t consumed = 0;
+        const double parsed = std::stod(value, &consumed);
+        if (consumed != value.size())
+            throw std::runtime_error("");
+        return parsed;
+    }
+    catch (...)
+    {
+        throw std::runtime_error("Candidate cache has invalid floating value for key: " + std::string(key));
+    }
+}
+
+CandidateCacheData readCandidateCache(const std::filesystem::path &path)
+{
+    std::ifstream input(path);
+    if (!input)
+        throw std::runtime_error("Failed to open candidate cache for reading: " + path.string());
+
+    CandidateCacheData cache;
+    const std::string schema = readTokenValue(input, "schema");
+    if (schema != kCandidateCacheSchema)
+        throw std::runtime_error("Unsupported candidate cache schema: " + schema);
+
+    cache.workload.name = readStringValue(input, "name");
+    cache.workload.lhsPath = readStringValue(input, "lhs");
+    cache.workload.rhsPath = readStringValue(input, "rhs");
+    const std::string opText = readTokenValue(input, "op");
+    if (!parseBoolOp(opText, cache.workload.operation))
+        throw std::runtime_error("Candidate cache has unsupported operation: " + opText);
+
+    const std::string explicitScaleText = readTokenValue(input, "explicit_scale");
+    if (explicitScaleText != "auto")
+    {
+        std::uint64_t scale = 0;
+        if (!parsePositiveUInt64(explicitScaleText, scale))
+            throw std::runtime_error("Candidate cache has invalid explicit scale.");
+        cache.explicitScale = scale;
+    }
+
+    std::uint64_t sharedScale = 0;
+    if (!parsePositiveUInt64(readTokenValue(input, "shared_scale"), sharedScale))
+        throw std::runtime_error("Candidate cache has invalid shared scale.");
+    cache.sharedScale = sharedScale;
+
+    const std::string candidateModeText = readTokenValue(input, "candidate_mode");
+    if (!parseCandidateMode(candidateModeText, cache.candidateMode))
+        throw std::runtime_error("Candidate cache has unsupported candidate mode: " + candidateModeText);
+    cache.oracleKey = readTokenValue(input, "oracle_key");
+    cache.lhsPolygons = readSizeValue(input, "lhs_polygons");
+    cache.rhsPolygons = readSizeValue(input, "rhs_polygons");
+    cache.resultFragments = readSizeValue(input, "result_fragments");
+    cache.prepareMs = readDoubleValue(input, "prepare_ms");
+    cache.solveMs = readDoubleValue(input, "solve_ms");
+
+    const std::size_t vertexCount = readSizeValue(input, "vertices");
+    cache.candidateMesh.vertices.reserve(vertexCount);
+    for (std::size_t i = 0; i < vertexCount; ++i)
+    {
+        readExpectedKey(input, "v");
+        const ember::Plane3i p = readPlaneToken(input);
+        const ember::Plane3i q = readPlaneToken(input);
+        const ember::Plane3i r = readPlaneToken(input);
+        const ember::HomPoint4i x = readHomPointToken(input);
+        cache.candidateMesh.vertices.emplace_back(p, q, r, x);
+    }
+
+    const std::size_t faceCount = readSizeValue(input, "faces");
+    cache.candidateMesh.faces.reserve(faceCount);
+    for (std::size_t i = 0; i < faceCount; ++i)
+    {
+        readExpectedKey(input, "f");
+        std::size_t faceSize = 0;
+        if (!(input >> faceSize))
+            throw std::runtime_error("Candidate cache ended while reading face size.");
+        std::vector<std::size_t> face;
+        face.reserve(faceSize);
+        for (std::size_t j = 0; j < faceSize; ++j)
+        {
+            std::size_t index = 0;
+            if (!(input >> index))
+                throw std::runtime_error("Candidate cache ended while reading face indices.");
+            if (index >= vertexCount)
+                throw std::runtime_error("Candidate cache face index is out of range.");
+            face.push_back(index);
+        }
+        cache.candidateMesh.faces.push_back(std::move(face));
+    }
+
+    return cache;
 }
 
 void writeReport(const std::filesystem::path &path, const VerificationReport &report)
@@ -1440,6 +2099,449 @@ void writeFailureReport(const std::filesystem::path &path, const std::string &me
            << "cache_hit=0\n"
            << "error=" << sanitizeReportValue(message) << '\n';
 }
+
+VerifyOptions optionsForWorkload(const VerifyOptions &baseOptions, const BatchWorkload &workload)
+{
+    VerifyOptions options = baseOptions;
+    options.lhsPath = workload.lhsPath;
+    options.rhsPath = workload.rhsPath;
+    options.operation = workload.operation;
+    options.reportPath.clear();
+    options.diffOutPath.clear();
+    options.inputDumpPath.clear();
+    options.chunkDumpPath.clear();
+    options.fragmentDumpPath.clear();
+    return options;
+}
+
+CandidateCacheData solveAndWriteCandidateCache(
+    const VerifyOptions &baseOptions,
+    const BatchWorkload &workload,
+    const std::filesystem::path &cachePath)
+{
+    const VerifyOptions options = optionsForWorkload(baseOptions, workload);
+    CandidateCacheData cache;
+    cache.workload = workload;
+    cache.candidateMode = options.candidateMode;
+    cache.explicitScale = options.scale;
+
+    const Clock::time_point prepareStart = Clock::now();
+    const PreparedProblem prepared = prepareProblem(options);
+    const Clock::time_point prepareEnd = Clock::now();
+    cache.prepareMs = elapsedMilliseconds(prepareStart, prepareEnd);
+    cache.sharedScale = prepared.sharedScale;
+    cache.lhsPolygons = prepared.lhsPolygons.size();
+    cache.rhsPolygons = prepared.rhsPolygons.size();
+    cache.oracleKey = computeOracleKey(prepared, options.operation);
+
+    const Clock::time_point solveStart = Clock::now();
+    ember::BoolProblem problem = solveCandidate(options, prepared);
+    const Clock::time_point solveEnd = Clock::now();
+    cache.solveMs = elapsedMilliseconds(solveStart, solveEnd);
+    cache.resultFragments = problem.resultFragmentCount();
+    cache.candidateMesh = buildCandidateExactMesh(options, problem.resultFragments());
+
+    writeCandidateCache(cachePath, cache);
+    return cache;
+}
+
+void validateCandidateCacheAgainstPrepared(
+    const CandidateCacheData &cache,
+    const VerifyOptions &options,
+    const PreparedProblem &prepared,
+    const std::string &oracleKey)
+{
+    if (cache.workload.operation != options.operation)
+        throw std::runtime_error("Candidate cache operation does not match workload operation.");
+    if (cache.candidateMode != options.candidateMode)
+        throw std::runtime_error("Candidate cache candidate mode does not match current options.");
+    if (cache.explicitScale != options.scale)
+        throw std::runtime_error("Candidate cache explicit scale does not match current options.");
+    if (cache.sharedScale != prepared.sharedScale)
+        throw std::runtime_error("Candidate cache shared scale does not match freshly prepared input.");
+    if (cache.lhsPolygons != prepared.lhsPolygons.size() || cache.rhsPolygons != prepared.rhsPolygons.size())
+        throw std::runtime_error("Candidate cache input polygon counts do not match freshly prepared input.");
+    if (cache.oracleKey != oracleKey)
+        throw std::runtime_error("Candidate cache oracle key does not match freshly prepared input.");
+}
+
+bool compareCandidateExactMesh(
+    const VerifyOptions &options,
+    const PreparedProblem &prepared,
+    const ember::ExactMeshData &candidateMesh,
+    std::size_t resultFragmentCount,
+    VerificationReport &report)
+{
+    report.oracleKey = computeOracleKey(prepared, options.operation);
+    const Clock::time_point oracleStart = Clock::now();
+    const NefPolyhedron oracle = loadOrBuildOracle(options, prepared, report.oracleKey, report);
+    const Clock::time_point oracleEnd = Clock::now();
+    report.oracleMs = elapsedMilliseconds(oracleStart, oracleEnd);
+    std::optional<IndexedExactMesh> oracleSurface;
+    if (options.diagnoseNef)
+        oracleSurface = diagnoseNef("oracle", oracle);
+    else if (!options.disableSurfaceCompare)
+        oracleSurface = extractSimpleNefSurface(oracle);
+
+    const Clock::time_point compareStart = Clock::now();
+    const NefPolyhedron candidate = buildCandidateNefFromExactMesh(options, candidateMesh, resultFragmentCount);
+    std::optional<IndexedExactMesh> candidateSurface;
+    if (options.diagnoseNef)
+    {
+        candidateSurface = diagnoseNef("candidate", candidate);
+        if (candidateSurface && oracleSurface)
+        {
+            std::string surfaceReason;
+            const bool surfacesEqual = equivalentSurfaceMeshes(*candidateSurface, *oracleSurface, surfaceReason);
+            std::cerr << "[nef-diagnose] exact_surface_equal=" << (surfacesEqual ? 1 : 0)
+                      << " reason=\"" << surfaceReason << "\"" << std::endl;
+        }
+        std::cerr << "[nef-diagnose] compare_begin op=" << toString(options.nefCompareOp) << std::endl;
+    }
+    else if (!options.disableSurfaceCompare)
+    {
+        candidateSurface = extractSimpleNefSurface(candidate);
+    }
+
+    bool equal = false;
+    if (!options.disableSurfaceCompare && candidateSurface && oracleSurface)
+    {
+        std::string surfaceReason;
+        if (equivalentSurfaceMeshes(*candidateSurface, *oracleSurface, surfaceReason))
+        {
+            equal = true;
+            report.surfaceCompareUsed = true;
+        }
+    }
+    if (!equal && options.nefCompareOp != NefCompareOp::Skip)
+        equal = runNefCompare(candidate, oracle, options.nefCompareOp);
+    writeNefDifferenceMesh(
+        options.diffOutPath,
+        candidate,
+        oracle,
+        options.nefCompareOp,
+        prepared.sharedScale);
+    if (options.diagnoseNef)
+        std::cerr << "[nef-diagnose] compare_end op=" << toString(options.nefCompareOp)
+                  << " empty=" << (equal ? 1 : 0) << std::endl;
+    const Clock::time_point compareEnd = Clock::now();
+    report.compareMs = elapsedMilliseconds(compareStart, compareEnd);
+    report.passed = equal;
+    return equal;
+}
+
+BatchVerificationRow compareCachedCandidate(
+    const VerifyOptions &baseOptions,
+    const std::filesystem::path &cachePath,
+    const std::filesystem::path &reportPath)
+{
+    const CandidateCacheData cache = readCandidateCache(cachePath);
+    const VerifyOptions options = optionsForWorkload(baseOptions, cache.workload);
+
+    BatchVerificationRow row;
+    row.workload = cache.workload.name;
+    row.cachePath = cachePath;
+    row.reportPath = reportPath;
+
+    VerificationReport report;
+    report.prepareMs = cache.prepareMs;
+    report.solveMs = cache.solveMs;
+    report.sharedScale = cache.sharedScale;
+    report.lhsPolygons = cache.lhsPolygons;
+    report.rhsPolygons = cache.rhsPolygons;
+    report.resultFragments = cache.resultFragments;
+    report.candidateMode = toString(cache.candidateMode);
+    report.nefCompareOp = toString(options.nefCompareOp);
+
+    if (options.nefCompareOp == NefCompareOp::Skip)
+        throw std::runtime_error("Batch verifier cannot pass with --nef-compare-op skip.");
+
+    const PreparedProblem prepared = prepareProblem(options);
+    const std::string oracleKey = computeOracleKey(prepared, options.operation);
+    validateCandidateCacheAgainstPrepared(cache, options, prepared, oracleKey);
+
+    compareCandidateExactMesh(options, prepared, cache.candidateMesh, cache.resultFragments, report);
+    writeReport(reportPath, report);
+
+    row.passed = report.passed;
+    row.oracleKey = report.oracleKey;
+    row.oraclePath = report.oraclePath;
+    row.cacheHit = report.cacheHit;
+    row.sharedScale = report.sharedScale;
+    row.lhsPolygons = report.lhsPolygons;
+    row.rhsPolygons = report.rhsPolygons;
+    row.resultFragments = report.resultFragments;
+    row.prepareMs = report.prepareMs;
+    row.solveMs = report.solveMs;
+    row.oracleMs = report.oracleMs;
+    row.compareMs = report.compareMs;
+    row.surfaceCompareUsed = report.surfaceCompareUsed;
+    return row;
+}
+
+BatchVerificationRow failureBatchRow(
+    const BatchWorkload &workload,
+    const std::filesystem::path &cachePath,
+    const std::filesystem::path &reportPath,
+    const std::string &message)
+{
+    writeFailureReport(reportPath, message);
+    BatchVerificationRow row;
+    row.workload = workload.name;
+    row.passed = false;
+    row.error = message;
+    row.cachePath = cachePath;
+    row.reportPath = reportPath;
+    return row;
+}
+
+void writeBatchVerificationCsv(
+    const std::filesystem::path &path,
+    const std::vector<BatchVerificationRow> &rows)
+{
+    if (!path.parent_path().empty())
+        std::filesystem::create_directories(path.parent_path());
+    std::ofstream output(path, std::ios::trunc);
+    if (!output)
+        throw std::runtime_error("Failed to open batch verification CSV: " + path.string());
+
+    output << "workload,passed,error,cache_path,report_path,oracle_key,oracle_path,cache_hit,"
+           << "shared_scale,lhs_polygons,rhs_polygons,result_fragments,prepare_ms,solve_ms,"
+           << "oracle_ms,compare_ms,surface_compare_used\n";
+    output << std::fixed << std::setprecision(6);
+    for (const BatchVerificationRow &row : rows)
+    {
+        output << csvEscape(row.workload) << ','
+               << (row.passed ? 1 : 0) << ','
+               << csvEscape(row.error) << ','
+               << csvEscape(row.cachePath.string()) << ','
+               << csvEscape(row.reportPath.string()) << ','
+               << csvEscape(row.oracleKey) << ','
+               << csvEscape(row.oraclePath.string()) << ','
+               << (row.cacheHit ? 1 : 0) << ','
+               << row.sharedScale << ','
+               << row.lhsPolygons << ','
+               << row.rhsPolygons << ','
+               << row.resultFragments << ','
+               << row.prepareMs << ','
+               << row.solveMs << ','
+               << row.oracleMs << ','
+               << row.compareMs << ','
+               << (row.surfaceCompareUsed ? 1 : 0) << '\n';
+    }
+}
+
+void writeBatchReport(
+    const std::filesystem::path &path,
+    const std::vector<BatchVerificationRow> &rows,
+    std::size_t batchSize,
+    std::size_t cpuThreads)
+{
+    std::ofstream output(path, std::ios::trunc);
+    if (!output)
+        throw std::runtime_error("Failed to open batch report: " + path.string());
+
+    std::size_t passed = 0;
+    for (const BatchVerificationRow &row : rows)
+    {
+        if (row.passed)
+            ++passed;
+    }
+
+    output << "schema=re-EMBER-verify-batch-report-v1\n"
+           << "workload_count=" << rows.size() << '\n'
+           << "passed=" << passed << '\n'
+           << "failed=" << (rows.size() - passed) << '\n'
+           << "batch_size=" << batchSize << '\n'
+           << "cpu_threads=" << cpuThreads << '\n'
+           << "verification_csv=" << (path.parent_path() / "verification.csv").string() << '\n';
+
+    for (const BatchVerificationRow &row : rows)
+    {
+        output << "workload=" << row.workload
+               << " passed=" << (row.passed ? 1 : 0)
+               << " oracle_key=" << row.oracleKey
+               << " error=" << sanitizeReportValue(row.error)
+               << " report=" << row.reportPath.string()
+               << '\n';
+    }
+}
+
+int runBatch(const VerifyOptions &options)
+{
+    const std::size_t cpuThreads = hardwareThreadCount();
+    const std::size_t batchSize = options.batchSize == 0 ? cpuThreads : options.batchSize;
+    if (batchSize == 0 || batchSize > cpuThreads)
+        throw std::runtime_error("--batch-size must be in the range 1.." + std::to_string(cpuThreads) + ".");
+
+    const std::vector<BatchWorkload> workloads = loadBatchWorkloads(options);
+    std::filesystem::create_directories(options.batchOutDir);
+    const std::filesystem::path cacheDir = options.batchOutDir / "cache";
+    const std::filesystem::path reportsDir = options.batchOutDir / "reports";
+    std::filesystem::create_directories(cacheDir);
+    std::filesystem::create_directories(reportsDir);
+
+    std::vector<BatchVerificationRow> rows;
+    rows.reserve(workloads.size());
+    for (std::size_t batchStart = 0; batchStart < workloads.size(); batchStart += batchSize)
+    {
+        const std::size_t batchEnd = std::min(batchStart + batchSize, workloads.size());
+        std::vector<std::pair<BatchWorkload, std::filesystem::path>> cachedWorkloads;
+        cachedWorkloads.reserve(batchEnd - batchStart);
+
+        for (std::size_t index = batchStart; index < batchEnd; ++index)
+        {
+            const BatchWorkload &workload = workloads[index];
+            const std::string stem = sanitizeFileStem(workload.name);
+            const std::filesystem::path cachePath = cacheDir / (stem + ".candidate.txt");
+            const std::filesystem::path reportPath = reportsDir / (stem + ".report.txt");
+            std::cout << "[batch] solve_begin index=" << index << " workload=" << workload.name << std::endl;
+            try
+            {
+                solveAndWriteCandidateCache(options, workload, cachePath);
+                cachedWorkloads.push_back({workload, cachePath});
+                std::cout << "[batch] solve_cached index=" << index
+                          << " workload=" << workload.name
+                          << " cache=" << cachePath.string() << std::endl;
+            }
+            catch (const std::exception &ex)
+            {
+                rows.push_back(failureBatchRow(workload, cachePath, reportPath, ex.what()));
+                std::cerr << "[batch] solve_failed workload=" << workload.name
+                          << " error=\"" << ex.what() << "\"" << std::endl;
+            }
+        }
+
+        std::cout << "[batch] compare_begin first_index=" << batchStart
+                  << " workload_count=" << cachedWorkloads.size() << std::endl;
+        std::vector<std::future<BatchVerificationRow>> futures;
+        futures.reserve(cachedWorkloads.size());
+        for (const auto &cachedWorkload : cachedWorkloads)
+        {
+            const BatchWorkload workload = cachedWorkload.first;
+            const std::filesystem::path cachePath = cachedWorkload.second;
+            const std::filesystem::path reportPath = reportsDir / (sanitizeFileStem(workload.name) + ".report.txt");
+            futures.push_back(std::async(std::launch::async, [&, workload, cachePath, reportPath]()
+            {
+                try
+                {
+                    std::cout << "[batch] compare_worker_begin workload=" << workload.name << std::endl;
+                    BatchVerificationRow row = compareCachedCandidate(options, cachePath, reportPath);
+                    std::cout << "[batch] compare_worker_end workload=" << workload.name
+                              << " passed=" << (row.passed ? 1 : 0) << std::endl;
+                    return row;
+                }
+                catch (const std::exception &ex)
+                {
+                    std::cerr << "[batch] compare_failed workload=" << workload.name
+                              << " error=\"" << ex.what() << "\"" << std::endl;
+                    return failureBatchRow(workload, cachePath, reportPath, ex.what());
+                }
+            }));
+        }
+        for (std::future<BatchVerificationRow> &future : futures)
+            rows.push_back(future.get());
+    }
+
+    const std::filesystem::path csvPath = options.batchOutDir / "verification.csv";
+    const std::filesystem::path reportPath = options.batchOutDir / "batch_report.txt";
+    writeBatchVerificationCsv(csvPath, rows);
+    writeBatchReport(reportPath, rows, batchSize, cpuThreads);
+
+    const bool allPassed = std::all_of(rows.begin(), rows.end(), [](const BatchVerificationRow &row)
+    {
+        return row.passed;
+    });
+    std::cout << "batch_verification=" << (allPassed ? "pass" : "fail")
+              << " workloads=" << rows.size()
+              << " batch_size=" << batchSize
+              << " verification_csv=" << csvPath.string()
+              << " report=" << reportPath.string()
+              << std::endl;
+    return allPassed ? 0 : 2;
+}
+
+int runSingle(const VerifyOptions &options)
+{
+    VerificationReport report;
+
+    const Clock::time_point prepareStart = Clock::now();
+    const PreparedProblem prepared = prepareProblem(options);
+    const Clock::time_point prepareEnd = Clock::now();
+    report.prepareMs = elapsedMilliseconds(prepareStart, prepareEnd);
+    report.sharedScale = prepared.sharedScale;
+    report.lhsPolygons = prepared.lhsPolygons.size();
+    report.rhsPolygons = prepared.rhsPolygons.size();
+    writeInputPolygonDiagnostics(options.inputDumpPath, prepared.lhsPolygons, prepared.rhsPolygons);
+
+    const Clock::time_point solveStart = Clock::now();
+    ember::BoolProblem problem = solveCandidate(options, prepared);
+    const Clock::time_point solveEnd = Clock::now();
+    report.solveMs = elapsedMilliseconds(solveStart, solveEnd);
+    report.resultFragments = problem.resultFragmentCount();
+    report.candidateMode = toString(options.candidateMode);
+    report.nefCompareOp = toString(options.nefCompareOp);
+    writeResultChunkDiagnostics(options.chunkDumpPath, problem);
+    writeResultFragmentDiagnostics(options.fragmentDumpPath, problem);
+
+    if (options.diagnoseNef)
+    {
+        diagnosePolygonSoup("lhs_raw", prepared.lhsPolygons, ember::PolygonSoupTopologyMode::Raw);
+        diagnosePolygonSoup("rhs_raw", prepared.rhsPolygons, ember::PolygonSoupTopologyMode::Raw);
+        diagnosePolygonSoup("candidate_raw", problem.resultFragments(), ember::PolygonSoupTopologyMode::Raw);
+        diagnosePolygonSoup("candidate_conforming", problem.resultFragments(), ember::PolygonSoupTopologyMode::Conforming);
+    }
+
+    if (options.nefCompareOp == NefCompareOp::Skip && options.diffOutPath.empty())
+    {
+        report.passed = false;
+        writeReport(options.reportPath, report);
+        std::cout << "verification=skip"
+                  << " operation=" << toString(options.operation)
+                  << " scale=" << report.sharedScale
+                  << " lhs_polygons=" << report.lhsPolygons
+                  << " rhs_polygons=" << report.rhsPolygons
+                  << " result_fragments=" << report.resultFragments
+                  << " candidate_mode=" << report.candidateMode
+                  << " nef_compare_op=" << toString(options.nefCompareOp)
+                  << " surface_compare_used=0"
+                  << " cache_hit=0"
+                  << " prepare_ms=" << std::fixed << std::setprecision(6) << report.prepareMs
+                  << " solve_ms=" << report.solveMs
+                  << " oracle_ms=0.000000"
+                  << " compare_ms=0.000000"
+                  << std::endl;
+        return 2;
+    }
+
+    const Clock::time_point candidateMeshStart = Clock::now();
+    const ember::ExactMeshData candidateMesh = buildCandidateExactMesh(options, problem.resultFragments());
+    const Clock::time_point candidateMeshEnd = Clock::now();
+    compareCandidateExactMesh(options, prepared, candidateMesh, problem.resultFragmentCount(), report);
+    report.compareMs += elapsedMilliseconds(candidateMeshStart, candidateMeshEnd);
+    writeReport(options.reportPath, report);
+
+    std::cout << "verification=" << (report.passed ? "pass" : "fail")
+              << " operation=" << toString(options.operation)
+              << " scale=" << report.sharedScale
+              << " lhs_polygons=" << report.lhsPolygons
+              << " rhs_polygons=" << report.rhsPolygons
+              << " result_fragments=" << report.resultFragments
+              << " candidate_mode=" << report.candidateMode
+              << " nef_compare_op=" << report.nefCompareOp
+              << " surface_compare_used=" << (report.surfaceCompareUsed ? 1 : 0)
+              << " cache_hit=" << (report.cacheHit ? 1 : 0)
+              << " oracle_key=" << report.oracleKey
+              << " oracle_path=" << report.oraclePath.string()
+              << std::fixed << std::setprecision(6)
+              << " prepare_ms=" << report.prepareMs
+              << " solve_ms=" << report.solveMs
+              << " oracle_ms=" << report.oracleMs
+              << " compare_ms=" << report.compareMs
+              << std::endl;
+
+    return report.passed ? 0 : 2;
+}
 }
 
 int main(int argc, char **argv)
@@ -1453,135 +2555,9 @@ int main(int argc, char **argv)
 
     try
     {
-        VerificationReport report;
-
-        const Clock::time_point prepareStart = Clock::now();
-        const PreparedProblem prepared = prepareProblem(options);
-        const Clock::time_point prepareEnd = Clock::now();
-        report.prepareMs = elapsedMilliseconds(prepareStart, prepareEnd);
-        report.sharedScale = prepared.sharedScale;
-        report.lhsPolygons = prepared.lhsPolygons.size();
-        report.rhsPolygons = prepared.rhsPolygons.size();
-        writeInputPolygonDiagnostics(options.inputDumpPath, prepared.lhsPolygons, prepared.rhsPolygons);
-
-        const Clock::time_point solveStart = Clock::now();
-        ember::BoolProblem problem = solveCandidate(options, prepared);
-        const Clock::time_point solveEnd = Clock::now();
-        report.solveMs = elapsedMilliseconds(solveStart, solveEnd);
-        report.resultFragments = problem.resultFragmentCount();
-        report.candidateMode = toString(options.candidateMode);
-        report.nefCompareOp = toString(options.nefCompareOp);
-        writeResultChunkDiagnostics(options.chunkDumpPath, problem);
-        writeResultFragmentDiagnostics(options.fragmentDumpPath, problem);
-
-        if (options.diagnoseNef)
-        {
-            diagnosePolygonSoup("lhs_raw", prepared.lhsPolygons, ember::PolygonSoupTopologyMode::Raw);
-            diagnosePolygonSoup("rhs_raw", prepared.rhsPolygons, ember::PolygonSoupTopologyMode::Raw);
-            diagnosePolygonSoup("candidate_raw", problem.resultFragments(), ember::PolygonSoupTopologyMode::Raw);
-            diagnosePolygonSoup("candidate_conforming", problem.resultFragments(), ember::PolygonSoupTopologyMode::Conforming);
-        }
-
-        if (options.nefCompareOp == NefCompareOp::Skip && options.diffOutPath.empty())
-        {
-            report.passed = false;
-            writeReport(options.reportPath, report);
-            std::cout << "verification=skip"
-                      << " operation=" << toString(options.operation)
-                      << " scale=" << report.sharedScale
-                      << " lhs_polygons=" << report.lhsPolygons
-                      << " rhs_polygons=" << report.rhsPolygons
-                      << " result_fragments=" << report.resultFragments
-                      << " candidate_mode=" << report.candidateMode
-                      << " nef_compare_op=" << toString(options.nefCompareOp)
-                      << " surface_compare_used=0"
-                      << " cache_hit=0"
-                      << " prepare_ms=" << std::fixed << std::setprecision(6) << report.prepareMs
-                      << " solve_ms=" << report.solveMs
-                      << " oracle_ms=0.000000"
-                      << " compare_ms=0.000000"
-                      << std::endl;
-            return 2;
-        }
-
-        report.oracleKey = computeOracleKey(prepared, options.operation);
-        const Clock::time_point oracleStart = Clock::now();
-        const NefPolyhedron oracle = loadOrBuildOracle(options, prepared, report.oracleKey, report);
-        const Clock::time_point oracleEnd = Clock::now();
-        report.oracleMs = elapsedMilliseconds(oracleStart, oracleEnd);
-        std::optional<IndexedExactMesh> oracleSurface;
-        if (options.diagnoseNef)
-            oracleSurface = diagnoseNef("oracle", oracle);
-        else if (!options.disableSurfaceCompare)
-            oracleSurface = extractSimpleNefSurface(oracle);
-
-        const Clock::time_point compareStart = Clock::now();
-        const NefPolyhedron candidate = buildCandidateNef(options, problem.resultFragments());
-        std::optional<IndexedExactMesh> candidateSurface;
-        if (options.diagnoseNef)
-        {
-            candidateSurface = diagnoseNef("candidate", candidate);
-            if (candidateSurface && oracleSurface)
-            {
-                std::string surfaceReason;
-                const bool surfacesEqual = equivalentSurfaceMeshes(*candidateSurface, *oracleSurface, surfaceReason);
-                std::cerr << "[nef-diagnose] exact_surface_equal=" << (surfacesEqual ? 1 : 0)
-                          << " reason=\"" << surfaceReason << "\"" << std::endl;
-            }
-            std::cerr << "[nef-diagnose] compare_begin op=" << toString(options.nefCompareOp) << std::endl;
-        }
-        else if (!options.disableSurfaceCompare)
-        {
-            candidateSurface = extractSimpleNefSurface(candidate);
-        }
-
-        bool equal = false;
-        if (!options.disableSurfaceCompare && candidateSurface && oracleSurface)
-        {
-            std::string surfaceReason;
-            if (equivalentSurfaceMeshes(*candidateSurface, *oracleSurface, surfaceReason))
-            {
-                equal = true;
-                report.surfaceCompareUsed = true;
-            }
-        }
-        if (!equal && options.nefCompareOp != NefCompareOp::Skip)
-            equal = runNefCompare(candidate, oracle, options.nefCompareOp);
-        writeNefDifferenceMesh(
-            options.diffOutPath,
-            candidate,
-            oracle,
-            options.nefCompareOp,
-            prepared.sharedScale);
-        if (options.diagnoseNef)
-            std::cerr << "[nef-diagnose] compare_end op=" << toString(options.nefCompareOp)
-                      << " empty=" << (equal ? 1 : 0) << std::endl;
-        const Clock::time_point compareEnd = Clock::now();
-        report.compareMs = elapsedMilliseconds(compareStart, compareEnd);
-        report.passed = equal;
-
-        writeReport(options.reportPath, report);
-
-        std::cout << "verification=" << (report.passed ? "pass" : "fail")
-                  << " operation=" << toString(options.operation)
-                  << " scale=" << report.sharedScale
-                  << " lhs_polygons=" << report.lhsPolygons
-                  << " rhs_polygons=" << report.rhsPolygons
-                  << " result_fragments=" << report.resultFragments
-                  << " candidate_mode=" << report.candidateMode
-                  << " nef_compare_op=" << toString(options.nefCompareOp)
-                  << " surface_compare_used=" << (report.surfaceCompareUsed ? 1 : 0)
-                  << " cache_hit=" << (report.cacheHit ? 1 : 0)
-                  << " oracle_key=" << report.oracleKey
-                  << " oracle_path=" << report.oraclePath.string()
-                  << std::fixed << std::setprecision(6)
-                  << " prepare_ms=" << report.prepareMs
-                  << " solve_ms=" << report.solveMs
-                  << " oracle_ms=" << report.oracleMs
-                  << " compare_ms=" << report.compareMs
-                  << std::endl;
-
-        return report.passed ? 0 : 2;
+        if (!options.batchInputRoot.empty() || !options.batchManifest.empty())
+            return runBatch(options);
+        return runSingle(options);
     }
     catch (const std::exception &ex)
     {
