@@ -614,8 +614,6 @@ bool classifySplitChildPolygonRoute(
     bool hasPositive = false;
     bool hasNegative = false;
     const std::size_t edgeCount = polygon.edgeCount();
-    std::vector<int> vertexSides;
-    vertexSides.resize(edgeCount);
     {
         REEMBER_PROFILE_ZONE("appendSplitChildPolygons::vertexSideScan");
         const Plane3i &splitPlane = split.splitPlane;
@@ -623,7 +621,6 @@ bool classifySplitChildPolygonRoute(
         {
             const PlanePoint3i &vertex = getPolygonVertex(polygon, edgeIndex);
             const int side = vertex.classify(splitPlane);
-            vertexSides[edgeIndex] = side;
             if (side > 0)
                 hasPositive = true;
             else if (side < 0)
@@ -645,7 +642,16 @@ bool classifySplitChildPolygonRoute(
     }
 
     route.kind = SplitPolygonRouteKind::Split;
-    route.vertexSides = std::move(vertexSides);
+    route.vertexSides.resize(edgeCount);
+    {
+        REEMBER_PROFILE_ZONE("appendSplitChildPolygons::splitVertexSideFill");
+        const Plane3i &splitPlane = split.splitPlane;
+        for (std::size_t edgeIndex = 0; edgeIndex < edgeCount; ++edgeIndex)
+        {
+            const PlanePoint3i &vertex = getPolygonVertex(polygon, edgeIndex);
+            route.vertexSides[edgeIndex] = vertex.classify(splitPlane);
+        }
+    }
     return true;
 }
 
