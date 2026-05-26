@@ -280,10 +280,7 @@ inline void floorCeilDiv(const Integer& a, const Integer& b, Integer& outFloor, 
 inline Integer floorDivByTwo(const Integer& value) noexcept
 {
     REEMBER_PROFILE_MATH_ZONE("math256::floorDivByTwo");
-    const Integer quotient = value / 2;
-    if (value < 0 && quotient * 2 != value)
-        return quotient - 1;
-    return quotient;
+    return value >> 1;
 }
 
 /**
