@@ -4,6 +4,7 @@
  */
 #include "geometry/geometry256.h"
 #include "geometry/clipping.h"
+#include "geometry/plane_palette.h"
 #include <cstddef>
 #include <memory>
 #include <vector>
@@ -108,6 +109,20 @@ public:
      * @param[in] splitPlane 与基底平面共同定义该线段支撑线的切分平面。
      */
     void addSegment(const Plane3i& v0, const Plane3i& v1, const Plane3i& splitPlane);
+
+    /**
+     * @brief 使用平面调色板句柄向当前局部 BSP 插入切分线段。
+     *
+     * @param[in] palette 保存线段端点约束平面和切分平面的叶片局部调色板。
+     * @param[in] v0 线段第一个端点约束平面句柄。
+     * @param[in] v1 线段第二个端点约束平面句柄。
+     * @param[in] splitPlane 切分平面句柄。
+     */
+    void addSegment(
+        const PlanePalette &palette,
+        PlaneHandle v0,
+        PlaneHandle v1,
+        PlaneHandle splitPlane);
 
 private:
     // 向节点中递归插入以基底多边形平面、切分平面、v0 和 v1 定义的线段。

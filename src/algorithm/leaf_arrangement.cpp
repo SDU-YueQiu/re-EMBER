@@ -8,6 +8,7 @@
 #include "core/perf_tracing.h"
 #include "geometry/polygon_ops.h"
 
+#include <cstdint>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -32,10 +33,12 @@ struct LeafPairRelation
 
 struct LeafArrangementInsertion
 {
-    std::size_t baseIndex = 0;
+    PolygonHandle baseIndex;
     LeafPairRelationKind kind = LeafPairRelationKind::None;
-    std::size_t polygonIndex = 0;
-    detail::IntersectionCarrier carrier;
+    PolygonHandle polygonIndex;
+    PlaneHandle splitPlane;
+    PlaneHandle v0;
+    PlaneHandle v1;
     std::size_t next = 0;
 };
 
@@ -48,6 +51,20 @@ void appendFragmentToVector(void *userData, Polygon256 &&fragment)
 {
     auto *state = static_cast<VectorAppendVisitorState *>(userData);
     state->fragments->push_back(std::move(fragment));
+}
+
+PolygonHandle makePolygonHandle(std::size_t index)
+{
+    if (index >= static_cast<std::size_t>(kInvalidPolygonHandleIndex))
+        throw std::runtime_error("visitLeafArrangementFragments polygon handle range exhausted.");
+    return PolygonHandle(static_cast<std::uint32_t>(index));
+}
+
+std::size_t polygonHandleIndex(PolygonHandle handle)
+{
+    if (!handle.isValid())
+        throw std::runtime_error("visitLeafArrangementFragments received an invalid polygon handle.");
+    return static_cast<std::size_t>(handle.index);
 }
 
 LeafPairRelation buildLeafPairRelation(const Polygon256 &lhs, const Polygon256 &rhs)
@@ -129,10 +146,11 @@ std::size_t visitLeafArrangementFragments(
     std::vector<LeafArrangementInsertion> adjacency;
     std::vector<std::size_t> adjacencyHeads(polygonCount, kNoInsertion);
     std::vector<std::size_t> adjacencyTails(polygonCount, kNoInsertion);
+    PlanePalette carrierPlanes;
     adjacency.reserve(polygonCount * 4u);
     auto appendAdjacency = [&](LeafArrangementInsertion insertion)
     {
-        const std::size_t baseIndex = insertion.baseIndex;
+        const std::size_t baseIndex = polygonHandleIndex(insertion.baseIndex);
         insertion.next = kNoInsertion;
         const std::size_t insertionIndex = adjacency.size();
         adjacency.push_back(std::move(insertion));
@@ -153,31 +171,39 @@ std::size_t visitLeafArrangementFragments(
                 if (relation.kind == LeafPairRelationKind::Segment)
                 {
                     appendAdjacency(LeafArrangementInsertion{
-                        i,
+                        makePolygonHandle(i),
                         LeafPairRelationKind::Segment,
-                        j,
-                        std::move(relation.lhsCarrier),
+                        makePolygonHandle(j),
+                        carrierPlanes.intern(relation.lhsCarrier.splitPlane),
+                        carrierPlanes.intern(relation.lhsCarrier.v0),
+                        carrierPlanes.intern(relation.lhsCarrier.v1),
                         kNoInsertion});
                     appendAdjacency(LeafArrangementInsertion{
-                        j,
+                        makePolygonHandle(j),
                         LeafPairRelationKind::Segment,
-                        i,
-                        std::move(relation.rhsCarrier),
+                        makePolygonHandle(i),
+                        carrierPlanes.intern(relation.rhsCarrier.splitPlane),
+                        carrierPlanes.intern(relation.rhsCarrier.v0),
+                        carrierPlanes.intern(relation.rhsCarrier.v1),
                         kNoInsertion});
                 }
                 else if (relation.kind == LeafPairRelationKind::Coplanar)
                 {
                     appendAdjacency(LeafArrangementInsertion{
-                        i,
+                        makePolygonHandle(i),
                         LeafPairRelationKind::Coplanar,
-                        j,
-                        detail::IntersectionCarrier{},
+                        makePolygonHandle(j),
+                        PlaneHandle(),
+                        PlaneHandle(),
+                        PlaneHandle(),
                         kNoInsertion});
                     appendAdjacency(LeafArrangementInsertion{
-                        j,
+                        makePolygonHandle(j),
                         LeafPairRelationKind::Coplanar,
-                        i,
-                        detail::IntersectionCarrier{},
+                        makePolygonHandle(i),
+                        PlaneHandle(),
+                        PlaneHandle(),
+                        PlaneHandle(),
                         kNoInsertion});
                 }
             }
@@ -203,12 +229,15 @@ std::size_t visitLeafArrangementFragments(
             const LeafArrangementInsertion &insertion = adjacency[insertionIndex];
             if (insertion.kind == LeafPairRelationKind::Segment)
             {
-                tree.addSegment(insertion.carrier.v0, insertion.carrier.v1, insertion.carrier.splitPlane);
+                tree.addSegment(carrierPlanes, insertion.v0, insertion.v1, insertion.splitPlane);
                 continue;
             }
 
             if (insertion.kind == LeafPairRelationKind::Coplanar)
-                tree.insertCoplanarPolygonTrusted(polygons[insertion.polygonIndex], insertion.polygonIndex);
+            {
+                const std::size_t incomingIndex = polygonHandleIndex(insertion.polygonIndex);
+                tree.insertCoplanarPolygonTrusted(polygons[incomingIndex], incomingIndex);
+            }
         }
 
         fragmentCount += tree.visitLeafGeometries(userData, visitor);

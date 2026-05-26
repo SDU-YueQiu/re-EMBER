@@ -149,6 +149,17 @@ void BSPTree::addSegment(const Plane3i &v0, const Plane3i &v1, const Plane3i &sp
     addSegmentRecursive(*root, v0, v1, splitPlane);
 }
 
+void BSPTree::addSegment(
+    const PlanePalette &palette,
+    PlaneHandle v0,
+    PlaneHandle v1,
+    PlaneHandle splitPlane)
+{
+    REEMBER_PROFILE_ZONE("BSPTree::addSegment::palette");
+
+    addSegment(palette.get(v0), palette.get(v1), palette.get(splitPlane));
+}
+
 void BSPTree::extractLeafGeometriesInto(std::vector<Polygon256> &outLeafGeometries)
 {
     REEMBER_PROFILE_ZONE("BSPTree::extractLeafGeometriesInto");

@@ -12,6 +12,7 @@
 #include "geometry/geometry256.h"
 #include "math/math256.h"
 #include "geometry/plane_geometry256.h"
+#include "geometry/plane_palette.h"
 #include "geometry/clipping.h"
 #include "algorithm/bsp.h"
 #include "algorithm/path_candidates.h"
@@ -78,6 +79,28 @@ void assertSamePolygonPayload(const ember::Polygon256 &lhs, const ember::Polygon
 
 void runMath256Tests()
 {
+    {
+        ember::PlanePalette palette;
+        const ember::Plane3i px = ember::Plane3i::fromPointNormal(Vec3i(1, 0, 0), Vec3i(1, 0, 0));
+        const ember::Plane3i duplicatePx = px;
+        const ember::Plane3i shiftedPx = ember::Plane3i::fromPointNormal(Vec3i(2, 0, 0), Vec3i(1, 0, 0));
+
+        const ember::PlaneHandle firstHandle = palette.intern(px);
+        const ember::PlaneHandle duplicateHandle = palette.intern(duplicatePx);
+        const ember::PlaneHandle shiftedHandle = palette.intern(shiftedPx);
+
+        assert(firstHandle.isValid());
+        assert(duplicateHandle == firstHandle);
+        assert(shiftedHandle != firstHandle);
+        assert(palette.size() == 2u);
+        assertSamePlane(palette.get(firstHandle), px);
+        assertSamePlane(palette.get(shiftedHandle), shiftedPx);
+
+        const ember::PolygonHandle polygonHandle(7u);
+        assert(polygonHandle.isValid());
+        assert(polygonHandle.index == 7u);
+    }
+
     {
         using ember::paper::axisAlignedPlane;
         using ember::paper::classifyIntegerVertex;
