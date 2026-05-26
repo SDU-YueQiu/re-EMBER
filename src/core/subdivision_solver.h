@@ -56,8 +56,6 @@ struct BinaryPolygonScanSummary
     BinarySingleOperand singleOperand = BinarySingleOperand::None;
 };
 
-struct SplitPolygonRoute;
-
 /**
  * @brief 叶片分类候选全部耗尽时携带 trace 状态的内部异常。
  */
@@ -246,9 +244,7 @@ private:
     /**
      * @brief 根据 AABB 切分创建子求解器节点。
      */
-    bool createChildrenFromSplit(
-        const AABBSplit3i &split,
-        std::vector<SplitPolygonRoute> splitRoutes);
+    bool createChildrenFromSplit(const AABBSplit3i &split);
 
     /**
      * @brief 判断某个子节点是否可被常量指示函数直接丢弃。
