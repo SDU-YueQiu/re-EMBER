@@ -2,7 +2,7 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-re-EMBER is an open-source **exact** mesh boolean library in C++17. It handles union, intersection, and difference on triangle soups, producing watertight polygon output with exact geometric predicates. Across all benchmarks, its end-to-end wall-clock time averages **~2× QuickCSG** — while providing exact results that QuickCSG does not guarantee.
+re-EMBER is an **independent, community-driven open-source** (MIT) C++17 implementation of the EMBER paper (Trettner et al., SIGGRAPH 2022). It is **not** the commercially-licensed binary release from the original paper authors. EMBER is an **exact** mesh boolean algorithm using fixed-width integer geometry and local arrangements. It handles union, intersection, and difference on triangle soups, producing watertight polygon output. Across all benchmarks, its end-to-end wall-clock time averages **~2× QuickCSG** — while providing exact results that QuickCSG does not guarantee. Performance remains **several times slower** than the authors' original implementation.
 
 ## Installation
 
@@ -55,16 +55,16 @@ Comparisons against CGAL Nef (exact baseline), Mesh Arrangement / libigl (exact)
 
 ### General Benchmark — 100 Pairs
 
-100 model pairs (23 small / 43 medium / 34 large), stratified by face count. Difference operation, 3 repeats. Leaf threshold = 25.
+100 model pairs (23 small / 43 medium / 34 large), stratified by face count. Difference operation, leaf threshold = 25.
 
 | Algorithm | Exact | Median | Geom Mean | Max | Peak Mem |
 |-----------|-------|--------|-----------|-----|----------|
-| **re-EMBER** | yes | **127 ms** | **142 ms** | 778 ms | 118 MiB |
+| **re-EMBER** | yes | **102 ms** | **113 ms** | 668 ms | 118 MiB |
 | QuickCSG | no | 53 ms | 63 ms | 380 ms | 16 MiB |
 | Mesh Arrangement | yes | 801 ms | 830 ms | 4392 ms | 52 MiB |
 | CGAL Nef | yes | 1358 ms | 1603 ms | 33454 ms | 151 MiB |
 
-All algorithms completed all 300 runs (100 × 3). Zero failures.
+All 100 pairs completed. Zero failures.
 
 ### High-Face-Count Workpiece + Cylinder Tool — 25 Pairs
 
