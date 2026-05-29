@@ -77,3 +77,6 @@ EMBER-ToDoList.md
 .vscode
 EMBER Exact Mesh Booleans via Efficient & Robust Local Arrangements.pdf
 Shandong-University-Undergraduate-Thesis-Design-Template-main/
+
+# 论文 benchmark OBJ 输入 — 派生自 Thingi10K (CC BY 4.0)，不追踪
+tests/paper_experiments/inputs/
