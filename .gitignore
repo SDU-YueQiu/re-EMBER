@@ -83,3 +83,7 @@ tests/paper_experiments/inputs/
 
 # 资产文件 — 本地保留，不追踪
 assets/
+
+# 项目配置文件 — 本地保留，不追踪
+AGENTS.md
+Doxyfile
