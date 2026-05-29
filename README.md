@@ -2,135 +2,269 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-`re-EMBER` is a C++17 prototype for the EMBER boolean-mesh pipeline. The repository focuses on exact integer geometry, local arrangements, WNV/WNTV classification, and robust binary mesh booleans.
+re-EMBER is an open-source **exact** mesh boolean library in C++17. It handles union, intersection, and difference on triangle soups, producing watertight polygon output with exact geometric predicates. Across all benchmarks, its end-to-end wall-clock time averages **~2× QuickCSG** — while providing exact results that QuickCSG does not guarantee.
 
-## Geometry kernel contract
+## Installation
 
-The core boolean path is being constrained to the fixed-width homogeneous integer model used by EMBER and by Nehring-Wirxel et al. 2021. Core geometry code may construct and classify only through the paper primitive set: integer planes, axis-aligned AABB planes, three-plane homogeneous intersections, vertex-vs-plane classification, integer vertex signed-distance tests, and clipping against already valid planes.
+### FetchContent (CMake 3.24+)
 
-Input OBJ/STL coordinates are quantized to signed 26-bit integer coordinates unless `--scale` is explicitly supplied. Within the core solver, `int512_t` and `cpp_int` are not allowed to decide algorithmic branches; they are reserved for tests, debug oracles, diagnostics, and I/O post-processing. Operations that are not closed under the 256-bit budget, such as arbitrary homogeneous-point averaging, midpoint/difference construction, coordinate-plane reconstruction from fractional homogeneous points, and new planes derived from output homogeneous vertices, must fail explicitly instead of silently acting as fallback geometry.
+```cmake
+include(FetchContent)
+FetchContent_Declare(
+  re-EMBER
+  GIT_REPOSITORY https://github.com/Yueq2003/Ember.git
+  GIT_TAG v0.1.0
+)
+FetchContent_MakeAvailable(re-EMBER)
+target_link_libraries(my_app PRIVATE reember::lib)
+```
 
-## What is in this repo
+### Manual Build
 
-- `src/application/main.cpp` provides the command-line entry point.
-- `src/io/` handles OBJ/STL import and export.
-- `src/core/` contains the public `BoolProblem` facade and the internal `SubdivisionSolver`.
-- `src/algorithm/`, `src/geometry/`, and `src/math/` hold the boolean pipeline, geometry primitives, and fixed-width integer math.
-- `src/tests/` and `tests/paper_experiments/` provide unit tests and paper-style regression inputs.
-- `tools/profile-re-ember.ps1` runs timed workloads and optional Tracy captures.
+```powershell
+# Prerequisites
+vcpkg install tinyobjloader tbb boost-multiprecision
+scoop install llvm
+
+cmake --preset default && cmake --build --preset default-app
+cmake --install build/default --prefix <install-path>
+```
+
+Then in your CMakeLists.txt:
+
+```cmake
+find_package(re-EMBER REQUIRED)
+target_link_libraries(my_app PRIVATE reember::lib)
+```
+
+## Quick Start
+
+```powershell
+# Build & run
+cmake --preset default && cmake --build --preset default-app
+
+# Run
+build\default\re-EMBER.exe --lhs A.obj --rhs B.obj --op difference --out result.obj
+```
+
+See [Build](#build) for dependency installation and alternative presets (tests, verifier, visual viewer).
+
+## Performance
+
+Comparisons against CGAL Nef (exact baseline), Mesh Arrangement / libigl (exact), and QuickCSG / mesh_cs (fast, non-exact). Hardware: Intel i7-12700H, 64 GB DDR5, Windows 11.
+
+### General Benchmark — 100 Pairs
+
+100 model pairs (23 small / 43 medium / 34 large), stratified by face count. Difference operation, 3 repeats. Leaf threshold = 25.
+
+| Algorithm | Exact | Median | Geom Mean | Max | Peak Mem |
+|-----------|-------|--------|-----------|-----|----------|
+| **re-EMBER** | yes | **127 ms** | **142 ms** | 778 ms | 118 MiB |
+| QuickCSG | no | 53 ms | 63 ms | 380 ms | 16 MiB |
+| Mesh Arrangement | yes | 801 ms | 830 ms | 4392 ms | 52 MiB |
+| CGAL Nef | yes | 1358 ms | 1603 ms | 33454 ms | 151 MiB |
+
+All algorithms completed all 300 runs (100 × 3). Zero failures.
+
+### High-Face-Count Workpiece + Cylinder Tool — 25 Pairs
+
+25 Thingi10K models (100k–260k faces) as workpieces, each cut by a 96-triangle cylinder.
+
+| Algorithm | Exact | Median | Geom Mean | Max | Peak Mem |
+|-----------|-------|--------|-----------|-----|----------|
+| **re-EMBER** | yes | **661 ms** | **703 ms** | 1097 ms | 756 MiB |
+| QuickCSG | no | 381 ms | 404 ms | 708 ms | 81 MiB |
+| Mesh Arrangement | yes | 2376 ms | 2439 ms | 4715 ms | 280 MiB |
+| CGAL Nef | yes | 16937 ms | 17971 ms | 33238 ms | 1427 MiB |
+
+All 25/25 successes. re-EMBER is 3.9% of CGAL Nef, 27.8% of Mesh Arrangement.
+
+## Correctness
+
+### Accuracy — Oracle Verifier
+
+Output validated against a CGAL Nef oracle constructed on the same quantized input. 100 benchmark pairs, `re-EMBER_verify`.
+
+| Completed | Passed | Failed |
+|-----------|--------|--------|
+| 82 | **68** | **0** |
+
+14 timed out during Nef comparison (CGAL Nef overhead on large models), 18 untested large-scale pairs. Among all completed verifications, zero correctness failures.
+
+### Robustness — Defective Inputs
+
+10 synthetic model pairs with self-intersections, shared faces/edges/vertices, nested/duplicate shells, thin shells, and near-coplanar cuts. Input-assumption flags **off**.
+
+**10/10 successes.** Median 20 ms, max 26 ms.
+
+## Features
+
+- **Exact arithmetic** — 256-bit fixed-width integer predicates; no floating-point robustness issues
+- **Polygon-preserving output** — n-gon output (60% triangles, 30% quads, 6% n-gons); no forced triangulation
+- **Watertight results** — optional conforming T-junction repair pass
+- **Parallel** — sibling-parallel subdivision via TBB; configurable thread count
+- **OBJ + STL I/O** — n-gon `.obj` and triangulated `.stl` import/export
+- **Input assumptions** — optionally declare NSI/NNC properties for speed
 
 ## Build
 
-All build artifacts go under `build/`.
+All presets use Ninja + clang-cl. Artifacts land in `build/<preset>/`.
+
+| Preset | Target | Extra Deps |
+|--------|--------|------------|
+| `default` | `re-EMBER.exe` CLI | — |
+| `tests` | `re-EMBER_tests.exe` + CTest | — |
+| `verify` | `re-EMBER_verify.exe` (CGAL Nef oracle) | `cgal eigen3` |
+| `visual-test` | `visual-test.exe` (libigl viewer) | `cgal eigen3 libigl` |
 
 ```powershell
-cmake --preset default
-cmake --build --preset default-app
-```
-
-The default local build only requires the core dependencies used by `reember_lib` and `re-EMBER`. If `VCPKG_ROOT` is set, `CMakeLists.txt` picks up the vcpkg toolchain automatically. `CMakePresets.json` pins the generator to Ninja so the existing `clang-cl` auto-detection path works without manually passing compiler variables.
-
-Tests now live in their own preset and build tree:
-
-```powershell
-cmake --preset tests
-cmake --build --preset tests
-ctest --preset default
-```
-
-For the default build, install the core packages first:
-
-```powershell
+# Core dependencies
 vcpkg install tinyobjloader tbb boost-multiprecision
 scoop install llvm
+
+# Default
+cmake --preset default && cmake --build --preset default-app
+
+# Tests
+cmake --preset tests && cmake --build --preset tests && ctest --preset default
+
+# Verifier (needs CGAL)
+vcpkg install cgal eigen3
+cmake --preset verify && cmake --build --preset verify
 ```
 
-`re-EMBER_verify` and `visual-test` are optional extra targets. They stay off by default so a normal configure does not require `CGAL`, `Eigen3`, or `libigl`. Each preset uses its own build subtree under `build/` to avoid sharing one large cache directory. Enable them explicitly when needed:
+## CLI
+
+```
+re-EMBER.exe --lhs <file> --rhs <file> --op union|intersection|difference
+             [--out <file>] [--scale <int>] [--leaf-threshold <int>]
+             [--threads <int>] [--output-topology raw|conforming]
+             [--timings-out <file>]
+             [--assume-lhs-nsi] [--assume-lhs-nnc]
+             [--assume-rhs-nsi] [--assume-rhs-nnc]
+```
+
+- `.obj` output preserves n-gons; `.stl` triangulates at the boundary
+- `--leaf-threshold` controls subdivision depth (default 50, lower = deeper tree)
+- `--output-topology conforming` adds exact T-junction repair (slow; for inspection)
+- `--threads 1` forces serial execution throughout
+
+### Oracle Verifier
 
 ```powershell
-cmake --preset verify
-cmake --build --preset verify
-cmake --preset visual-test
-cmake --build --preset visual-test
+# Single pair
+build\verify\re-EMBER_verify.exe --lhs A.obj --rhs B.obj --op difference
+
+# Batch
+build\verify\re-EMBER_verify.exe --batch-manifest manifest.csv --batch-out-dir results/
 ```
 
-Those optional targets require the following extra packages:
+The verifier compares re-EMBER result fragments against a CGAL Nef reference built from the same quantized `Polygon256` input.
 
-```powershell
-vcpkg install cgal eigen3 libigl
+## Additional Experiments
+
+<details>
+<summary><b>Output Morphology &amp; Mesh Quality</b></summary>
+
+100 pairs, 1st repeat (deterministic output).
+
+| Algorithm | Outputs | Median Faces | n-gon Ratio | P95 Compactness |
+|-----------|---------|-------------|-------------|-----------------|
+| **re-EMBER** | 100 | 13714 | 6.4% | **72.7** |
+| CGAL Nef | 100 | 8583 | 0% | 168.6 |
+| Mesh Arrangement | 100 | 8648 | 0% | 116.9 |
+| QuickCSG | 100 | 8648 | 0% | 196.7 |
+
+re-EMBER preserves polygon faces from local arrangements rather than force-triangulating. This results in dramatically better compactness (P95 = 72.7, vs 168.6–196.7 for triangulated output). Lower is less elongated.
+</details>
+
+<details>
+<summary><b>Tracy Profiling Hotspots</b></summary>
+
+10 pairs (4 small, 3 medium, 3 large), Tracy + RelWithDebInfo.
+
+| Stratum | Samples | solve_ms Median |
+|---------|---------|-----------------|
+| Small | 4 | 38.0 |
+| Medium | 3 | 42.4 |
+| Large | 3 | 164.2 |
+
+Top self-time consumers: `WNV trace`, `LeafClassification::insetPointAttempt`, `BSPTree::addSegmentRecursive`, `Polygon256::rebuildAABBCache`. Zero fallback splits/bridge rescues — high-level pruning is effective; remaining cost is in low-level integer arithmetic and temporary object management.
+</details>
+
+<details>
+<summary><b>Parallel Scaling</b></summary>
+
+15 pairs, 1–20 threads.
+
+| Threads | Avg solve_ms | Speedup |
+|---------|-------------|---------|
+| 1 | 567 | 1.00× |
+| 4 | — | 2.45× |
+| 20 | 184 | 3.08× |
+
+Plateaus after 4 threads. The i7-12700H hybrid architecture (6P + 8E cores) and coarse-grained sibling-parallel strategy both contribute. Tracy event traces show load imbalance once enough sibling tasks exist.
+</details>
+
+## Roadmap
+
+### Custom fixed-length integer backend
+
+The current backend is `bitint`. Multiplication is fast, but **division is extremely slow** — and AABB construction requires many divisions. A custom fixed-width signed integer is needed.
+
+| Library | Issue |
+|---------|-------|
+| Boost `int256_t` | Multiplication too slow |
+| `wideinteger` | Overall slow across all operations |
+| `fp256` | Unsigned only; signed wrapper introduces significant overhead |
+| `intx` | Unsigned only; signed wrapper introduces significant overhead |
+
+`bitint` remains the best-performing backend; division is the sole bottleneck.
+
+### Missing optimizations from the paper
+
+- **Recursive subdivision polygon filtering** — the paper mentions not scanning all polygons during recursive subdivision, but provides no concrete strategy.
+- **Lower-bit intermediate results** — the paper notes intermediates can safely use fewer bits. Attempts to exploit this were unsuccessful. A custom integer backend may enable mixed-precision operations.
+- **Memory reuse** — temporary structure lifetimes, caching, and allocation patterns are adequate but not deeply optimized.
+
+### Parallel scaling
+
+~3.08× at 20 threads with diminishing returns after 4. Needs finer task granularity, better load balancing, and memory-allocation awareness under contention.
+
+## Project Layout
+
+```
+src/
+  application/     CLI entry point
+  io/              OBJ/STL I/O
+  core/            BoolProblem, SubdivisionSolver
+  algorithm/       BSP, leaf arrangement, WNV tracing
+  geometry/        AABB, clipping, plane/polygon primitives
+  math/            256-bit integer arithmetic
+  tests/           Unit tests
+tests/
+  paper_experiments/   Benchmark corpus (100 pairs) + manifests
+tools/
+  profile-re-ember.ps1  Timing + Tracy profiling harness
+docs/
+  geometry-kernel-contract.md  Kernel contract (detailed)
+  core-logic-flow.md           Core logic flowcharts
+  paper-to-code-audit.md       Paper-to-implementation audit
+assets/models/  Test models
 ```
 
-## Run
+## License
 
-Minimal boolean smoke test:
+The core library (`reember_lib`) and CLI (`re-EMBER`) are licensed under **MIT** (see [LICENSE](LICENSE)).
 
-```powershell
-build\default\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\boolean_smoke.obj --leaf-threshold 50
-```
+The optional `re-EMBER_verify` tool links against **CGAL** (GPL/LGPL/commercial) and lives in `verify/` with its own license notice. It is disabled by default and is not required to use the core boolean library.
 
-`.obj` output keeps n-gon faces. `.stl` output is triangulated at the I/O boundary. `--output-topology conforming` enables the exact T-junction repair pass before export. This mode is intended for debugging and MeshLab inspection, not performance measurement; it can be much slower than raw output. Coplanar merging and Nef regularized output remain disabled in the application CLI.
+Third-party dependencies: tinyobjloader (MIT), Boost (BSL-1.0), TBB (Apache-2.0), Tracy (BSD-3-Clause, vendored in `third_party/tracy/`). Optional: CGAL (GPL/LGPL), Eigen (MPL-2.0), libigl (MPL-2.0).
 
-## Oracle verifier
+The 100-pair benchmark metadata uses Thingi10K model IDs (CC BY 4.0) and EMBER paper supplemental transforms. Test OBJ files are not distributed — generate them with `tests/paper_experiments/generate_inputs.py`.
 
-`re-EMBER_verify` checks a `BoolProblem::resultFragments()` candidate against a cached CGAL Nef oracle:
+## References
 
-```powershell
-cmake --preset verify
-cmake --build --preset verify
-build\verify\re-EMBER_verify.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --leaf-threshold 50 --oracle-cache-dir build\oracle_cache\nef
-```
+Trettner, Nehring-Wirxel, and Kobbelt. "EMBER: Exact Mesh Booleans via Efficient & Robust Local Arrangements." *ACM Trans. Graph.* (SIGGRAPH), 2022.
 
-The oracle is exact over the quantized `Polygon256` input used by re-EMBER. It does not claim to validate the original floating OBJ/STL CAD intent before import and quantization. Oracle surfaces are cached under `build\oracle_cache\nef\` by default as verifier-private `*.surface.txt` files; pass `--refresh-oracle` to rebuild a cached entry. `--candidate-mode fragments-nef|export-conforming|export-nef` selects whether the candidate is compared from result fragments, from the conforming export topology, or from the Nef export topology path; this does not change the oracle cache key. The default `fragments-nef` candidate reuses the exact conforming mesh recovery before constructing CGAL Nef, avoiding the older quadratic Nef-side T-junction refinement. Before falling back to CGAL Nef overlay, the verifier first compares simple candidate/oracle Nef surfaces as exact vertices and face cycles; `surface_compare_used=1` in the report means this exact surface check proved equality without running the final overlay. Pass `--disable-surface-compare` to force the older overlay-only comparison; fallback builds the oracle Nef from the cached exact surface rather than loading a cached Nef.
-
-The verifier also has a batch mode that is independent from the performance script:
-
-```powershell
-build\verify\re-EMBER_verify.exe --batch-input-root tests\paper_experiments\inputs\small --op difference --batch-out-dir build\verify_batch_small
-build\verify\re-EMBER_verify.exe --batch-manifest tests\paper_experiments\manifest.csv --batch-out-dir build\verify_batch_manifest
-```
-
-`--batch-input-root` scans case subdirectories that each contain exactly one `lhs.obj|stl` and one `rhs.obj|stl`, using the global `--op`. `--batch-manifest` accepts either `name,lhs,rhs,op` or the paper manifest columns `pair_id,lhs_path,rhs_path,operation`. Batch output contains `verification.csv`, `batch_report.txt`, `cache/*.candidate.txt`, and `reports/*.report.txt`. `--batch-size` defaults to the CPU logical-thread count and must be in `1..CPU logical-thread count`; larger values are rejected. Within each batch, solve/cache runs workload by workload in manifest order, while each workload can still use the full `--threads` setting internally. After candidate caches are written, CGAL comparison runs in parallel across workloads in that batch.
-
-For CGAL Nef failures, `--diagnose-nef` prints exact mesh topology statistics before and after Nef construction. Pair it with `--nef-compare-op skip` to avoid the final CGAL overlay, or with `equal` / `candidate-minus-oracle` / `oracle-minus-candidate` / `xor` to isolate which Nef comparison operation stalls or fails. This diagnostic path can be slow and is intended for correctness investigation, not performance timing.
-
-## CLI options
-
-- `--lhs <file.obj|file.stl>` and `--rhs <file.obj|file.stl>` pick the left and right operands.
-- `--op union|intersection|difference` selects the boolean operation.
-- `--out <result.obj|result.stl>` sets the output file.
-- `--scale <positive_integer>` overrides the shared quantization scale.
-- `--leaf-threshold <positive_integer>` controls when subdivision stops at a leaf; the default is 50.
-- `--threads <positive_integer>` sets the application-layer task arena size and solver thread count; use `1` to force serial execution.
-- `--output-topology raw|conforming` chooses application export topology. `raw` writes solver result chunks directly and skips conforming-only topology metadata; `conforming` globally inserts existing vertices that lie on other face edges to remove T-junctions. `conforming` is exact but slow and should be used for debugging/inspection rather than performance runs. Coplanar merging and Nef output are disabled.
-- `--timings-out <metrics.txt>` writes the timing and solve summary for a single run.
-- `--assume-lhs-nsi`, `--assume-lhs-nnc`, `--assume-rhs-nsi`, and `--assume-rhs-nnc` declare input assumptions for faster runs. `NNC` requires `NSI` for the same side.
-
-Application-layer parallelism uses the same `--threads` limit for coarse left/right operand work and fine-grained static partitions over vertex AABB building, vertex quantization, face-to-polygon construction, and export fragment recovery.
-
-## Performance script
-
-`tools/profile-re-ember.ps1` wraps timed runs, Tracy capture, and report generation. The most common parameters are:
-
-- `-Lhs` / `-Rhs` and `-Op` run one explicit boolean workload.
-- `-InputRoot` runs a batch of cases from a directory tree.
-- `-UsePaperExperimentSet` builds a manifest-driven paper batch under the current run directory. The checked-in paper corpus contains 100 workloads: 23 small, 43 medium, and 34 large. The default quick batch still selects 10 small, 10 medium, and 2 large workloads; pass `-PaperSmallCount 23 -PaperMediumCount 43 -PaperLargeCount 34` for a full-corpus run.
-- `-Out` writes a single-workload result file.
-- `-ExecutablePath` reuses an existing `re-EMBER.exe` instead of rebuilding.
-- `-Configuration` chooses the profiling build type. Timing-only `-NoTracy` runs default to `Release`; Tracy runs default to `RelWithDebInfo`.
-- `-Iterations`, `-TimeoutSeconds`, `-BuildTimeoutSeconds`, and `-ReportTimeoutSeconds` control runtime limits.
-- `-LeafThreshold` is passed through to the solver; the default is 50. `-Threads` sets the application-layer task arena size and solver thread count.
-- `-NoTracy` skips Tracy capture and uses `build\profile_clang_notracy\`.
-- `-EnableMathTracy` also enables low-level `math256` Tracy zones and uses `build\profile_clang_tracy_math\`.
-- `-SkipBuild` reuses an already prepared profiling tree.
-- `-UnwrapZoneFilter` exports per-event CSVs for selected hotspot zones.
-- `-WorkloadPriority`, `-UsePCores`, and `-WorkloadAffinityMask` control workload scheduling.
-
-The script only measures timing/profiling; use `re-EMBER_verify` directly for oracle checks. It writes `build\performance\run_<timestamp>\` with `summary.txt`, `timings.csv`, `manifest.json`, `profile.log`, `report.md`, `tracy_zones.csv`, `tracy_zones_self.csv`, and optional `tracy_unwrap\*.csv`.
-
-## Notes
-
-- The default presets now configure `Release`; each preset writes to its own subtree such as `build\default\`, `build\tests\`, `build\verify\`, or `build\visual-test\`.
-- `build\tests\re-EMBER_tests.exe` runs the repository tests.
-- `build\visual-test\visual-test.exe` exposes the same Ember output topology controls in the interactive panel, including `nef`.
-- `--threads 1` forces a serial run across application-layer preparation and solving when you need to debug.
-- `--timings-out <file>` writes the timing summary for a single run.
+Nehring-Wirxel, Trettner, and Kobbelt. "Fast Exact Booleans for Iterated CSG using Octree-Embedded BSPs." *Computer-Aided Design*, 2021.

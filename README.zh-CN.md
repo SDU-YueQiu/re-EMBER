@@ -2,133 +2,269 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-`re-EMBER` 是一个围绕 EMBER 布尔网格流水线的 C++17 原型仓库，重点是精确整数几何、局部编排、WNV/WNTV 分类和稳健的二元网格布尔运算。
+re-EMBER 是一个 C++17 开源**精确**网格布尔运算库，支持三角面片汤的并集、交集和差集运算，生成水密多边形输出，所有几何谓词均为精确整数运算。在所有 benchmark 中，端到端耗时平均仅为 **QuickCSG 的约 2 倍**——而后者不保证输出正确性。
 
-## 几何 kernel 契约
+## 安装
 
-核心布尔路径正在收敛到 EMBER 与 Nehring-Wirxel et al. 2021 使用的固定宽度齐次整数模型。核心几何代码只能通过论文图元集合构造和分类：整数平面、AABB 轴对齐平面、三平面齐次交点、齐次点对平面分类、整数顶点 signed-distance，以及针对已有合法平面的裁剪。
+### FetchContent (CMake 3.24+)
 
-OBJ/STL 输入默认会量化到 signed 26-bit 整数坐标，除非显式传入 `--scale`。核心求解器内的 `int512_t` 和 `cpp_int` 不允许决定算法分支；它们只用于测试 oracle、调试诊断和 I/O 后处理。任意齐次点平均、中点/差分、从分数齐次点反推坐标平面、从输出齐次顶点构造新平面等不满足 256-bit 闭包预算的操作，必须显式失败，不能作为静默 fallback。
+```cmake
+include(FetchContent)
+FetchContent_Declare(
+  re-EMBER
+  GIT_REPOSITORY https://github.com/Yueq2003/Ember.git
+  GIT_TAG v0.1.0
+)
+FetchContent_MakeAvailable(re-EMBER)
+target_link_libraries(my_app PRIVATE reember::lib)
+```
 
-## 本仓库包含什么
+### 手动构建
 
-- `src/application/main.cpp` 提供命令行入口。
-- `src/io/` 负责 OBJ/STL 的导入和导出。
-- `src/core/` 包含公开的 `BoolProblem` 门面和内部的 `SubdivisionSolver`。
-- `src/algorithm/`、`src/geometry/` 和 `src/math/` 放的是布尔流水线、几何原语和固定宽度整数运算。
-- `src/tests/` 与 `tests/paper_experiments/` 提供单元测试和论文风格回归输入。
-- `tools/profile-re-ember.ps1` 用于计时运行和可选的 Tracy 采样。
+```powershell
+# 依赖
+vcpkg install tinyobjloader tbb boost-multiprecision
+scoop install llvm
+
+cmake --preset default && cmake --build --preset default-app
+cmake --install build/default --prefix <install-path>
+```
+
+然后在你的 CMakeLists.txt 中：
+
+```cmake
+find_package(re-EMBER REQUIRED)
+target_link_libraries(my_app PRIVATE reember::lib)
+```
+
+## 快速开始
+
+```powershell
+# 构建并运行
+cmake --preset default && cmake --build --preset default-app
+
+# 运行
+build\default\re-EMBER.exe --lhs A.obj --rhs B.obj --op difference --out result.obj
+```
+
+依赖安装及验证器、可视化等可选 preset 见[构建](#构建)章节。
+
+## 性能
+
+对比 CGAL Nef（精确基线）、Mesh Arrangement / libigl（精确）、QuickCSG / mesh_cs（快速但非精确）。硬件：Intel i7-12700H，64 GB DDR5，Windows 11。
+
+### 通用 Benchmark — 100 对
+
+从 1000 对候选模型中按面数分层抽样：小规模 23 对（1k–5k 面）、中规模 43 对（5k–20k 面）、大规模 34 对（20k–100k 面）。固定二元差运算，每对重复 3 次，叶阈值=25。
+
+| 算法 | 精确 | 中位 | 几何平均 | 最大 | 峰值内存 |
+|------|------|------|----------|------|----------|
+| **re-EMBER** | 是 | **127 ms** | **142 ms** | 778 ms | 118 MiB |
+| QuickCSG | 否 | 53 ms | 63 ms | 380 ms | 16 MiB |
+| Mesh Arrangement | 是 | 801 ms | 830 ms | 4392 ms | 52 MiB |
+| CGAL Nef | 是 | 1358 ms | 1603 ms | 33454 ms | 151 MiB |
+
+全部 300 次运行（100 对 × 3 次）无失败、无超时。
+
+### 高面数工件 + 低面数刀具 — 25 对
+
+25 个 Thingi10K 模型（10–26 万面）为工件，各配 96 面圆柱体刀具。差运算。
+
+| 算法 | 精确 | 中位 | 几何平均 | 最大 | 峰值内存 |
+|------|------|------|----------|------|----------|
+| **re-EMBER** | 是 | **661 ms** | **703 ms** | 1097 ms | 756 MiB |
+| QuickCSG | 否 | 381 ms | 404 ms | 708 ms | 81 MiB |
+| Mesh Arrangement | 是 | 2376 ms | 2439 ms | 4715 ms | 280 MiB |
+| CGAL Nef | 是 | 16937 ms | 17971 ms | 33238 ms | 1427 MiB |
+
+25/25 全部成功。re-EMBER 中位耗时为 CGAL Nef 的 3.9%、Mesh Arrangement 的 27.8%。
+
+## 正确性
+
+### 精确性 — Oracle 验证
+
+通过 `re-EMBER_verify` 将输出与同批量化输入上的 CGAL Nef oracle 做集合等价校验。100 对 benchmark 样本。
+
+| 已完成 | 通过 | 失败 |
+|--------|------|------|
+| 82 | **68** | **0** |
+
+14 对在 Nef 比较阶段超时（CGAL Nef 在大模型上开销过高），18 对大规模样本未测。**所有完成验证的样本零失败。**
+
+### 鲁棒性 — 缺陷输入
+
+10 组含自交、共享面/边/顶点、嵌套/重合壳、薄壳和近共面切割的合成模型对。**关闭**输入假设。
+
+**10/10 全部成功。** 中位 20 ms，最大 26 ms。
+
+## 特性
+
+- **精确算术** — 256 位定宽整数谓词，无浮点鲁棒性问题
+- **保留多边形输出** — 输出 n-gon（三角形 60%、四边形 30%、n-gon 6%），不强制三角化
+- **水密结果** — 可选 conforming T-junction 修复
+- **并行** — 基于 TBB 的 sibling 并行细分，可配置线程数
+- **OBJ + STL** — 支持 n-gon `.obj` 和三角化 `.stl` 的导入导出
+- **输入假设** — 可声明 NSI/NNC 属性以加速运行
 
 ## 构建
 
-所有构建产物都放在 `build/` 下。
+全部 preset 使用 Ninja + clang-cl。产物在 `build/<preset>/` 下。
+
+| Preset | 目标 | 额外依赖 |
+|--------|------|----------|
+| `default` | `re-EMBER.exe` CLI | — |
+| `tests` | `re-EMBER_tests.exe` + CTest | — |
+| `verify` | `re-EMBER_verify.exe`（CGAL Nef 验证器） | `cgal eigen3` |
+| `visual-test` | `visual-test.exe`（libigl 交互查看） | `cgal eigen3 libigl` |
 
 ```powershell
-cmake --preset default
-cmake --build --preset default-app
-```
-
-默认本地构建只要求 `reember_lib` 和 `re-EMBER` 所需的核心依赖。如果已经设置 `VCPKG_ROOT`，`CMakeLists.txt` 会自动接入 vcpkg toolchain。仓库内的 `CMakePresets.json` 会把 generator 固定为 Ninja，这样现有的 `clang-cl` 自动发现路径就能直接生效，不需要手动传编译器变量。
-
-测试现在单独放在自己的 preset 和构建树里：
-
-```powershell
-cmake --preset tests
-cmake --build --preset tests
-ctest --preset default
-```
-
-默认构建先安装这些核心包：
-
-```powershell
+# 核心依赖
 vcpkg install tinyobjloader tbb boost-multiprecision
 scoop install llvm
+
+# 默认构建
+cmake --preset default && cmake --build --preset default-app
+
+# 测试
+cmake --preset tests && cmake --build --preset tests && ctest --preset default
+
+# 验证器（需 CGAL）
+vcpkg install cgal eigen3
+cmake --preset verify && cmake --build --preset verify
 ```
 
-`re-EMBER_verify` 和 `visual-test` 是额外工具目标，默认关闭，这样普通 configure 不会强制要求 `CGAL`、`Eigen3` 或 `libigl`。每个 preset 都会落到 `build/` 下独立的子目录，避免共用一个大而混杂的构建树。需要时再显式开启：
+## CLI
+
+```
+re-EMBER.exe --lhs <file> --rhs <file> --op union|intersection|difference
+             [--out <file>] [--scale <int>] [--leaf-threshold <int>]
+             [--threads <int>] [--output-topology raw|conforming]
+             [--timings-out <file>]
+             [--assume-lhs-nsi] [--assume-lhs-nnc]
+             [--assume-rhs-nsi] [--assume-rhs-nnc]
+```
+
+- `.obj` 输出保留 n-gon；`.stl` 在 I/O 边界三角化
+- `--leaf-threshold` 控制细分深度（默认 50，越小树越深）
+- `--output-topology conforming` 启用 T-junction 精确修复（慢，用于检查）
+- `--threads 1` 全局串行
+
+### Oracle 验证器
 
 ```powershell
-cmake --preset verify
-cmake --build --preset verify
-cmake --preset visual-test
-cmake --build --preset visual-test
+# 单对
+build\verify\re-EMBER_verify.exe --lhs A.obj --rhs B.obj --op difference
+
+# 批量
+build\verify\re-EMBER_verify.exe --batch-manifest manifest.csv --batch-out-dir results/
 ```
 
-这些可选目标额外需要：
+验证器在相同量化输入上将 re-EMBER 结果片段与 CGAL Nef 对照做集合等价校验。
 
-```powershell
-vcpkg install cgal eigen3 libigl
+## 补充实验
+
+<details>
+<summary><b>输出形态与网格质量</b></summary>
+
+100 对，第 1 次重复（输出确定性）。
+
+| 算法 | 输出数 | 面数中位数 | n-gon 占比 | P95 紧致度 |
+|------|--------|-----------|-----------|-----------|
+| **re-EMBER** | 100 | 13714 | 6.4% | **72.7** |
+| CGAL Nef | 100 | 8583 | 0% | 168.6 |
+| Mesh Arrangement | 100 | 8648 | 0% | 116.9 |
+| QuickCSG | 100 | 8648 | 0% | 196.7 |
+
+re-EMBER 保留局部排布产生的多边形面片，不强制三角化。P95 紧致度（72.7，越小越不细长）远优于三角化输出（168.6–196.7）。
+</details>
+
+<details>
+<summary><b>Tracy 性能剖析</b></summary>
+
+10 对（4 小、3 中、3 大），Tracy + RelWithDebInfo。
+
+| 层级 | 样本数 | solve_ms 中位 |
+|------|--------|---------------|
+| 小规模 | 4 | 38.0 |
+| 中规模 | 3 | 42.4 |
+| 大规模 | 3 | 164.2 |
+
+self-time 主要热点：`WNV trace`、`LeafClassification::insetPointAttempt`、`BSPTree::addSegmentRecursive`、`Polygon256::rebuildAABBCache`。无 fallback 切分或桥接兜底——高层剪枝已有效运作，剩余开销在底层整数算术和临时对象管理。
+</details>
+
+<details>
+<summary><b>并行缩放</b></summary>
+
+15 对，1–20 线程。
+
+| 线程数 | 平均求解时间 | 加速比 |
+|--------|-------------|--------|
+| 1 | 567 ms | 1.00× |
+| 4 | — | 2.45× |
+| 20 | 184 ms | 3.08× |
+
+4 线程后收益明显放缓。i7-12700H 大小核架构（6P + 8E）与当前粗粒度 sibling 并行策略共同限制。Tracy 事件展开显示任务之间存在负载不均。
+</details>
+
+## 后续计划
+
+### 自定义定长整数底层
+
+当前底层为 `bitint`。乘法性能优秀，但**除法极其慢**——AABB 构造等大量几何操作依赖除法，构成显著瓶颈。需编写自定义定宽有符号整数。
+
+| 方案 | 问题 |
+|------|------|
+| Boost `int256_t` | 乘法太慢 |
+| `wideinteger` | 各操作全面慢 |
+| `fp256` | 仅支持无符号数；有符号封装后性能显著下降 |
+| `intx` | 仅支持无符号数；有符号封装后性能显著下降 |
+
+`bitint` 仍是当前综合性能最好的底层，除法是唯一瓶颈。
+
+### 尚未实现的论文优化
+
+- **递归细分时不扫全部 polygon** — 论文提及但未给出具体策略，缺乏明确思路未实现
+- **中间结果低位长运算** — 论文指出中间结果可安全用低位。简单尝试未成功，自定义整数底层可能提供更灵活的高低混合运算
+- **内存重用** — 临时结构生命周期、缓存和分配模式未深入优化
+
+### 并行扩展
+
+20 线程约 3.08× 加速，4 线程后收益锐减。需细化任务粒度、改善负载均衡，并关注多线程下的内存分配竞争。
+
+## 项目结构
+
+```
+src/
+  application/     命令行入口
+  io/              OBJ/STL 导入导出
+  core/            BoolProblem、SubdivisionSolver
+  algorithm/       BSP、叶片编排、WNV 追踪
+  geometry/        AABB、裁剪、平面/多边形图元
+  math/            256 位定宽整数算术
+  tests/           单元测试
+tests/
+  paper_experiments/   Benchmark 样本（100 对）及清单
+tools/
+  profile-re-ember.ps1  计时与 Tracy 性能剖析脚本
+docs/
+  geometry-kernel-contract.md  几何 kernel 契约（详细）
+  core-logic-flow.md           核心逻辑流程图
+  paper-to-code-audit.md       论文到实现对照审计
+assets/models/  测试模型
 ```
 
-## 运行
+## 许可
 
-最小布尔测试命令：
+核心库 (`reember_lib`) 与 CLI (`re-EMBER`) 采用 **MIT** 许可（详见 [LICENSE](LICENSE)）。
 
-```powershell
-build\default\re-EMBER.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --out build\boolean_smoke.obj --leaf-threshold 50
-```
+可选工具 `re-EMBER_verify` 链接 **CGAL**（GPL/LGPL/商业许可），位于 `verify/` 子目录并附带独立许可说明，默认不构建，非使用核心库的必要条件。
 
-`.obj` 输出保留 n 边面；`.stl` 输出会在 I/O 边界三角化。`--output-topology conforming` 会在导出前启用精确 T-junction 修复。该模式主要用于调试和 MeshLab 检查，不用于性能计时；它可能明显慢于 raw 输出。共面合并和 Nef 正则化输出仍在应用层 CLI 禁用。
+第三方依赖：tinyobjloader (MIT)、Boost (BSL-1.0)、TBB (Apache-2.0)、Tracy (BSD-3-Clause，vendored 于 `third_party/tracy/`)。可选：CGAL (GPL/LGPL)、Eigen (MPL-2.0)、libigl (MPL-2.0)。
 
-## Oracle 校验工具
+100 对 benchmark 元数据使用 Thingi10K 模型 ID（CC BY 4.0）和 EMBER 论文 supplemental 变换矩阵。仓库不直接分发测试 OBJ 文件——使用 `tests/paper_experiments/generate_inputs.py` 生成。
 
-`re-EMBER_verify` 会把 `BoolProblem::resultFragments()` 候选结果和缓存的 CGAL Nef oracle 做集合相等校验：
+## 参考文献
 
-```powershell
-cmake --preset verify
-cmake --build --preset verify
-build\verify\re-EMBER_verify.exe --lhs assets\models\workpiece_block.obj --rhs assets\models\tool_box.obj --op difference --leaf-threshold 50 --oracle-cache-dir build\oracle_cache\nef
-```
+Trettner, Nehring-Wirxel, and Kobbelt. "EMBER: Exact Mesh Booleans via Efficient & Robust Local Arrangements." *ACM Trans. Graph.* (SIGGRAPH), 2022.
 
-oracle 的精确性边界是 re-EMBER 已经量化后的 `Polygon256` 输入；它不声明验证原始浮点 OBJ/STL 在 CAD 语义上的真实布尔结果。默认缓存目录是 `build\oracle_cache\nef\`，缓存 verifier 私有的 `*.surface.txt` 精确表面；需要强制重算时传 `--refresh-oracle`。`--candidate-mode fragments-nef|export-conforming|export-nef` 可选择用原始结果片段或 verifier 内部诊断候选构造候选结果；这些模式不代表应用层输出后处理已经启用，也不改变 oracle cache key。surface fast path 无法证明相等时，fallback 会从缓存的精确表面重新构造 oracle Nef，而不是读取缓存的 Nef。
-
-校验工具也支持独立于性能脚本的批处理模式：
-
-```powershell
-build\verify\re-EMBER_verify.exe --batch-input-root tests\paper_experiments\inputs\small --op difference --batch-out-dir build\verify_batch_small
-build\verify\re-EMBER_verify.exe --batch-manifest tests\paper_experiments\manifest.csv --batch-out-dir build\verify_batch_manifest
-```
-
-`--batch-input-root` 会扫描子目录，每个 case 必须有且只有一个 `lhs.obj|stl` 和一个 `rhs.obj|stl`，布尔运算使用全局 `--op`。`--batch-manifest` 支持 `name,lhs,rhs,op`，也兼容论文 manifest 的 `pair_id,lhs_path,rhs_path,operation`。批处理输出包含 `verification.csv`、`batch_report.txt`、`cache/*.candidate.txt` 和 `reports/*.report.txt`。`--batch-size` 默认等于 CPU 逻辑线程数，有效范围是 `1..CPU 逻辑线程数`，超过上限会直接报错。每个 batch 内 solve/cache 阶段按 workload 顺序串行执行，但单个 workload 内部仍按 `--threads` 最大并行；候选缓存写完后，同一 batch 的 CGAL compare 阶段按 workload 并行。
-
-## CLI 参数
-
-- `--lhs <file.obj|file.stl>` 和 `--rhs <file.obj|file.stl>` 分别指定左右操作数。
-- `--op union|intersection|difference` 选择布尔运算类型。
-- `--out <result.obj|result.stl>` 指定输出文件。
-- `--scale <positive_integer>` 手动覆盖共享量化尺度。
-- `--leaf-threshold <positive_integer>` 控制细分到叶子时的停止阈值；默认值为 50。
-- `--threads <positive_integer>` 指定应用层 task arena 大小和求解线程数；设为 `1` 可强制串行。
-- `--output-topology raw|conforming` 选择应用层导出拓扑。`raw` 直接写 `resultFragments()`，并跳过只供 conforming 修复使用的拓扑元数据；`conforming` 会全局查找并插入落在其他面边上的已有顶点以消除 T-junction。`conforming` 是精确但较慢的调试/检查模式，不应用于性能测试。共面合并和 Nef 输出仍禁用。
-- `--timings-out <metrics.txt>` 会把单次运行的计时和求解摘要写到文件里。
-- `--assume-lhs-nsi`、`--assume-lhs-nnc`、`--assume-rhs-nsi`、`--assume-rhs-nnc` 用于声明输入假设以加速运行；同一侧的 `NNC` 依赖 `NSI`。
-
-应用层并行与求解器共用 `--threads` 限制：外层并行调度左右操作数，内层对顶点 AABB、顶点量化、面到多边形构造和导出片段恢复做静态分块。
-
-## 性能脚本
-
-`tools/profile-re-ember.ps1` 负责计时运行、Tracy 采样和报告生成。常用参数如下：
-
-- `-Lhs` / `-Rhs` 和 `-Op` 用于跑一个明确的布尔任务。
-- `-InputRoot` 用于从目录树批量跑多个 case。
-- `-UsePaperExperimentSet` 会按 manifest 在当前 run 目录下生成论文实验批量输入。当前纳入仓库的论文 corpus 共 100 个 workload：23 个 small、43 个 medium、34 个 large。默认快速批量仍选择 10 个 small、10 个 medium 和 2 个 large；全量运行使用 `-PaperSmallCount 23 -PaperMediumCount 43 -PaperLargeCount 34`。
-- `-Out` 指定单个任务的输出文件。
-- `-ExecutablePath` 直接复用已有的 `re-EMBER.exe`，不重新构建。
-- `-Configuration` 选择 profiling 构建类型。只计时的 `-NoTracy` 默认使用 `Release`；Tracy 采样默认使用 `RelWithDebInfo`。
-- `-Iterations`、`-TimeoutSeconds`、`-BuildTimeoutSeconds`、`-ReportTimeoutSeconds` 控制运行超时。
-- `-LeafThreshold` 会传给求解器，默认值为 50；`-Threads` 同时设置应用层 task arena 大小和求解线程数。
-- `-NoTracy` 跳过 Tracy 采样，使用 `build\profile_clang_notracy\`。
-- `-EnableMathTracy` 额外打开底层 `math256` Tracy 区间，并使用 `build\profile_clang_tracy_math\`。
-- `-SkipBuild` 复用已有的 profiling 构建树。
-- `-UnwrapZoneFilter` 会导出指定热点 zone 的逐事件 CSV。
-- `-WorkloadPriority`、`-UsePCores` 和 `-WorkloadAffinityMask` 控制被计时进程的调度方式。
-
-性能脚本只负责计时和 profiling；oracle 校验请直接调用 `re-EMBER_verify`。脚本会在 `build\performance\run_<timestamp>\` 下生成 `summary.txt`、`timings.csv`、`manifest.json`、`profile.log`、`report.md`、`tracy_zones.csv`、`tracy_zones_self.csv`，以及可选的 `tracy_unwrap\*.csv`。
-
-## 备注
-
-- 默认 preset 现在会配置成 `Release`；每个 preset 会写入自己的子目录，例如 `build\default\`、`build\tests\`、`build\verify\`、`build\visual-test\`。
-- `build\tests\re-EMBER_tests.exe` 可以运行仓库测试。
-- `build\visual-test\visual-test.exe` 的 Ember 面板同样提供 `raw` / `conforming` 输出拓扑。
-- `--threads 1` 可让应用层准备和求解都强制串行，方便排查问题。
-- `--timings-out <file>` 会输出单次运行的计时摘要。
+Nehring-Wirxel, Trettner, and Kobbelt. "Fast Exact Booleans for Iterated CSG using Octree-Embedded BSPs." *Computer-Aided Design*, 2021.

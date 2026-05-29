@@ -1,0 +1,7 @@
+The `re-EMBER_verify` tool in this directory links against CGAL, which
+is available under GPL / LGPL / commercial license.  The core `reember_lib`
+and CLI `re-EMBER` are MIT-licensed and do not depend on CGAL.
+
+Building this optional verifier tool adds GPL dependencies to the resulting
+binary.  The verifier is not required to use the core boolean library and
+is disabled by default in the build system.

@@ -1,4 +1,9 @@
 # 构建 re-EMBER 库、命令行程序、可视化测试程序和自定义测试。
+#
+# 许可证:
+#   reember_lib 及 re-EMBER CLI 采用 MIT 许可证 (见根目录 LICENSE)。
+#   re-EMBER_verify 链接 CGAL (GPL/LGPL/商业许可)，作为可选 GPL-compatible 工具
+#   置于 verify/ 子目录，默认不构建。visual-test 同理。
 cmake_minimum_required(VERSION 3.24)
 
 if(NOT DEFINED CMAKE_TOOLCHAIN_FILE AND DEFINED ENV{VCPKG_ROOT})
@@ -39,7 +44,9 @@ if(WIN32 AND NOT DEFINED CMAKE_CXX_COMPILER AND NOT DEFINED ENV{CXX})
   endif()
 endif()
 
-project(re-EMBER LANGUAGES CXX)
+project(re-EMBER VERSION 0.1.0 LANGUAGES CXX)
+
+include(GNUInstallDirs)
 
 message(STATUS "Current Toolchain File: ${CMAKE_TOOLCHAIN_FILE}")
 message(STATUS "Current Generator Toolset: ${CMAKE_GENERATOR_TOOLSET}")
@@ -68,6 +75,13 @@ option(REEMBER_BUILD_VERIFY "Build the CGAL Nef oracle verifier target" OFF)
 option(REEMBER_ENABLE_TRACY "Enable optional Tracy profiler instrumentation" OFF)
 option(REEMBER_ENABLE_TRACY_MATH "Enable optional low-level math256 Tracy instrumentation" OFF)
 
+# 被 FetchContent / add_subdirectory 引入时不构建 CLI
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+  option(REEMBER_BUILD_CLI "Build the re-EMBER command-line executable" ON)
+else()
+  option(REEMBER_BUILD_CLI "Build the re-EMBER command-line executable" OFF)
+endif()
+
 find_package(tinyobjloader CONFIG REQUIRED)
 find_package(Boost CONFIG REQUIRED)
 find_package(TBB CONFIG REQUIRED)
@@ -83,11 +97,11 @@ set(REEMBER_APP_HEADERS
 )
 
 set(REEMBER_NEF_POSTPROCESS_SOURCE
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/application/nef_postprocess.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/verify/nef_postprocess.cpp"
 )
 
 set(REEMBER_NEF_POSTPROCESS_HEADERS
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/application/nef_postprocess.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/verify/nef_postprocess.h"
 )
 
 set(REEMBER_VISUAL_TEST_SOURCE
@@ -95,7 +109,7 @@ set(REEMBER_VISUAL_TEST_SOURCE
 )
 
 set(REEMBER_VERIFY_SOURCE
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/application/verify.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/verify/verify.cpp"
 )
 
 set(REEMBER_LIBRARY_SOURCES
@@ -157,12 +171,14 @@ set(REEMBER_TEST_HEADERS
 )
 
 add_library(reember_lib ${REEMBER_LIBRARY_SOURCES} ${REEMBER_LIBRARY_HEADERS})
+add_library(reember::lib ALIAS reember_lib)
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${REEMBER_LIBRARY_SOURCES} ${REEMBER_LIBRARY_HEADERS})
 
 target_include_directories(reember_lib
   PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${REEMBER_THIRD_PARTY_DIR}
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"
+    "$<BUILD_INTERFACE:${REEMBER_THIRD_PARTY_DIR}>"
+    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/re-EMBER>"
 )
 
 target_compile_features(reember_lib PUBLIC cxx_std_17)
@@ -209,20 +225,22 @@ if(REEMBER_ENABLE_TRACY)
   endif()
 endif()
 
-add_executable(re-EMBER ${REEMBER_APP_SOURCE} ${REEMBER_APP_HEADERS})
-target_compile_definitions(re-EMBER PRIVATE TINYOBJLOADER_USE_DOUBLE)
-target_link_libraries(re-EMBER PRIVATE reember_lib TBB::tbb)
+if(REEMBER_BUILD_CLI)
+  add_executable(re-EMBER ${REEMBER_APP_SOURCE} ${REEMBER_APP_HEADERS})
+  target_compile_definitions(re-EMBER PRIVATE TINYOBJLOADER_USE_DOUBLE)
+  target_link_libraries(re-EMBER PRIVATE reember_lib TBB::tbb)
 
-if(MSVC)
-  target_compile_options(re-EMBER PRIVATE
-    "$<$<CONFIG:Release>:/Zi>"
-  )
-  target_link_options(re-EMBER PRIVATE
-    "$<$<CONFIG:Release>:/DEBUG:FULL>"
-    "$<$<CONFIG:Release>:/OPT:REF>"
-    "$<$<CONFIG:Release>:/OPT:ICF>"
-    "$<$<CONFIG:RelWithDebInfo>:/DEBUG:FULL>"
-  )
+  if(MSVC)
+    target_compile_options(re-EMBER PRIVATE
+      "$<$<CONFIG:Release>:/Zi>"
+    )
+    target_link_options(re-EMBER PRIVATE
+      "$<$<CONFIG:Release>:/DEBUG:FULL>"
+      "$<$<CONFIG:Release>:/OPT:REF>"
+      "$<$<CONFIG:Release>:/OPT:ICF>"
+      "$<$<CONFIG:RelWithDebInfo>:/DEBUG:FULL>"
+    )
+  endif()
 endif()
 
 if(REEMBER_BUILD_TESTS)
@@ -240,6 +258,7 @@ if(REEMBER_BUILD_VERIFY)
     ${REEMBER_NEF_POSTPROCESS_SOURCE}
     ${REEMBER_NEF_POSTPROCESS_HEADERS}
   )
+  target_include_directories(re-EMBER_verify PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/verify")
   target_compile_definitions(re-EMBER_verify PRIVATE TINYOBJLOADER_USE_DOUBLE)
   target_link_libraries(re-EMBER_verify PRIVATE reember_lib CGAL::CGAL)
 endif()
@@ -283,24 +302,55 @@ if(REEMBER_BUILD_TESTS)
 
   set(REEMBER_PAPER_EXPERIMENT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests/paper_experiments")
 
-  # 论文 benchmark 分层样本中的 small 子集，统一走批量 profiling 脚本并输出汇总报告。
-  add_test(
-    NAME re-EMBER_paper_small_batch
-    COMMAND "${REEMBER_POWERSHELL_EXECUTABLE}"
-      -ExecutionPolicy Bypass
-      -File "${CMAKE_CURRENT_SOURCE_DIR}/tools/profile-re-ember.ps1"
-      -ExecutablePath "$<TARGET_FILE:re-EMBER>"
-      -InputRoot "${REEMBER_PAPER_EXPERIMENT_DIR}/inputs/small"
-      -Configuration "$<CONFIG>"
-      -Op difference
-      -NoTracy
-      -Iterations 1
-      -LeafThreshold 50
-      -Threads "${REEMBER_CTEST_THREADS}"
-  )
-  set_tests_properties(re-EMBER_paper_small_batch PROPERTIES
-    LABELS "paper_experiment;cli"
-    TIMEOUT 120
-    RUN_SERIAL TRUE
+  # 论文 small 样本回归测试已暂时移除，等 OBJ 输入生成脚本就绪后恢复。
+  # 原 add_test(re-EMBER_paper_small_batch ...) 块在此处。
+endif()
+
+# ---- Install ----
+
+install(TARGETS reember_lib
+  EXPORT re-EMBER-targets
+  ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+  LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+  RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+)
+
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/"
+  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/re-EMBER"
+  FILES_MATCHING PATTERN "*.h"
+  PATTERN "tests" EXCLUDE
+  PATTERN "application" EXCLUDE
+)
+# vendored stl_reader (BSD-2-Clause) — included as <stl_reader/stl_reader.h>
+install(FILES "${REEMBER_THIRD_PARTY_DIR}/stl_reader/stl_reader.h"
+  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/re-EMBER/stl_reader"
+)
+
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/re-EMBER-config.cmake.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/re-EMBER-config.cmake"
+  INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/re-EMBER"
+)
+write_basic_package_version_file(
+  "${CMAKE_CURRENT_BINARY_DIR}/re-EMBER-config-version.cmake"
+  VERSION "${PROJECT_VERSION}"
+  COMPATIBILITY SameMajorVersion
+)
+
+install(FILES
+  "${CMAKE_CURRENT_BINARY_DIR}/re-EMBER-config.cmake"
+  "${CMAKE_CURRENT_BINARY_DIR}/re-EMBER-config-version.cmake"
+  DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/re-EMBER"
+)
+install(EXPORT re-EMBER-targets
+  FILE re-EMBER-targets.cmake
+  NAMESPACE reember::
+  DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/re-EMBER"
+)
+
+if(REEMBER_BUILD_CLI)
+  install(TARGETS re-EMBER
+    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
   )
 endif()
