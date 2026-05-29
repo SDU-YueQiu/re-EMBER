@@ -1,0 +1,12 @@
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/re-EMBER-targets.cmake")
+
+check_required_components(re-EMBER)
+
+# re-EMBER depends on Boost headers, TBB, and tinyobjloader.
+# Downstream consumers should already have these available.
+include(CMakeFindDependencyMacro)
+find_dependency(Boost CONFIG)
+find_dependency(TBB CONFIG)
+find_dependency(tinyobjloader CONFIG)
