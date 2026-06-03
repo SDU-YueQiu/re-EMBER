@@ -48,6 +48,13 @@ project(re-EMBER VERSION 0.1.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
+if(WIN32)
+  # Produce a self-contained install tree for GitHub Release artifacts.
+  set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION "${CMAKE_INSTALL_BINDIR}")
+  set(CMAKE_INSTALL_UCRT_LIBRARIES TRUE)
+  include(InstallRequiredSystemLibraries)
+endif()
+
 message(STATUS "Current Toolchain File: ${CMAKE_TOOLCHAIN_FILE}")
 message(STATUS "Current Generator Toolset: ${CMAKE_GENERATOR_TOOLSET}")
 message(STATUS "Current C++ compiler: ${CMAKE_CXX_COMPILER}")
@@ -352,5 +359,16 @@ install(EXPORT re-EMBER-targets
 if(REEMBER_BUILD_CLI)
   install(TARGETS re-EMBER
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+  )
+  if(WIN32)
+    install(IMPORTED_RUNTIME_ARTIFACTS TBB::tbb
+      RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+    )
+  endif()
+endif()
+
+if(WIN32 AND CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS)
+  install(PROGRAMS ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS}
+    DESTINATION "${CMAKE_INSTALL_BINDIR}"
   )
 endif()
