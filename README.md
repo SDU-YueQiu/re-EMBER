@@ -2,7 +2,7 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-re-EMBER is an **independent, community-driven open-source** (MIT) C++17 implementation of the EMBER paper (Trettner et al., SIGGRAPH 2022). It is **not** the commercially-licensed binary release from the original paper authors. EMBER is an **exact** mesh boolean algorithm using fixed-width integer geometry and local arrangements. It handles union, intersection, and difference on triangle soups, producing watertight polygon output. Across all benchmarks, its end-to-end wall-clock time averages **~2× QuickCSG** — while providing exact results that QuickCSG does not guarantee. Performance remains **several times slower** than the authors' original implementation.
+re-EMBER (redev-open-EMBER) is an **independent, community-driven open-source** (MIT) C++17 implementation of the EMBER paper (Trettner et al., SIGGRAPH 2022). It is **not** the commercially-licensed binary release from the original paper authors. EMBER is an **exact** mesh boolean algorithm using fixed-width integer geometry and local arrangements. It handles union, intersection, and difference on triangle soups, producing watertight polygon output. Across all benchmarks, its end-to-end wall-clock time averages **~2× QuickCSG** — while providing exact results that QuickCSG does not guarantee. Performance remains **several times slower** than the authors' original implementation.
 
 ## Installation
 
